@@ -497,13 +497,14 @@ Required steps:
 6. Run `after_create` if the sandbox/workspace was newly initialized.
 7. Render prompt.
 8. Run `before_run`.
-9. Launch the coding agent command inside the sandbox workspace.
-10. Stream or poll logs/events and persist them.
-11. Detect completion, failure, timeout, or stall.
-12. Run `after_run`.
-13. Export artifacts, git diff, commits, PRs, and/or snapshots.
-14. Update GitHub Project status according to workflow policy.
-15. Release claim.
+9. Prepare brokered agent authentication without writing real credentials into the sandbox.
+10. Launch the coding agent command inside the sandbox workspace.
+11. Stream or poll logs/events and persist them.
+12. Detect completion, failure, timeout, or stall.
+13. Run `after_run`.
+14. Export artifacts, git diff, commits, PRs, and/or snapshots.
+15. Update GitHub Project status according to workflow policy.
+16. Release claim.
 
 The runner MUST NOT depend on local Vercel Function filesystem state for correctness.
 
@@ -529,6 +530,9 @@ Mandatory invariants:
 - The workspace path MUST be normalized and validated before command execution.
 - Secrets SHOULD be brokered through environment or network policy transforms rather than written to
   repository files.
+- Real ChatGPT `auth.json` contents, access tokens, refresh tokens, GitHub tokens, and API keys MUST
+  NOT be written into the execution sandbox filesystem, command arguments, logs, artifacts, or
+  snapshots.
 - Sandbox filesystem state MUST be exported before sandbox shutdown when needed.
 
 ### 8.3 Network Policy
@@ -543,6 +547,11 @@ Common allowed destinations:
 - Vercel APIs required for sandbox management
 
 The implementation MUST document its default network policy.
+
+For Codex CLI with ChatGPT-managed authentication, the MVP uses a trusted credential mediator and
+dummy sandbox-local auth state. ChatGPT backend and OAuth refresh traffic are forwarded or brokered
+outside the execution sandbox so real ChatGPT tokens remain in trusted server-side storage. See
+[ADR 0004](adr/0004-broker-chatgpt-auth-for-codex-sandboxes.md).
 
 ### 8.4 Persistence
 
@@ -618,7 +627,21 @@ Minimum endpoints:
 
 Cron and webhook endpoints MUST authenticate requests.
 
-## 11. Security and Operational Safety
+## 11. Authentication and Authorization
+
+Rhapsody's MVP admin surface is protected by a root-password login flow. Operators configure
+`ROOT_PASSWORD` and `AUTH_SECRET`; Rhapsody exchanges a successful password login for a signed,
+HTTP-only session cookie. Dashboard pages and human-operated API routes MUST require that session.
+
+Machine-triggered endpoints use dedicated secrets:
+
+- Vercel Cron requests use `CRON_SECRET`.
+- GitHub webhook requests use `GITHUB_WEBHOOK_SECRET` and signature verification.
+
+GitHub login with user, organization, or team allowlists is deferred until it is worth the setup
+cost for team deployments. See [ADR 0003](adr/0003-use-root-password-for-mvp-admin-auth.md).
+
+## 12. Security and Operational Safety
 
 Rhapsody MUST document:
 
@@ -637,24 +660,26 @@ Recommended hardening:
 - Keep admin endpoints authenticated.
 - Persist enough logs to audit agent actions.
 
-## 12. Implementation Checklist
+## 13. Implementation Checklist
 
-### 12.1 MVP
+### 13.1 MVP
 
 - Next.js app deployable to Vercel.
 - `docs/SPEC.md` and `docs/ORIGINAL_SPEC.md`.
+- Root-password admin authentication.
 - GitHub Project config model.
 - GitHub Project item fetch and normalization.
 - Workflow SDK scheduler workflow.
 - Durable claim table backed by Turso/libSQL.
 - Durable run, attempt, and event tables backed by Turso/libSQL.
 - Runner workflow skeleton.
+- Brokered ChatGPT auth for Codex execution sandboxes.
 - Vercel Sandbox creation and command execution.
 - Basic logs/events table.
 - Dashboard showing pending/running/retrying/failed/completed.
 - Manual refresh endpoint.
 
-### 12.2 Core Conformance
+### 13.2 Core Conformance
 
 - Cron-triggered scheduler.
 - GitHub webhook-triggered scheduler.
@@ -669,10 +694,11 @@ Recommended hardening:
 - Snapshot/artifact persistence.
 - Authenticated dashboard/admin endpoints.
 
-### 12.3 Later Extensions
+### 13.3 Later Extensions
 
 - Multiple GitHub Projects.
 - Multi-tenant project model.
+- GitHub login with user, organization, or team allowlists.
 - Human-in-the-loop approvals.
 - Rich run log streaming.
 - Pluggable tracker adapters.
