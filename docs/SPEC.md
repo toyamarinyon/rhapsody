@@ -202,6 +202,8 @@ Fields:
 - `workflow_run_id`
 - `work_item_id`
 - `identifier`
+- `title`
+- `project_status`
 - `status`
 - `attempt_count`
 - `current_attempt_id`
@@ -212,7 +214,23 @@ Fields:
 - `completed_at`
 - `last_error`
 
-### 4.4 Attempt
+### 4.4 Claim
+
+A durable scheduler coordination record for one GitHub Project item.
+
+Fields:
+
+- `work_item_id`
+  - GitHub `ProjectV2Item` node ID.
+- `run_id`
+- `claim_token`
+  - Fencing token used by runner updates.
+- `claimed_by`
+- `claim_expires_at`
+- `created_at`
+- `updated_at`
+
+### 4.5 Attempt
 
 One execution attempt for one work item.
 
@@ -231,7 +249,23 @@ Fields:
 - `status`
 - `error`
 
-### 4.5 Sandbox Workspace
+### 4.6 Event
+
+Append-only observability record for scheduler, runner, sandbox, and agent activity.
+
+Fields:
+
+- `event_id`
+- `run_id` (string or null)
+- `attempt_id` (string or null)
+- `work_item_id` (string or null)
+- `type`
+- `level`
+- `message`
+- `data_json` (string or null)
+- `created_at`
+
+### 4.7 Sandbox Workspace
 
 Logical workspace inside Vercel Sandbox.
 
@@ -386,8 +420,22 @@ Claim requirements:
 - Claim key is `ProjectV2Item.id`.
 - Claim acquisition MUST be atomic.
 - Claims MUST have an expiration time.
+- Claims MUST be stored independently from run history.
+- Claims MUST include a fencing token that runner updates use to avoid stale writes after reclaim.
 - Expired claims MAY be reclaimed after reconciliation.
 - A work item MUST NOT have more than one active runner workflow.
+
+The MVP claim lifecycle is:
+
+1. Check concurrency limits using active claims and runs.
+2. Atomically acquire or reclaim a claim.
+3. Create a run only after claim acquisition succeeds.
+4. Start the runner workflow only after the claim and run exist.
+5. Extend the claim while the runner is live.
+6. Release the claim after terminal runner cleanup.
+
+The MVP state model and claim lifecycle are documented in
+[ADR 0002](adr/0002-define-mvp-state-model-and-claim-lifecycle.md).
 
 ### 6.3 Candidate Selection
 
@@ -513,6 +561,11 @@ database client APIs directly. The initial implementation uses `@libsql/client` 
 migrations so correctness-sensitive coordination queries remain visible in source control. See
 [ADR 0001](adr/0001-use-turso-libsql-for-state-store.md).
 
+The MVP durable schema consists of `claims`, `runs`, `attempts`, and `events`. Rhapsody deliberately
+defers separate work item projections, artifact tables, log tables, dispatch slot tables, tracker
+caches, and multi-tenant schema until needed. See
+[ADR 0002](adr/0002-define-mvp-state-model-and-claim-lifecycle.md).
+
 ## 9. GitHub Projects Integration
 
 ### 9.1 Required Operations
@@ -594,6 +647,7 @@ Recommended hardening:
 - GitHub Project item fetch and normalization.
 - Workflow SDK scheduler workflow.
 - Durable claim table backed by Turso/libSQL.
+- Durable run, attempt, and event tables backed by Turso/libSQL.
 - Runner workflow skeleton.
 - Vercel Sandbox creation and command execution.
 - Basic logs/events table.
