@@ -104,6 +104,8 @@ Important boundary:
      projections.
    - REQUIRED because Vercel Functions and workflow workers MUST NOT rely on in-memory scheduler
      state for correctness.
+   - The MVP state store uses Turso/libSQL as documented in
+     [ADR 0001](adr/0001-use-turso-libsql-for-state-store.md).
 
 7. `Sandbox Manager`
    - Creates, restores, snapshots, and cleans Vercel Sandboxes.
@@ -505,6 +507,12 @@ Because sandbox filesystems are ephemeral, Rhapsody MUST persist important state
 - sandbox snapshot IDs
 - token/runtime metrics
 
+For the MVP, this durable state is stored in Turso/libSQL through a narrow state-store interface.
+Scheduler, runner, tracker, and route handler code SHOULD depend on that interface rather than on
+database client APIs directly. The initial implementation uses `@libsql/client` and explicit SQL
+migrations so correctness-sensitive coordination queries remain visible in source control. See
+[ADR 0001](adr/0001-use-turso-libsql-for-state-store.md).
+
 ## 9. GitHub Projects Integration
 
 ### 9.1 Required Operations
@@ -585,7 +593,7 @@ Recommended hardening:
 - GitHub Project config model.
 - GitHub Project item fetch and normalization.
 - Workflow SDK scheduler workflow.
-- Durable claim table.
+- Durable claim table backed by Turso/libSQL.
 - Runner workflow skeleton.
 - Vercel Sandbox creation and command execution.
 - Basic logs/events table.
@@ -618,4 +626,3 @@ Recommended hardening:
 - Cost tracking.
 - Advanced sandbox snapshot reuse.
 - Temporal backend option if Vercel-only durability becomes insufficient.
-
