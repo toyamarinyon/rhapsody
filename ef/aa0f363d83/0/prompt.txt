@@ -1,0 +1,42 @@
+[toyamarinyon/rhapsody](https://github.com/toyamarinyon/rhapsody/issues/4) を考えていきたいです。ADR作るのがゴールですがまずはディスカッションしましょう。他のADRも確認してください。
+
+---
+
+[ORIGINAL_SPEC.md](docs/ORIGINAL_SPEC.md)には色々書いているんですが、なんかそんなに色々せなあかんかなと思っているんですよね。
+ 
+Schedulerがissue見つけて、「これやって」てWorker(Runner)立ち上げたときに、参照するのが `RHAPSODY.md` ですよね。
+
+codex cli起動して、「このissueを進めて {{issueUrl}}」みたいな感じでなって、あとはCodex(GPT-5.3-CodexとかGPT-5.5とかモデル）に任せるでいいのかなと思っています。
+ただ、このモデルの設定とかSubagentの設定とかは書けるといいので、そういう意味では
+
+`.rhapsody`ディレクトリをレポジトリに作れて、
+
+```
+.rhapsody
+  +- INSTRUCTION.md // RHAPSODY.md 相当 共通のinstruction(Codex cliのpromptになる、いくつかの変数が使える）
+  +- config.toml // codex の config.toml 相当 実行するCodexの設定
+  +- agents
+        +-- builder.toml // codexのsubagentの設定
+```
+
+どう思います？
+
+---
+
+`INSTRUCTIONS.md`にしましょう。Symphonyは、堅牢で信頼できるServer Runtimeで実行する前提の設計になっていると思いますが、RhapsodyはServerless versionということで変えた方がいいところは変えていきましょう。
+RHAPSODY.md
+WORKFLOW.md
+はなくして良いと思います。
+
+config.toml, agents/*.tomlは、Sandboxにコピーするイメージです。
+
+---
+
+いや違うな、 config.toml, agents/*.toml は、repoの `.codex/config.toml`, `.codex/agents/*.toml`を読めばいい。そうすれば、ローカルでcodex使う時の設定やsubagentをrhapsody側でも使える。
+
+---
+
+その方向でADR書きましょう。
+[SPEC.md](docs/SPEC.md) も更新すると思うのですが、そのときに、 [ORIGINAL_SPEC.md](docs/ORIGINAL_SPEC.md) からの差分を明記した方がわかりやすそうであれば書いておいて欲しいです。
+かけたらcommitしてpushしてissue closeしてください。
+commit msgには issueのurlを含めておいてください。

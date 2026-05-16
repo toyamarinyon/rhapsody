@@ -1,0 +1,27 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "efaa0f363d83",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/SPEC.md",
+    "docs/adr/0007-define-mvp-config-boundaries.md",
+    "docs/adr/0010-use-rhapsody-instructions-and-codex-native-configuration.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ef/aa0f363d83/0/metadata.json",
+      "transcript": "/ef/aa0f363d83/0/full.jsonl",
+      "content_hash": "/ef/aa0f363d83/0/content_hash.txt",
+      "prompt": "/ef/aa0f363d83/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 138510,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1299072,
+    "output_tokens": 11974,
+    "api_call_count": 27
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "efaa0f363d83",
+  "session_id": "019e2f5a-b0af-7b80-b7ac-15343e803422",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-16T10:06:16.680816Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/adr/0010-use-rhapsody-instructions-and-codex-native-configuration.md",
+    "docs/SPEC.md",
+    "docs/adr/0007-define-mvp-config-boundaries.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "c524e6405e3e",
+  "token_usage": {
+    "input_tokens": 138510,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1299072,
+    "output_tokens": 11974,
+    "api_call_count": 27
+  },
+  "session_metrics": {
+    "turn_count": 3
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-16T10:06:16.659351Z",
+    "agent_lines": 254,
+    "agent_removed": 104,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 254,
+    "total_lines_changed": 358,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
