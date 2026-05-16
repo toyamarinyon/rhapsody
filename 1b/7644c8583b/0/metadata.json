@@ -1,0 +1,54 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "1b7644c8583b",
+  "session_id": "019e3157-f9cd-7a71-9b92-2face562f0fd",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-16T15:44:11.616416Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/SPEC.md",
+    "docs/adr/0012-define-post-run-verification-policy.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "8b6f7f866430",
+  "token_usage": {
+    "input_tokens": 81079,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1338752,
+    "output_tokens": 10971,
+    "api_call_count": 31
+  },
+  "session_metrics": {
+    "turn_count": 4
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-16T15:44:11.589536Z",
+    "agent_lines": 210,
+    "agent_removed": 13,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 210,
+    "total_lines_changed": 223,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 210,
+      "agent_lines_removed": 13
+    }
+  ]
+}
