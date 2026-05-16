@@ -1,0 +1,1 @@
+[toyamarinyon/rhapsody](https://github.com/toyamarinyon/rhapsody/issues/9)を考えていきたいです。ADR作るのがゴールですがまずはディスカッションしましょう。他のADRも確認してください。
