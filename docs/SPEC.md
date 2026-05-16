@@ -79,6 +79,8 @@ Important boundary:
    - Exposes typed getters for project, tracker, workflow, sandbox, agent, and GitHub settings.
    - Applies defaults and environment variable indirection.
    - Validates dispatch-critical settings before workflows start work.
+   - The MVP config boundary is documented in
+     [ADR 0007](adr/0007-define-mvp-config-boundaries.md).
 
 3. `GitHub Project Tracker Client`
    - Fetches candidate ProjectV2 items.
@@ -286,6 +288,10 @@ Fields:
 
 ## 5. Workflow Specification
 
+Repository workflow files define team guidance for the agent, not scheduler eligibility. The MVP
+split between environment variables, `rhapsody.config.ts`, and `RHAPSODY.md` is documented in
+[ADR 0007](adr/0007-define-mvp-config-boundaries.md).
+
 ### 5.1 File Discovery
 
 Workflow file path precedence:
@@ -296,6 +302,9 @@ Workflow file path precedence:
 
 If no workflow file can be read, the run MUST fail with `missing_workflow_file` unless the project
 has explicitly enabled a default workflow prompt.
+
+The MVP does not require YAML front matter in `RHAPSODY.md`; plain Markdown prompt text is valid.
+Runner-specific front matter such as hooks, validation commands, or agent limits MAY be added later.
 
 ### 5.2 Front Matter Schema
 
