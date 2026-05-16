@@ -528,6 +528,12 @@ The runner MUST NOT poll the sandbox for the full agent runtime inside one Verce
 invocation. Agent execution completion is callback-driven, with watchdog reconciliation as a
 fallback. See [ADR 0006](adr/0006-use-callback-driven-workflow-orchestration.md).
 
+The MVP prepares source code with Vercel Sandbox Git source initialization. The runner resolves and
+records the exact base commit SHA before sandbox creation, passes the Git source descriptor and
+source credential through the Sandbox API, and validates the prepared workspace before starting the
+agent wrapper. See
+[ADR 0009](adr/0009-use-vercel-sandbox-git-source-initialization-for-source-preparation.md).
+
 ### 7.1 Agent Completion Callback
 
 The sandbox wrapper MUST send a terminal callback when the agent command completes, fails, times
@@ -565,6 +571,12 @@ The sandbox MUST be created with:
 - explicit environment variables
 - configured source or restored snapshot
 - configured network policy
+
+For the MVP, `configured source` means Vercel Sandbox Git source initialization for the configured
+repository and resolved base commit SHA. Private repository source credentials MAY be passed through
+the Sandbox API source credential fields, but MUST NOT be exposed as agent runtime environment,
+repository files, logs, artifacts, or snapshots. See
+[ADR 0009](adr/0009-use-vercel-sandbox-git-source-initialization-for-source-preparation.md).
 
 ### 8.2 Workspace Safety
 
