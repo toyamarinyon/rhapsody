@@ -90,13 +90,15 @@ Important boundary:
    - Durable Workflow SDK workflow triggered by Cron, webhook, or manual refresh.
    - Owns candidate selection, durable claiming, and runner workflow starts.
    - Uses database-backed leases to avoid duplicate dispatch.
+   - Starts runner workflows and returns without waiting for agent completion.
 
 5. `Runner Workflow`
    - Durable Workflow SDK workflow for one work item attempt.
    - Creates or restores a Vercel Sandbox.
    - Prepares source code.
    - Builds the agent prompt.
-   - Launches and monitors the coding agent inside the sandbox.
+   - Launches the coding agent inside the sandbox through a callback-capable wrapper.
+   - Pauses on a Workflow hook until the sandbox wrapper reports completion.
    - Exports logs, artifacts, snapshots, commits, and PR metadata.
 
 6. `State Store`
@@ -411,6 +413,9 @@ The scheduler MAY start from:
 
 All triggers MUST be idempotent.
 
+Trigger routes SHOULD authenticate the request, start the scheduler workflow, and return quickly
+without performing long-running scheduling or runner work inline.
+
 ### 6.2 Claiming
 
 Before starting a runner workflow, the scheduler MUST acquire a durable claim.
@@ -498,15 +503,45 @@ Required steps:
 7. Render prompt.
 8. Run `before_run`.
 9. Prepare brokered agent authentication without writing real credentials into the sandbox.
-10. Launch the coding agent command inside the sandbox workspace.
-11. Stream or poll logs/events and persist them.
-12. Detect completion, failure, timeout, or stall.
-13. Run `after_run`.
-14. Export artifacts, git diff, commits, PRs, and/or snapshots.
-15. Update GitHub Project status according to workflow policy.
-16. Release claim.
+10. Create a deterministic Workflow hook token for this attempt.
+11. Launch the coding agent command inside the sandbox workspace through a wrapper process.
+12. Persist sandbox ID, command ID, callback metadata, and attempt status.
+13. Pause on the Workflow hook until the wrapper posts a terminal callback.
+14. Resume from the callback payload.
+15. Run `after_run`.
+16. Export artifacts, git diff, commits, PRs, and/or snapshots.
+17. Verify GitHub handoff and post-run policy.
+18. Update GitHub Project status according to workflow policy.
+19. Release claim.
 
 The runner MUST NOT depend on local Vercel Function filesystem state for correctness.
+The runner MUST NOT poll the sandbox for the full agent runtime inside one Vercel Function
+invocation. Agent execution completion is callback-driven, with watchdog reconciliation as a
+fallback. See [ADR 0006](adr/0006-use-callback-driven-workflow-orchestration.md).
+
+### 7.1 Agent Completion Callback
+
+The sandbox wrapper MUST send a terminal callback when the agent command completes, fails, times
+out, or is stopped.
+
+Callback payloads include:
+
+- `run_id`
+- `attempt_id`
+- `sandbox_id`
+- `command_id`
+- `status`
+- `exit_code`
+- `started_at`
+- `completed_at`
+- `error` (string or null)
+- implementation-defined output or artifact references
+
+The callback route MUST authenticate the request, validate the run and attempt against the state
+store, persist the payload idempotently, and resume the runner workflow hook.
+
+Watchdog reconciliation MUST handle missing callbacks, stale heartbeats, expired claims, and
+attempts that exceed configured deadlines.
 
 ## 8. Vercel Sandbox Contract
 
