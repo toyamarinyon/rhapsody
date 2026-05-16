@@ -1,0 +1,47 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "e7cd9ce81992",
+  "session_id": "019e2f45-d055-7e80-8357-3c1762e5ee07",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-16T15:12:33.882891Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/adr/0011-use-sandbox-wrapper-for-mvp-runner-execution.md",
+    "docs/SPEC.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "c462a657d482",
+  "token_usage": {
+    "input_tokens": 166384,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 963200,
+    "output_tokens": 12686,
+    "api_call_count": 31
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-16T15:12:33.860778Z",
+    "agent_lines": 192,
+    "agent_removed": 7,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 192,
+    "total_lines_changed": 199,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

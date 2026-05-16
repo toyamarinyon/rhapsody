@@ -1,0 +1,70 @@
+Wrapper難しいですよね。必要なんですが
+
+---
+
+検討の一つとして、Wrapperを設けずにSandboxで直接codex execしたらどういう問題がありますか？
+
+---
+
+私がWrapperの実装内容をイメージできていないのが問題ですね。どんなコードになるんでしょう？shell script?Typescript?
+
+---
+
+なるほど、イメージできました。Wrapperは作る方向で良いです。この場合、検討ポイントは何が残っていますか？
+
+---
+
+> Wrapper の責務境界
+> Wrapper は process supervisor に限定するのか
+どうでしょう？
+> dummy auth.json 作成まで持つのか、Runner Workflow が事前配置するのか
+事前配置
+> before_run / after_run hooks を wrapper が呼ぶのか、Runner Workflow が sandbox command として別実行するのか
+wrapperが呼ぶ(runner workflowはtimeoutしている可能性がある）
+
+> Wrapper の実装形式
+書いてもらった方法でok
+
+> ここで process_succeeded と run_succeeded を分けるのが大事です。
+どういうこと？
+
+> .rhapsody/result.json を要求するか
+MVPでは不要
+
+> Heartbeat の有無
+> MVP から heartbeat を入れるか。
+> 長時間実行を考えると入れたいですが、最初は軽くできます。
+
+どういう用途？
+
+> Callback retry / idempotency
+OK
+
+> Timeout / cancellation
+Sandboxにtimeout設定しておけばいいですが、外から強制終了できると便利そうですね。
+
+> ログと artifact の扱い
+ログはそのうちVercel Sandboxでいい感じに扱えるようになると思うので実装頑張りたくないです。
+artifactはcodeのdiffでcommitしてgitにpushするので、我々が考えることはないはうz
+
+> GitHub mediator との関係
+> Codex が GitHub に何をしてよいか。
+なんでもしてもいい、ダメなことはmediator側で伏せえぐ
+
+> Future architecture の差し替え単位
+> codex exec wrapper を将来 app-server + exec-server に置き換える時、何を保つか。
+全部書き換えるくらいになると思うのでその時考える
+
+---
+
+process_succeeded or run_succeeded なんですかね？
+process_succeeded and run_succeeded ですかね？
+
+---
+
+andだから別のフィールドで表現して観測・評価するべきなのでその方向で良いです。
+
+---
+
+良いですね。ADR作って 必要であれば[SPEC.md](docs/SPEC.md) にリンク設けてcommit, push, closeしてください。
+commit msgにはissueのlinkを含めtけうださい。
