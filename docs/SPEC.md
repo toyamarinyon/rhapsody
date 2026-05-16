@@ -54,7 +54,8 @@ Important boundary:
 - Recover from Vercel Function restarts, workflow retries, sandbox failures, and transient API
   failures.
 - Support both Vercel Cron polling and GitHub webhook/manual refresh triggers.
-- Preserve work across attempts using Git branches, artifacts, and/or Vercel Sandbox snapshots.
+- Preserve work across attempts using Git branches, sandbox exports, and/or Vercel Sandbox
+  snapshots.
 - Provide operator-visible observability through a dashboard and JSON API.
 
 ### 2.2 Non-Goals
@@ -101,7 +102,7 @@ Important boundary:
    - Builds the agent prompt.
    - Launches the coding agent inside the sandbox through a callback-capable wrapper.
    - Pauses on a Workflow hook until the sandbox wrapper reports completion.
-   - Exports logs, artifacts, snapshots, commits, and PR metadata.
+   - Records logs/events, snapshots, commits, pull requests, and other concrete run metadata.
 
 6. `State Store`
    - Durable database used for claims, runs, attempts, retries, events, snapshots, and dashboard
@@ -142,7 +143,7 @@ Important boundary:
    - Scheduler workflow, claims, concurrency, retries, and reconciliation.
 
 5. `Execution Layer`
-   - Vercel Sandbox lifecycle, source preparation, agent process execution, and artifact export.
+   - Vercel Sandbox lifecycle, source preparation, agent process execution, and sandbox export.
 
 6. `Integration Layer`
    - GitHub Projects, GitHub Issues, GitHub Pull Requests, Vercel Sandbox, and optional Vercel
@@ -481,7 +482,8 @@ Required steps:
 12. Persist sandbox ID, command ID, callback metadata, and attempt status.
 13. Pause on the Workflow hook until the wrapper posts a terminal callback.
 14. Resume from the callback payload.
-15. Export artifacts, git diff, commits, PRs, and/or snapshots.
+15. Record logs/events and any configured git diff, commits, pull request metadata, sandbox export,
+    or snapshot.
 16. Verify GitHub handoff and post-run policy.
 17. Evaluate final attempt and run status separately from wrapper execution status.
 18. Update GitHub Project status according to workflow policy.
@@ -520,7 +522,7 @@ Callback payloads include:
 - `started_at`
 - `completed_at`
 - `error` (string or null)
-- implementation-defined output or artifact references
+- implementation-defined output, GitHub link, sandbox export, or snapshot references
 
 The callback route MUST authenticate the request, validate the run and attempt against the state
 store, persist the payload idempotently, and resume the runner workflow hook.
@@ -528,6 +530,12 @@ store, persist the payload idempotently, and resume the runner workflow hook.
 The callback execution status is not authoritative for final run success. The runner workflow MUST
 evaluate final attempt and run status separately using callback data, GitHub handoff verification,
 and workflow policy.
+
+Post-run verification is required before a successful run outcome and before claim release. The MVP
+uses tiered verification for active run and attempt consistency, GitHub handoff state, mediator
+denial events, ProjectV2 status consistency, and secret hygiene checks before any configured sandbox
+export or snapshot. See
+[ADR 0012](adr/0012-define-post-run-verification-policy.md).
 
 Watchdog reconciliation MUST handle missing callbacks, stale heartbeats, expired claims, and
 attempts that exceed configured deadlines.
@@ -549,7 +557,7 @@ The sandbox MUST be created with:
 For the MVP, `configured source` means Vercel Sandbox Git source initialization for the configured
 repository and resolved base commit SHA. Private repository source credentials MAY be passed through
 the Sandbox API source credential fields, but MUST NOT be exposed as agent runtime environment,
-repository files, logs, artifacts, or snapshots. See
+repository files, logs, events, callback payloads, sandbox exports, or snapshots. See
 [ADR 0009](adr/0009-use-vercel-sandbox-git-source-initialization-for-source-preparation.md).
 
 ### 8.2 Workspace Safety
@@ -561,8 +569,8 @@ Mandatory invariants:
 - Secrets SHOULD be brokered through environment or network policy transforms rather than written to
   repository files.
 - Real ChatGPT `auth.json` contents, access tokens, refresh tokens, GitHub tokens, and API keys MUST
-  NOT be written into the execution sandbox filesystem, command arguments, logs, artifacts, or
-  snapshots.
+  NOT be written into the execution sandbox filesystem, command arguments, logs, events, callback
+  payloads, sandbox exports, or snapshots.
 - Sandbox filesystem state MUST be exported before sandbox shutdown when needed.
 
 ### 8.3 Network Policy
@@ -598,7 +606,7 @@ Because sandbox filesystems are ephemeral, Rhapsody MUST persist important state
 - run logs/events
 - generated diffs
 - commits/branches/PRs
-- artifact files
+- sandbox export references when configured
 - sandbox snapshot IDs
 - token/runtime metrics
 
@@ -609,8 +617,8 @@ migrations so correctness-sensitive coordination queries remain visible in sourc
 [ADR 0001](adr/0001-use-turso-libsql-for-state-store.md).
 
 The MVP durable schema consists of `claims`, `runs`, `attempts`, and `events`. Rhapsody deliberately
-defers separate work item projections, artifact tables, log tables, dispatch slot tables, tracker
-caches, and multi-tenant schema until needed. See
+defers separate work item projections, saved work product tables, log tables, dispatch slot tables,
+tracker caches, and multi-tenant schema until needed. See
 [ADR 0002](adr/0002-define-mvp-state-model-and-claim-lifecycle.md).
 
 ## 9. GitHub Projects Integration
@@ -651,6 +659,12 @@ mediated so raw GitHub credentials are not written into the sandbox. The MVP use
 `GITHUB_TOKEN` and a run-scoped GitHub mediator; GitHub App installation tokens are deferred. See
 [ADR 0005](adr/0005-use-run-scoped-github-mediation-for-agent-writes.md).
 
+After sandbox execution completes, Rhapsody MUST verify the GitHub handoff before marking a run
+successful. Verification checks that the visible GitHub state still matches the active run,
+including repository, base branch, branch prefix, work item linkage, expected ProjectV2 status, and
+mediator decision events. See
+[ADR 0012](adr/0012-define-post-run-verification-policy.md).
+
 ## 10. Observability API
 
 Rhapsody SHOULD expose a dashboard and JSON API.
@@ -662,7 +676,7 @@ Minimum endpoints:
 - `GET /api/v1/items/:identifier`
   - Returns item-specific run/debug details.
 - `GET /api/v1/runs/:run_id`
-  - Returns run attempts, sandbox references, logs, artifacts, and GitHub links.
+  - Returns run attempts, sandbox references, logs, sandbox exports, snapshots, and GitHub links.
 - `POST /api/v1/refresh`
   - Requests an immediate scheduler tick.
 
@@ -702,6 +716,8 @@ Recommended hardening:
 - Avoid exposing broad GitHub tokens inside the sandbox.
 - Validate mediator requests against active run context, as documented in
   [ADR 0008](adr/0008-define-mediator-endpoint-contract.md).
+- Verify GitHub handoff and run-scoped post-run policy before marking a run successful, as
+  documented in [ADR 0012](adr/0012-define-post-run-verification-policy.md).
 - Keep admin endpoints authenticated.
 - Persist enough logs to audit agent actions.
 
@@ -736,7 +752,7 @@ Recommended hardening:
 - Retry/backoff.
 - Git branch and PR creation.
 - Project status updates.
-- Snapshot/artifact persistence.
+- Sandbox export and snapshot persistence.
 - Authenticated dashboard/admin endpoints.
 
 ### 13.3 Later Extensions
