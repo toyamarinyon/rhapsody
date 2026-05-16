@@ -553,6 +553,12 @@ dummy sandbox-local auth state. ChatGPT backend and OAuth refresh traffic are fo
 outside the execution sandbox so real ChatGPT tokens remain in trusted server-side storage. See
 [ADR 0004](adr/0004-broker-chatgpt-auth-for-codex-sandboxes.md).
 
+For GitHub operations, the MVP uses a trusted GitHub mediator. The sandboxed agent may perform
+workflow-specific GitHub operations through the mediator, but the upstream `GITHUB_TOKEN` remains in
+trusted Rhapsody server-side storage. Requests are authenticated with `MEDIATOR_SECRET` and
+authorized against the active run context. See
+[ADR 0005](adr/0005-use-run-scoped-github-mediation-for-agent-writes.md).
+
 ### 8.4 Persistence
 
 Because sandbox filesystems are ephemeral, Rhapsody MUST persist important state externally:
@@ -607,8 +613,11 @@ Rhapsody MAY update GitHub state directly for scheduler-owned lifecycle transiti
 - mark item as `Human Review` after PR creation
 - mark item as `Failed` if a configured failure status exists
 
-Agent-owned writes, such as issue comments or detailed PR descriptions, MAY happen through
-advertised tools or GitHub CLI/API credentials inside the sandbox.
+Agent-owned writes, such as issue comments, pull request descriptions, labels, and handoff notes,
+MAY happen through advertised tools, CLI commands, or API calls inside the sandbox, but they MUST be
+mediated so raw GitHub credentials are not written into the sandbox. The MVP uses a PAT in
+`GITHUB_TOKEN` and a run-scoped GitHub mediator; GitHub App installation tokens are deferred. See
+[ADR 0005](adr/0005-use-run-scoped-github-mediation-for-agent-writes.md).
 
 ## 10. Observability API
 
@@ -653,7 +662,8 @@ Rhapsody MUST document:
 
 Recommended hardening:
 
-- Use a GitHub App with least-privilege permissions.
+- Use a fine-grained PAT with least-privilege repository/project permissions for the MVP; later use
+  a GitHub App with least-privilege installation permissions.
 - Restrict eligible repositories/projects/statuses.
 - Restrict sandbox egress.
 - Avoid exposing broad GitHub tokens inside the sandbox.
