@@ -595,13 +595,15 @@ The implementation MUST document its default network policy.
 For Codex CLI with ChatGPT-managed authentication, the MVP uses a trusted credential mediator and
 dummy sandbox-local auth state. ChatGPT backend and OAuth refresh traffic are forwarded or brokered
 outside the execution sandbox so real ChatGPT tokens remain in trusted server-side storage. See
-[ADR 0004](adr/0004-broker-chatgpt-auth-for-codex-sandboxes.md).
+[ADR 0004](adr/0004-broker-chatgpt-auth-for-codex-sandboxes.md) and
+[ADR 0007](adr/0007-define-mediator-endpoint-contract.md).
 
 For GitHub operations, the MVP uses a trusted GitHub mediator. The sandboxed agent may perform
 workflow-specific GitHub operations through the mediator, but the upstream `GITHUB_TOKEN` remains in
 trusted Rhapsody server-side storage. Requests are authenticated with `MEDIATOR_SECRET` and
 authorized against the active run context. See
-[ADR 0005](adr/0005-use-run-scoped-github-mediation-for-agent-writes.md).
+[ADR 0005](adr/0005-use-run-scoped-github-mediation-for-agent-writes.md) and
+[ADR 0007](adr/0007-define-mediator-endpoint-contract.md).
 
 ### 8.4 Persistence
 
@@ -699,6 +701,7 @@ cost for team deployments. See [ADR 0003](adr/0003-use-root-password-for-mvp-adm
 Rhapsody MUST document:
 
 - GitHub authentication model.
+- Mediator endpoint contract.
 - Sandbox network policy.
 - Secret handling policy.
 - Agent approval/tool policy.
@@ -711,6 +714,8 @@ Recommended hardening:
 - Restrict eligible repositories/projects/statuses.
 - Restrict sandbox egress.
 - Avoid exposing broad GitHub tokens inside the sandbox.
+- Validate mediator requests against active run context, as documented in
+  [ADR 0007](adr/0007-define-mediator-endpoint-contract.md).
 - Keep admin endpoints authenticated.
 - Persist enough logs to audit agent actions.
 
