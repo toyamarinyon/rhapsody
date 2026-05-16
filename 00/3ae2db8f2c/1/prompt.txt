@@ -1,0 +1,74 @@
+[toyamarinyon/rhapsody](https://github.com/toyamarinyon/rhapsody/issues/1) を考えていきちあ
+
+---
+
+まずはディスカッションしたいんです
+
+---
+
+env varsは同感です。
+
+Rhapsody単位のconfigとRepo単位のmarkdown fileの境界は難しいですね。
+
+ただ、
+Schedulerの挙動に関わる設定が Rhapsody Project Configで
+Runnerの挙動に関わる設定がRHAPSODY.mdになりそうな気はしています。
+
+そういう分け方にできますかね？
+
+---
+
+良い方向だと思います。
+
+> handoff_status
+
+これはなんですか？
+
+---
+
+これだと全部Human Reviewになりますが、Human Review不要なものもあっていいと思うんですよね。 [ORIGINAL_SPEC.md](docs/ORIGINAL_SPEC.md) でどうやってます？
+
+---
+
+いいですね。Workflowを順次実行するだけだとこれまでと変わらないのでAIを信用し、Promptの工夫で表現力豊かにしつつ、おかしなことをしないように実行前に検証するrule engineを用意しておくのは筋がいいと思います。
+
+---
+
+> Project Config は「権限と物理法則」
+> RHAPSODY.md は「チームの仕事の流儀」
+
+とても良いです。そうですね。人は空を飛べない。人と物はぶつかる（貫通しない）そういう世界の法則を定義し、その中でAIが自由に動く。その動き方を定義するRHAPSODY.md
+
+---
+
+良いと思います。worldはちょっと抽象的すぎますが表現したいことはとてもよくわかります。
+
+---
+
+良いと思います。他にこのissueに関して検討事項は残っていますか？
+
+---
+
+> Project Config の保存場所
+envだとわかりにくいので、 `rhapsody.config.ts`がいいですね。マルチテナントになったら、 `dashboard-managed config`を考えればいいと思います。
+
+> authority の粒度
+Projectごとに変わるんですかね？MVPでは設定できなくても決めうちでいいんじゃないでしょうか？
+
+> RHAPSODY.md の front matter に何を置くか
+これもMVPで設定できなくていい気もするんですが、どんなことが書きたいですかね？ [ORIGINAL_SPEC.md](docs/ORIGINAL_SPEC.md) だとどうなっていますか？
+
+> Side effect の実行モデル
+> AI が直接 GitHub に書くのではなく、mediator/rule engine 経由で検証してから実行する。これは方向としてよさそう。
+> 残りは「agent に tool として見せる」のか、「GitHub API を透過 proxy する」のか。ADR 0005 は mediator 寄りですが、rule engine を入れるなら tool-shaped API の方が安全かもしれません。
+proxy側でrule engine相当のこともすればいいかと思うのですがどう思います？
+(MVPではrule engineはしなくてもいいと思っている）
+
+> handoff_status を消す
+OK
+
+> validation のタイミング
+やればやるだけ安全ですがMVPなので、最低限にしたい。
+
+multi-projectは、認証から何から考えることが増えるので、中途半端に考えずにsingle-projectで進めたいです。
+multi-projectやるなら作り直すくらいの気持ちでやった方がいいと思っています。
