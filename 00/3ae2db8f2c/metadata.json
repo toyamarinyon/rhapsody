@@ -3,7 +3,7 @@
   "checkpoint_id": "003ae2db8f2c",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 17,
+  "checkpoints_count": 18,
   "files_touched": [
     "docs/SPEC.md",
     "docs/adr/0007-define-mvp-config-boundaries.md"
@@ -20,13 +20,19 @@
       "transcript": "/00/3ae2db8f2c/1/full.jsonl",
       "content_hash": "/00/3ae2db8f2c/1/content_hash.txt",
       "prompt": "/00/3ae2db8f2c/1/prompt.txt"
+    },
+    {
+      "metadata": "/00/3ae2db8f2c/2/metadata.json",
+      "transcript": "/00/3ae2db8f2c/2/full.jsonl",
+      "content_hash": "/00/3ae2db8f2c/2/content_hash.txt",
+      "prompt": "/00/3ae2db8f2c/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 1628599,
+    "input_tokens": 1675394,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 17781632,
-    "output_tokens": 88946,
-    "api_call_count": 213
+    "cache_read_tokens": 17936128,
+    "output_tokens": 91187,
+    "api_call_count": 218
   }
 }
