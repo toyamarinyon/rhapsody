@@ -1,0 +1,5 @@
+okです。commit して pushしましょう。commit messageにissueのlink含めてもらえると助かります。
+
+---
+
+adr7が2つある

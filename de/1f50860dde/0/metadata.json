@@ -1,0 +1,49 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "de1f50860dde",
+  "session_id": "019e2f38-bfca-7b50-8757-7b6f6ab2103a",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-16T05:35:52.723612Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/adr/0008-define-mediator-endpoint-contract.md",
+    "docs/SPEC.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "2b035a43971b",
+  "checkpoint_transcript_start": 199,
+  "transcript_lines_at_start": 199,
+  "token_usage": {
+    "input_tokens": 7202,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 514560,
+    "output_tokens": 1526,
+    "api_call_count": 9
+  },
+  "session_metrics": {
+    "turn_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-16T05:35:52.69554Z",
+    "agent_lines": 234,
+    "agent_removed": 3,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 234,
+    "total_lines_changed": 468,
+    "agent_percentage": 50.641025641025635,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
