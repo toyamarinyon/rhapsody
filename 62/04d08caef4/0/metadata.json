@@ -1,0 +1,47 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "6204d08caef4",
+  "session_id": "019e2f3d-2403-7e60-890d-4fc775a8eaa7",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-16T05:39:57.675916Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/SPEC.md",
+    "docs/adr/0009-use-vercel-sandbox-git-source-initialization-for-source-preparation.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "d48d33d302e9",
+  "token_usage": {
+    "input_tokens": 152957,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1166464,
+    "output_tokens": 6991,
+    "api_call_count": 25
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-16T05:39:57.648158Z",
+    "agent_lines": 4,
+    "agent_removed": 2,
+    "human_added": 155,
+    "human_modified": 3,
+    "human_removed": 0,
+    "total_committed": 162,
+    "total_lines_changed": 164,
+    "agent_percentage": 3.6585365853658534,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

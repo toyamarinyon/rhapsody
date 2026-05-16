@@ -1,0 +1,15 @@
+[toyamarinyon/rhapsody](https://github.com/toyamarinyon/rhapsody/issues/2)を考えていきたいです。ADR作るのがゴールですがまずはディスカッションしましょう。
+
+---
+
+# Selected text:
+
+## Selection 1
+Sandbox API の source credential に渡すのは許容
+
+## My request for Codex:
+Vercelもそれでいいと言っているし、そのための機能なので、これでいいと思っています。
+
+---
+
+okです。adr書いて、commit, push, issue closeまで進めてください。commit msgにはissueのlinkを含めてもらえると助かります。adr並行して増えているので、numbering考えてください。
