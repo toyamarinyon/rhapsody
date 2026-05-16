@@ -72,3 +72,11 @@ OK
 
 multi-projectは、認証から何から考えることが増えるので、中途半端に考えずにsingle-projectで進めたいです。
 multi-projectやるなら作り直すくらいの気持ちでやった方がいいと思っています。
+
+---
+
+良いと思います。  unstageになっている0007のadrとspecは一度もとに戻して、最初から書き直しましょう。
+
+---
+
+ではcommitしてpushして、このissueはcloseしておきましょう。commit msgにissueのリンクつけておいてもらえると助かります。
