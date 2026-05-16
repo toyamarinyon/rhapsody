@@ -1,4 +1,4 @@
-# ADR 0007: Define the Mediator Endpoint Contract
+# ADR 0008: Define the Mediator Endpoint Contract
 
 ## Status
 
