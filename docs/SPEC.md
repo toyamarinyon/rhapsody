@@ -71,9 +71,9 @@ Important boundary:
 ### 3.1 Main Components
 
 1. `Workflow Definition Loader`
-   - Reads repository-owned workflow policy, initially `RHAPSODY.md` or `WORKFLOW.md`.
-   - Parses YAML front matter and prompt body.
-   - Returns `{config, prompt_template}`.
+   - Reads repository-owned Rhapsody instructions from `.rhapsody/INSTRUCTIONS.md`.
+   - Renders the Markdown prompt template with the claimed work item context.
+   - Leaves Codex runtime configuration to Codex-native `.codex/` files in the repository.
 
 2. `Config Layer`
    - Exposes typed getters for project, tracker, workflow, sandbox, agent, and GitHub settings.
@@ -191,10 +191,12 @@ Fields:
 
 ### 4.2 Workflow Definition
 
-- `config` (map)
-  - YAML front matter root object.
-- `prompt_template` (string)
-  - Markdown body after front matter, trimmed.
+- `instruction_template` (string)
+  - Markdown body loaded from `.rhapsody/INSTRUCTIONS.md`, trimmed.
+- `codex_config_present` (boolean)
+  - Whether `.codex/config.toml` exists in the prepared repository workspace.
+- `codex_agent_files` (list of strings)
+  - Repository-relative `.codex/agents/*.toml` paths discovered before launching Codex.
 
 ### 4.3 Run
 
@@ -288,126 +290,86 @@ Fields:
 
 ## 5. Workflow Specification
 
-Repository workflow files define team guidance for the agent, not scheduler eligibility. The MVP
-split between environment variables, `rhapsody.config.ts`, and `RHAPSODY.md` is documented in
-[ADR 0007](adr/0007-define-mvp-config-boundaries.md).
+Repository workflow files define team guidance for Codex, not scheduler eligibility or trusted
+runtime policy. The MVP split between environment variables, `rhapsody.config.ts`, and
+repository-owned instructions is documented in [ADR 0007](adr/0007-define-mvp-config-boundaries.md)
+and [ADR 0010](adr/0010-use-rhapsody-instructions-and-codex-native-configuration.md). ADR 0010
+supersedes the `RHAPSODY.md` / `WORKFLOW.md` repository workflow file portion of ADR 0007.
 
 ### 5.1 File Discovery
 
-Workflow file path precedence:
+The MVP repository instruction file is:
 
-1. Explicit project configuration in Rhapsody.
-2. `RHAPSODY.md` in the target repository root.
-3. `WORKFLOW.md` in the target repository root.
+```text
+.rhapsody/INSTRUCTIONS.md
+```
 
-If no workflow file can be read, the run MUST fail with `missing_workflow_file` unless the project
-has explicitly enabled a default workflow prompt.
+If `.rhapsody/INSTRUCTIONS.md` cannot be read, the run MUST fail with
+`missing_workflow_file`. The MVP does not fall back to `RHAPSODY.md`, `WORKFLOW.md`, or a built-in
+default repository prompt.
 
-The MVP does not require YAML front matter in `RHAPSODY.md`; plain Markdown prompt text is valid.
-Runner-specific front matter such as hooks, validation commands, or agent limits MAY be added later.
+The repository may also contain normal Codex CLI configuration:
 
-### 5.2 Front Matter Schema
+```text
+.codex/config.toml
+.codex/agents/*.toml
+```
 
-Top-level keys:
+These files are Codex-native configuration, not Rhapsody workflow schema. The runner launches Codex
+from the repository root inside the sandbox so Codex can discover and use them normally.
 
-- `tracker`
-- `github`
-- `polling`
-- `scheduler`
-- `sandbox`
-- `agent`
-- `workflow`
-- `hooks`
-- `observability`
+### 5.2 Instruction Template Contract
 
-Unknown keys SHOULD be ignored for forward compatibility.
-
-#### `tracker`
-
-- `kind`: REQUIRED, current supported value `github_project`
-- `owner`: GitHub user or organization login
-- `project_number`: GitHub Projects v2 number
-- `project_id`: OPTIONAL GitHub ProjectV2 node ID cache
-- `status_field`: default `Status`
-- `active_statuses`: default `["Todo", "In Progress"]`
-- `terminal_statuses`: default `["Done", "Canceled", "Cancelled", "Duplicate"]`
-- `handoff_status`: OPTIONAL, for example `Human Review`
-
-#### `github`
-
-- `token`: `$VAR` or implementation-defined secret reference
-- `app_id`: OPTIONAL
-- `installation_id`: OPTIONAL
-- `default_branch`: default `main`
-- `branch_prefix`: default `rhapsody/`
-- `open_pull_request`: default `true`
-
-#### `polling`
-
-- `cron`: OPTIONAL Vercel cron expression
-- `minimum_interval_ms`: default `60000`
-- `webhook_enabled`: default `true`
-
-#### `scheduler`
-
-- `max_concurrent_runs`: default `5`
-- `max_concurrent_runs_by_status`: default `{}`
-- `claim_ttl_ms`: default `900000`
-- `max_retry_backoff_ms`: default `300000`
-
-#### `sandbox`
-
-- `runtime`: default `node24`
-- `workspace_path`: default `/vercel/sandbox`
-- `source`: `git`, `snapshot`, or implementation-defined
-- `network_policy`: default implementation-defined
-- `snapshot_on_success`: default `true`
-- `snapshot_on_failure`: default `true`
-- `max_duration_ms`: implementation-defined
-
-#### `agent`
-
-- `command`: REQUIRED or default implementation-defined
-- `max_turns`: default `20`
-- `turn_timeout_ms`: default `3600000`
-- `stall_timeout_ms`: default `300000`
-- `approval_policy`: implementation-defined
-- `tools`: list of advertised runtime tools
-
-#### `workflow`
-
-- `sdk`: default `workflow`
-- `retry`: implementation-defined Workflow SDK retry policy
-- `fatal_error_classes`: list of error codes that MUST NOT retry
-
-#### `hooks`
-
-Hooks run inside the sandbox workspace:
-
-- `after_create`
-- `before_run`
-- `after_run`
-- `before_snapshot`
-- `before_cleanup`
-- `timeout_ms`: default `60000`
-
-### 5.3 Prompt Template Contract
-
-The Markdown body is the per-work-item prompt template.
+`.rhapsody/INSTRUCTIONS.md` is the per-work-item prompt template.
 
 Rendering requirements:
 
 - Use a strict template engine.
 - Unknown variables MUST fail rendering.
 - Unknown filters MUST fail rendering.
+- YAML front matter is not part of the MVP contract.
 
 Template variables:
 
 - `item`: normalized `WorkItem`
-- `attempt`: attempt number or null
 - `run`: run metadata
+- `attempt`: attempt metadata
 - `repository`: repository metadata
 - `project`: GitHub Project metadata
+
+The runner MAY add a Rhapsody-owned prompt prelude or appendix for host-owned constraints such as
+mediated GitHub access, configured branch naming, callback completion, and credential handling.
+Those constraints are enforced by trusted Rhapsody code where possible and are not delegated to
+repository-owned instructions.
+
+Minimal example:
+
+```md
+You are working on {{ item.identifier }}.
+
+Issue URL: {{ item.url }}
+
+Move this issue forward in the smallest useful increment. If implementation changes are needed,
+create a branch, commit the changes, and open a pull request. If no code change is needed, leave a
+clear issue comment instead.
+```
+
+### 5.3 Differences from Symphony
+
+Rhapsody intentionally diverges from the broad `WORKFLOW.md` contract in
+[docs/ORIGINAL_SPEC.md](ORIGINAL_SPEC.md):
+
+- Symphony uses `WORKFLOW.md`; Rhapsody uses `.rhapsody/INSTRUCTIONS.md`.
+- Symphony allows YAML front matter to configure tracker, polling, workspace, hooks, agent, and
+  Codex runtime behavior; Rhapsody does not.
+- Symphony expects a long-running runtime that can reload workflow changes; Rhapsody applies
+  repository instructions per sandboxed run.
+- Symphony owns local workspace lifecycle and hooks from the workflow file; Rhapsody owns source
+  preparation and sandbox lifecycle from trusted runner code.
+- Symphony may pass Codex config through workflow front matter; Rhapsody reuses Codex-native
+  `.codex/config.toml` and `.codex/agents/*.toml`.
+- Symphony can place issue tracker configuration in the workflow file; Rhapsody keeps GitHub
+  Project scheduling configuration in trusted Rhapsody config.
 
 ## 6. Durable Scheduling Model
 

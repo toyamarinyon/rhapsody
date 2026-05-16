@@ -4,6 +4,11 @@
 
 Accepted
 
+Superseded in part by [ADR 0010](0010-use-rhapsody-instructions-and-codex-native-configuration.md):
+the MVP repository workflow file is now `.rhapsody/INSTRUCTIONS.md`, and Codex runtime
+configuration is read from Codex-native `.codex/` files. The `RHAPSODY.md` / `WORKFLOW.md` fallback
+described below is no longer the current repository workflow file contract.
+
 ## Context
 
 Rhapsody has three different configuration concerns:
