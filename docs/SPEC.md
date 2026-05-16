@@ -472,16 +472,18 @@ Required steps:
 5. Prepare source code in the sandbox.
 6. Run `after_create` if the sandbox/workspace was newly initialized.
 7. Render prompt.
-8. Run `before_run`.
-9. Prepare brokered agent authentication without writing real credentials into the sandbox.
+8. Prepare brokered agent authentication without writing real credentials into the sandbox.
+9. Prepare wrapper inputs, including rendered prompt, hook metadata, and any configured
+   `before_run` or `after_run` commands.
 10. Create a deterministic Workflow hook token for this attempt.
-11. Launch the coding agent command inside the sandbox workspace through a wrapper process.
+11. Launch the wrapper inside the sandbox workspace. The wrapper runs `before_run`, `codex exec`,
+    `after_run`, and terminal callback delivery.
 12. Persist sandbox ID, command ID, callback metadata, and attempt status.
 13. Pause on the Workflow hook until the wrapper posts a terminal callback.
 14. Resume from the callback payload.
-15. Run `after_run`.
-16. Export artifacts, git diff, commits, PRs, and/or snapshots.
-17. Verify GitHub handoff and post-run policy.
+15. Export artifacts, git diff, commits, PRs, and/or snapshots.
+16. Verify GitHub handoff and post-run policy.
+17. Evaluate final attempt and run status separately from wrapper execution status.
 18. Update GitHub Project status according to workflow policy.
 19. Release claim.
 
@@ -489,6 +491,12 @@ The runner MUST NOT depend on local Vercel Function filesystem state for correct
 The runner MUST NOT poll the sandbox for the full agent runtime inside one Vercel Function
 invocation. Agent execution completion is callback-driven, with watchdog reconciliation as a
 fallback. See [ADR 0006](adr/0006-use-callback-driven-workflow-orchestration.md).
+
+For the MVP, agent execution uses a TypeScript/Node sandbox wrapper. The wrapper is the
+sandbox-side attempt executor and owns `before_run`, `codex exec`, `after_run`, and terminal
+callback delivery. It reports observed execution status only; the runner workflow evaluates final
+attempt and run status after GitHub handoff verification and policy checks. See
+[ADR 0011](adr/0011-use-sandbox-wrapper-for-mvp-runner-execution.md).
 
 The MVP prepares source code with Vercel Sandbox Git source initialization. The runner resolves and
 records the exact base commit SHA before sandbox creation, passes the Git source descriptor and
@@ -507,7 +515,7 @@ Callback payloads include:
 - `attempt_id`
 - `sandbox_id`
 - `command_id`
-- `status`
+- `execution_status`
 - `exit_code`
 - `started_at`
 - `completed_at`
@@ -516,6 +524,10 @@ Callback payloads include:
 
 The callback route MUST authenticate the request, validate the run and attempt against the state
 store, persist the payload idempotently, and resume the runner workflow hook.
+
+The callback execution status is not authoritative for final run success. The runner workflow MUST
+evaluate final attempt and run status separately using callback data, GitHub handoff verification,
+and workflow policy.
 
 Watchdog reconciliation MUST handle missing callbacks, stale heartbeats, expired claims, and
 attempts that exceed configured deadlines.
