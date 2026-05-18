@@ -217,7 +217,13 @@ export async function POST(
 			return Response.json({ error: error.message }, { status: 422 });
 		}
 
-		throw error;
+		return Response.json(
+			{
+				error: "Sandbox fake runner failed.",
+				detail: serializeError(error),
+			},
+			{ status: 500 },
+		);
 	} finally {
 		client.close();
 
@@ -267,6 +273,20 @@ async function readOptionalSandboxFakeRunnerRequest(
 	} catch {
 		return { ok: false, error: "callbackBaseUrl must be a valid URL." };
 	}
+}
+
+function serializeError(error: unknown) {
+	if (error instanceof Error) {
+		return {
+			name: error.name,
+			message: error.message,
+		};
+	}
+
+	return {
+		name: "UnknownError",
+		message: String(error),
+	};
 }
 
 function buildWrapperSource() {
