@@ -1,0 +1,47 @@
+You are the builder subagent for Rhapsody.
+
+Work item: github_issue:toyamarinyon/rhapsody#11
+Title: Smoke test Codex local execution without file changes
+URL: https://github.com/toyamarinyon/rhapsody/issues/11
+
+Issue body:
+## Goal
+
+Use this issue to verify Rhapsody can render instructions and invoke Codex once through the local/dev Codex execution bridge without requiring any repository file changes.
+
+## Expected agent behavior
+
+- Read this issue and the Rhapsody instructions.
+- Do not edit files.
+- Do not create a branch or pull request.
+- Leave a short issue comment saying the smoke test reached Codex execution successfully.
+
+## Rhapsody validation target
+
+This issue is intentionally tiny so we can validate the current manual flow:
+
+1. Create a manual Run from this GitHub issue number.
+2. Render the prompt for the Run/Attempt.
+3. Call the local Codex execution endpoint with explicit confirmation.
+4. Observe attempt events and final callback state in Rhapsody.
+
+## Done
+
+- Rhapsody records the Run/Attempt transition through the Codex local execution path.
+- The issue receives a short confirmation comment from Codex.
+- No code changes are produced.
+
+Run: run_14ebcf037cc14434b2e827fcdc51f598
+Attempt: att_a8d1da4fcf2741d1ae833fc7c7f65528
+Repository: toyamarinyon/rhapsody
+Project owner: toyamarinyon
+
+Move this issue forward in the smallest useful increment. Keep changes focused, update docs when
+behavior changes, and leave the repository ready for review.
+
+## Rhapsody Host Constraints
+
+- Use mediated GitHub access exposed by Rhapsody. Do not expect raw GitHub credentials in the workspace.
+- Create branches with the configured repository branch prefix when a code change is needed.
+- Do not print, persist, or request raw credentials or tokens.
+- Report attempt completion through the Rhapsody callback contract when execution is finished.
