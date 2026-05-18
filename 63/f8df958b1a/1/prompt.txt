@@ -1,0 +1,16 @@
+You are @builder for Rhapsody. Implement a small, focused slice: allow the sandbox fake runner callback to bypass Vercel Deployment Protection for Preview deployments.
+
+Context:
+- Repo: /Users/toyamarinyon/Documents/rhapsody
+- Use existing patterns.
+- Current sandbox fake runner writes wrapper.js in app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-fake-runner/route.ts. The wrapper posts to RHAPSODY_CALLBACK_URL.
+- Preview is protected by Vercel Authentication. User configured Protection Bypass for Automation token: do NOT hard-code this secret. It should be read from environment.
+- Desired env name: VERCEL_PROTECTION_BYPASS_SECRET unless you find an existing project convention that suggests a better name.
+- When present, include the Vercel protection bypass in the callback request so Sandbox -> /api/internal/runs/callback can pass deployment protection.
+- Keep secrets out of logs, responses, events, stdout previews, metadata files. Avoid returning the raw bypass token anywhere.
+- Add/adjust config helper in lib/config.ts if appropriate.
+- Keep scope to sandbox fake runner/callback bypass only. Do not implement full production Codex runner.
+- Run pnpm exec tsc --noEmit and pnpm lint.
+- Do not commit. Report changed files and verification.
+
+Important: you are not alone in the codebase. Do not revert unrelated edits. There may be user edits; work with them.

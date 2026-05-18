@@ -1,0 +1,53 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "63f8df958b1a",
+  "session_id": "019e3a59-f5f1-78b2-8685-9dedf9a823ba",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-18T09:13:53.31894Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-fake-runner/route.ts",
+    "lib/config.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "2d8bab57a17f",
+  "token_usage": {
+    "input_tokens": 41876,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 795136,
+    "output_tokens": 6832,
+    "api_call_count": 23
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-18T09:13:53.311507Z",
+    "agent_lines": 40,
+    "agent_removed": 3,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 40,
+    "total_lines_changed": 43,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 2,
+      "user_lines_removed": 2,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".codex/agents/builder.toml": 2
+      },
+      "user_removed_per_file": {
+        ".codex/agents/builder.toml": 2
+      }
+    }
+  ]
+}
