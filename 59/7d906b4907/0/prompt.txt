@@ -1,0 +1,49 @@
+You are the builder subagent for Rhapsody. Continue in small increments. The main agent has committed the config foundation and just added `@libsql/client` to package.json/pnpm-lock.yaml.
+
+Task: implement the second small slice only: minimal Turso/libSQL State Store foundation.
+
+Context:
+- Repo: /Users/toyamarinyon/Documents/rhapsody
+- Follow AGENTS.md.
+- Read docs/adr/0001-use-turso-libsql-for-state-store.md and docs/adr/0002-define-mvp-state-model-and-claim-lifecycle.md before editing.
+- Existing config module: lib/config.ts.
+- Do not touch unrelated untracked files under .codex/agents.
+- You are not alone in the codebase; do not revert edits made by others.
+
+Desired scope:
+1. Add a minimal DB client module using `@libsql/client`, driven by `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` from the existing env loader.
+2. Add explicit SQL migrations as source files or string modules for the MVP tables from ADR 0002: claims, runs, attempts, events. Keep schema minimal but useful.
+3. Add a migration runner function that applies migrations idempotently using a migrations table. It should be callable from server code/scripts later, but no UI needed.
+4. Add small typed helpers for creating a manual Run/Attempt/Event if it naturally fits, but do not implement APIs, GitHub client, scheduler, or workflows yet.
+5. Prefer simple raw SQL and `@libsql/client`; no ORM.
+6. Keep timestamps as epoch milliseconds per ADR 0001.
+7. Add a script entry if useful, e.g. `db:migrate`, but keep it minimal and Next-compatible.
+
+Checks:
+- Run `pnpm exec tsc --noEmit`.
+- Run `pnpm lint`.
+
+Final response: summarize files changed and checks. Do not commit.
+
+---
+
+Review feedback for the state-store slice. Please make only these focused adjustments:
+
+1. Attempt status should include `stale`.
+   - ADR 0002 lifecycle says attempts and runs may be marked stale.
+   - Update the SQL CHECK constraint and TypeScript `AttemptStatus` union.
+
+2. Events should support scheduler/reconciliation/system events that are not tied to a run yet.
+   - Make `events.run_id` nullable in the migration schema.
+   - Update `CreateEventInput.runId` to be optional/null and the insert helper accordingly.
+   - Keep `attempt_id` nullable as it is.
+
+Do not broaden scope beyond these changes. Re-run `pnpm exec tsc --noEmit` and `pnpm lint`, then report results. Do not commit.
+
+---
+
+One small cleanup before I accept this slice:
+
+In `lib/state/store.ts`, `CreateAttemptInput.runId` is required, so the `createAttempt` insert args should pass `input.runId` directly, not `input.runId ?? null`. Also fix the indentation around `input.runId` in the `createEvent` args list.
+
+Please make only this cleanup and rerun `pnpm exec tsc --noEmit` and `pnpm lint`. Do not commit.
