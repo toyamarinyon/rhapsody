@@ -24,7 +24,22 @@ export type VercelSandboxCommandSummary = {
 	stderr: string;
 };
 
+export type VercelSandboxSnapshot = {
+	snapshotId: string;
+	sourceSandboxId: string;
+	status: string;
+	sizeBytes: number;
+	createdAt: number;
+	expiresAt?: number;
+};
+
+export type VercelSandboxSnapshotSource = {
+	type: "snapshot";
+	snapshotId: string;
+};
+
 export type CreateVercelSandboxInput = {
+	source?: VercelSandboxSnapshotSource;
 	runtime?: string;
 	env?: Record<string, string>;
 	networkPolicy?: NetworkPolicy;
@@ -68,15 +83,25 @@ export function buildVercelSandboxCallbackNetworkPolicy(args: {
 
 export async function createVercelSandbox(input: CreateVercelSandboxInput = {}) {
 	const env = loadRhapsodySandboxEnv();
+	const credentials = env
+		? {
+				token: env.VERCEL_TOKEN,
+				teamId: env.VERCEL_TEAM_ID,
+				projectId: env.VERCEL_PROJECT_ID,
+			}
+		: {};
+
+	if (input.source) {
+		return Sandbox.create({
+			...credentials,
+			source: input.source,
+			env: input.env,
+			networkPolicy: input.networkPolicy,
+		});
+	}
 
 	return Sandbox.create({
-		...(env
-			? {
-					token: env.VERCEL_TOKEN,
-					teamId: env.VERCEL_TEAM_ID,
-					projectId: env.VERCEL_PROJECT_ID,
-				}
-			: {}),
+		...credentials,
 		runtime: input.runtime ?? DEFAULT_SANDBOX_RUNTIME,
 		env: input.env,
 		networkPolicy: input.networkPolicy,
@@ -107,6 +132,19 @@ export async function runVercelSandboxCommand(
 		stdout,
 		stderr,
 	};
+}
+
+export async function createVercelSandboxSnapshot(sandbox: RhapsodyVercelSandbox) {
+	const snapshot = await sandbox.snapshot();
+
+	return {
+		snapshotId: snapshot.snapshotId,
+		sourceSandboxId: snapshot.sourceSandboxId,
+		status: snapshot.status,
+		sizeBytes: snapshot.sizeBytes,
+		createdAt: snapshot.createdAt.getTime(),
+		expiresAt: snapshot.expiresAt?.getTime(),
+	} satisfies VercelSandboxSnapshot;
 }
 
 export async function stopVercelSandbox(sandbox: RhapsodyVercelSandbox) {
