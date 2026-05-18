@@ -40,11 +40,13 @@ export type RhapsodyServerEnv = {
 	VERCEL_TOKEN: string;
 	VERCEL_TEAM_ID: string;
 	VERCEL_PROJECT_ID: string;
+	VERCEL_PROTECTION_BYPASS_SECRET?: string;
 };
 
 export type RhapsodyStateStoreEnv = Pick<RhapsodyServerEnv, "TURSO_DATABASE_URL" | "TURSO_AUTH_TOKEN">;
 export type RhapsodyGitHubEnv = Pick<RhapsodyServerEnv, "GITHUB_TOKEN">;
 export type RhapsodyMediatorEnv = Pick<RhapsodyServerEnv, "MEDIATOR_SECRET">;
+export type RhapsodyProtectionBypassEnv = Pick<RhapsodyServerEnv, "VERCEL_PROTECTION_BYPASS_SECRET">;
 export type RhapsodySandboxEnv = Pick<RhapsodyServerEnv, "VERCEL_TOKEN" | "VERCEL_TEAM_ID" | "VERCEL_PROJECT_ID">;
 
 const REQUIRED_ENV_KEYS = [
@@ -102,6 +104,10 @@ export function loadRhapsodyMediatorEnv(env = process.env): RhapsodyMediatorEnv 
 	return loadRequiredEnv(env, REQUIRED_MEDIATOR_ENV_KEYS);
 }
 
+export function loadRhapsodyProtectionBypassEnv(env = process.env): RhapsodyProtectionBypassEnv {
+	return loadOptionalEnv(env, ["VERCEL_PROTECTION_BYPASS_SECRET"] as const);
+}
+
 export function loadRhapsodySandboxEnv(env = process.env): RhapsodySandboxEnv | null {
 	const values = {} as RhapsodySandboxEnv;
 	const missing: string[] = [];
@@ -157,6 +163,23 @@ function loadRequiredEnv<const TKey extends string>(
 
 	if (issues.length > 0) {
 		throw new RhapsodyConfigError(issues);
+	}
+
+	return values;
+}
+
+function loadOptionalEnv<const TKey extends string>(
+	env: NodeJS.ProcessEnv,
+	keys: readonly TKey[],
+): Partial<Record<TKey, string>> {
+	const values = {} as Partial<Record<TKey, string>>;
+
+	for (const key of keys) {
+		const value = env[key];
+
+		if (value?.trim()) {
+			values[key] = value;
+		}
 	}
 
 	return values;
