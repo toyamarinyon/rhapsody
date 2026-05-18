@@ -1,0 +1,22 @@
+You are the builder subagent for Rhapsody. The main agent is preparing a Codex local execution smoke test and found that rendered prompts do not include the GitHub issue body, so the smoke-test instructions are not visible to Codex.
+
+Task: make issue body visible in rendered repository instructions. Keep the scope tiny.
+
+Context:
+- Repo: /Users/toyamarinyon/Documents/rhapsody
+- Current prompt rendering code is in `lib/instructions.ts`.
+- Default template is `.rhapsody/INSTRUCTIONS.md`.
+- GitHub issue snapshots from `lib/github/issues.ts` include `body`.
+- Follow AGENTS.md. Do not touch unrelated files.
+
+Desired changes:
+1. Add `item.body` to the instruction context when available from the GitHub issue snapshot.
+2. Update `.rhapsody/INSTRUCTIONS.md` to include an `Issue body:` section using `{{ item.body }}`.
+3. Keep strict rendering behavior unchanged.
+4. Do not add dependencies.
+
+Checks:
+- Run `pnpm exec tsc --noEmit`
+- Run `pnpm lint`
+
+Do not commit.
