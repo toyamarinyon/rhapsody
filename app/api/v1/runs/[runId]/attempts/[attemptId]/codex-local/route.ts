@@ -27,6 +27,7 @@ const CODEX_LOCAL_COMMAND = "codex exec";
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_TIMEOUT_MS = 300_000;
 const PROMPT_PREVIEW_LENGTH = 500;
+const RESULT_PREVIEW_LENGTH = 500;
 
 type CodexLocalRequest = {
 	mode: "dry_run" | "execute";
@@ -247,9 +248,15 @@ function summarizeCodexResult(result: CodexCliResult) {
 		timedOut: result.timedOut,
 		durationMs: result.durationMs,
 		stdoutLength: result.stdout.length,
+		stdoutPreview: previewOutput(result.stdout),
 		stderrLength: result.stderr.length,
+		stderrPreview: previewOutput(result.stderr),
 		error: result.error,
 	};
+}
+
+function previewOutput(value: string) {
+	return value.slice(0, RESULT_PREVIEW_LENGTH);
 }
 
 function isTerminalRunStatus(status: string) {

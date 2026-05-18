@@ -18,6 +18,8 @@ export type CodexCliOptions = {
 
 export type CodexCliCommand = {
 	command: "codex";
+	globalArgv: string[];
+	execArgv: string[];
 	argv: string[];
 	cwd: string;
 	stdinLength: number;
@@ -35,33 +37,36 @@ export type CodexCliResult = {
 };
 
 export function buildCodexExecCommand(options: CodexCliOptions): CodexCliCommand {
-	const argv = ["exec", "--cd", options.cwd];
+	const globalArgv: string[] = [];
+	const execArgv = ["exec", "--cd", options.cwd];
+
+	if (options.approvalPolicy) {
+		globalArgv.push("--ask-for-approval", options.approvalPolicy);
+	}
 
 	if (options.json) {
-		argv.push("--json");
+		execArgv.push("--json");
 	}
 
 	if (options.outputLastMessageFile) {
-		argv.push("--output-last-message", options.outputLastMessageFile);
+		execArgv.push("--output-last-message", options.outputLastMessageFile);
 	}
 
 	if (options.sandboxMode) {
-		argv.push("--sandbox", options.sandboxMode);
-	}
-
-	if (options.approvalPolicy) {
-		argv.push("--ask-for-approval", options.approvalPolicy);
+		execArgv.push("--sandbox", options.sandboxMode);
 	}
 
 	for (const [key, value] of Object.entries(options.configOverrides ?? {}).sort(([left], [right]) =>
 		left.localeCompare(right),
 	)) {
-		argv.push("--config", `${key}=${formatConfigValue(value)}`);
+		execArgv.push("--config", `${key}=${formatConfigValue(value)}`);
 	}
 
 	return {
 		command: "codex",
-		argv,
+		globalArgv,
+		execArgv,
+		argv: [...globalArgv, ...execArgv],
 		cwd: options.cwd,
 		stdinLength: options.prompt.length,
 	};

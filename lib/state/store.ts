@@ -223,6 +223,27 @@ export type AttemptTransitionNotApplied = {
 
 export type AttemptTransitionResult = AttemptTransitionApplied | AttemptTransitionNotApplied;
 
+export type ClaimReleaseInput = {
+	runId: string;
+	claimToken: string;
+	now?: number;
+	eventId?: string;
+};
+
+export type ClaimReleaseNotAppliedReason = "run_not_found" | "claim_not_found" | "claim_mismatch";
+
+export type ClaimReleaseResult =
+	| {
+			released: true;
+			eventId: string;
+			releasedAt: number;
+	  }
+	| {
+			released: false;
+			reason: ClaimReleaseNotAppliedReason;
+			runStatus?: RunStatus;
+	  };
+
 export async function getRunDetail(client: Client, runId: string): Promise<RunDetail | null> {
 	const runResult = await client.execute({
 		sql: `
@@ -315,6 +336,76 @@ export async function getRunDetail(client: Client, runId: string): Promise<RunDe
 		events: eventsResult.rows.map(mapEvent),
 		claim: claimResult.rows[0] ? mapClaim(claimResult.rows[0]) : null,
 	};
+}
+
+export async function releaseClaimForRun(client: Client, input: ClaimReleaseInput): Promise<ClaimReleaseResult> {
+	const now = input.now ?? Date.now();
+	const eventId = input.eventId ?? createPrefixedId("evt");
+	const tx = await client.transaction("write");
+
+	try {
+		const result = await tx.execute({
+			sql: `
+				SELECT
+					runs.id AS run_id,
+					runs.status AS run_status,
+					claims.work_item_id AS claim_work_item_id,
+					claims.claim_token AS claim_token,
+					claims.run_id AS claim_run_id
+				FROM runs
+				LEFT JOIN claims
+					ON claims.work_item_id = runs.work_item_id
+				WHERE runs.id = ?
+				LIMIT 1
+			`,
+			args: [input.runId],
+		});
+		const row = result.rows[0];
+
+		if (!row) {
+			await tx.commit();
+			return { released: false, reason: "run_not_found" };
+		}
+
+		const runStatus = getString(row, "run_status") as RunStatus;
+		const claimWorkItemId = getNullableString(row, "claim_work_item_id");
+		const claimToken = getNullableString(row, "claim_token");
+		const claimRunId = getNullableString(row, "claim_run_id");
+
+		if (claimWorkItemId === null || claimToken === null || claimRunId === null) {
+			await tx.commit();
+			return { released: false, reason: "claim_not_found", runStatus };
+		}
+
+		if (claimToken !== input.claimToken || claimRunId !== input.runId) {
+			await tx.commit();
+			return { released: false, reason: "claim_mismatch", runStatus };
+		}
+
+		await tx.execute({
+			sql: "DELETE FROM claims WHERE work_item_id = ? AND claim_token = ? AND run_id = ?",
+			args: [claimWorkItemId, input.claimToken, input.runId],
+		});
+
+		await insertEvent(tx, {
+			id: eventId,
+			runId: input.runId,
+			attemptId: null,
+			level: "info",
+			type: "claim.released",
+			message: "Claim released.",
+			data: { workItemId: claimWorkItemId },
+			now,
+		});
+
+		await tx.commit();
+		return { released: true, eventId, releasedAt: now };
+	} catch (error) {
+		await tx.rollback();
+		throw error;
+	} finally {
+		tx.close();
+	}
 }
 
 export async function getStateSummary(client: Client, now = Date.now()): Promise<StateSummary> {
