@@ -119,6 +119,10 @@ export function loadRhapsodySandboxEnv(env = process.env): RhapsodySandboxEnv | 
 		values[key] = value;
 	}
 
+	if (present.length === 1 && present[0] === "VERCEL_PROJECT_ID") {
+		return null;
+	}
+
 	if (present.length === 0) {
 		return null;
 	}
