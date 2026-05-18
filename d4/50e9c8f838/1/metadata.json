@@ -1,0 +1,48 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "d450e9c8f838",
+  "session_id": "019e3d03-809a-7073-9d79-5d08e3354180",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-18T21:39:00.295408Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "app/api/v1/admin/sandbox-snapshots/codex-base/route.ts",
+    "app/api/v1/admin/sandbox-snapshots/codex-base/smoke/route.ts",
+    "lib/sandbox/vercel.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "86d38b4bfc37",
+  "token_usage": {
+    "input_tokens": 57261,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 953728,
+    "output_tokens": 11299,
+    "api_call_count": 23
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-18T21:39:00.285795Z",
+    "agent_lines": 301,
+    "agent_removed": 0,
+    "human_added": 30,
+    "human_modified": 29,
+    "human_removed": 0,
+    "total_committed": 360,
+    "total_lines_changed": 360,
+    "agent_percentage": 83.61111111111111,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

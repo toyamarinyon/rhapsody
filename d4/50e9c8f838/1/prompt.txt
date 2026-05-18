@@ -1,0 +1,32 @@
+You are @builder for Rhapsody. Implement the next small slice: admin endpoints to create and smoke-test a Codex base Vercel Sandbox snapshot. No DB persistence yet.
+
+Repo: /Users/toyamarinyon/Documents/rhapsody
+
+Goal:
+1. Add `POST /api/v1/admin/sandbox-snapshots/codex-base`
+   - Protected by existing `requireAdminAuth`.
+   - Create a Vercel Sandbox using existing `createVercelSandbox` helper.
+   - Check whether `codex --version` is available.
+   - If Codex is not installed, install it in the sandbox in the simplest reasonable way for this repo/context. Inspect package/tooling if needed; prefer documented/current Codex CLI package/installation if already present in repo docs/scripts. If uncertain, implement with a request field that provides install command and default to a conservative command, but keep the endpoint useful.
+   - Run `codex --version` after install.
+   - Create a sandbox filesystem snapshot.
+   - Stop sandbox in finally.
+   - Return JSON with snapshotId, sandboxId, codexVersion/output, timing, and command summaries. Do not persist in DB.
+
+2. Add `POST /api/v1/admin/sandbox-snapshots/codex-base/smoke`
+   - Protected by admin auth.
+   - Request body includes `snapshotId` string.
+   - Create a Vercel Sandbox from that snapshot source.
+   - Run `codex --version`.
+   - Stop sandbox in finally.
+   - Return JSON with sandboxId, snapshotId, command summary, timing.
+
+Implementation notes:
+- Use existing `lib/sandbox/vercel.ts`; add helpers there if useful for createSnapshot / source support.
+- Inspect installed `@vercel/sandbox` types for exact snapshot API and create-from-snapshot shape. Do not guess blindly.
+- Keep secrets out of logs/responses.
+- Keep scope tight; no DB migration, no runner integration, no Codex auth yet.
+- Run `pnpm exec tsc --noEmit`, `pnpm lint`, and `git diff --check`.
+- Do not commit. Report changed files and verification.
+
+Important: you are not alone in the codebase. Do not revert unrelated edits. Use existing code style.
