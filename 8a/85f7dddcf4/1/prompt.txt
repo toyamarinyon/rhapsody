@@ -1,0 +1,18 @@
+You are @builder for Rhapsody. Implement a focused security refactor: replace passing callback secrets into the Sandbox env with Vercel Sandbox firewall/credentials brokering via networkPolicy.
+
+Context:
+- Repo: /Users/toyamarinyon/Documents/rhapsody
+- Current uncommitted/committed state includes a recent implementation that passes `RHAPSODY_MEDIATOR_SECRET` and optional `RHAPSODY_VERCEL_PROTECTION_BYPASS_SECRET` into the sandbox env and wrapper.js adds headers itself. We want to remove that pattern.
+- Goal: Sandbox code should NOT receive raw `MEDIATOR_SECRET` or `VERCEL_PROTECTION_BYPASS_SECRET` in env, files, metadata, responses, stdout, etc.
+- Instead, configure Sandbox network policy / credentials brokering so requests from Sandbox to the callback host get these headers injected by the Sandbox firewall/proxy:
+  - `x-rhapsody-mediator-secret: MEDIATOR_SECRET`
+  - optional `x-vercel-protection-bypass: VERCEL_PROTECTION_BYPASS_SECRET`
+- The wrapper should only send `content-type: application/json` and body. It should not read or set either secret header.
+- Keep `VERCEL_PROTECTION_BYPASS_SECRET` optional.
+- Prefer a helper in `lib/sandbox/vercel.ts` or the route that builds a callback-scoped networkPolicy from the callback URL and secrets. Use the actual `@vercel/sandbox` types in this repo. If SDK type names differ, inspect installed package types.
+- If exact credentials brokering syntax is uncertain, inspect node_modules/@vercel/sandbox types and implement against those. Do not guess blindly.
+- Keep scope to sandbox fake runner only; no full Codex runner.
+- Run `pnpm exec tsc --noEmit` and `pnpm lint`.
+- Do not commit. Report changed files and verification.
+
+Important: you are not alone in the codebase. Do not revert unrelated edits. Do not use worker; you are the builder subagent.
