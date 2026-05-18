@@ -1,0 +1,56 @@
+You are the builder subagent for Rhapsody. Continue in small increments while the main agent reviews.
+
+Task: prepare Codex execution by adding a local/dev Codex CLI adapter and a protected dry-run/explicit-run endpoint. Keep it small; do not introduce Vercel Sandbox yet.
+
+Context:
+- Repo: /Users/toyamarinyon/Documents/rhapsody
+- Existing flow: create run, render prompt, fake-runner.
+- Local inspection found `codex exec --help` supports:
+  - `codex exec [OPTIONS] [PROMPT]`
+  - `-C, --cd <DIR>`
+  - `--json`
+  - `--output-last-message <FILE>`
+  - `--sandbox <read-only|workspace-write|danger-full-access>`
+  - `--ask-for-approval <untrusted|on-request|never>`
+  - `--dangerously-bypass-approvals-and-sandbox` for externally sandboxed environments.
+- Rhapsody ADR 0010 says Rhapsody-owned invocation overrides safety boundaries. For local/dev, do NOT use `--dangerously-bypass-approvals-and-sandbox` by default. That later belongs inside Vercel Sandbox.
+- Follow AGENTS.md. Do not touch unrelated files.
+
+Desired scope:
+1. Add a small Codex CLI adapter module, e.g. `lib/codex/cli.ts`, that:
+   - defines options for cwd, prompt, sandbox mode, approval policy, json mode, output file, extra config overrides;
+   - builds argv for `codex exec` without shell interpolation;
+   - can run Codex via `node:child_process` spawn with stdin prompt, capturing stdout/stderr and exit code;
+   - has a timeout option and kills the child on timeout;
+   - returns a typed result without logging secrets.
+2. Add a protected endpoint, suggested:
+   `POST /api/v1/runs/[runId]/attempts/[attemptId]/codex-local`
+   - Node runtime, admin auth.
+   - Fetch run detail and render prompt using existing instructions code.
+   - Request body supports `{ "mode": "dry_run" }` by default and `{ "mode": "execute", "confirm": "run-codex-local" }` for real local execution.
+   - Dry run returns command argv preview, cwd, prompt preview/length, and does NOT run Codex or update attempt state.
+   - Execute mode calls existing `markAttemptStarted`, runs Codex CLI locally, then calls `applyAttemptTerminalCallback` using the exit code. Keep timeout modest and configurable from body with a sane cap, e.g. max 5 minutes.
+   - Use sandbox mode `workspace-write` and approval policy `never` for execute by default. Do not use danger bypass.
+   - Return start result, codex result summary, callback result.
+3. Add an event before/after execution if useful, but avoid large logs in events. Store only summaries such as stdout/stderr lengths and exit code.
+4. Keep this explicitly local/dev. No Sandbox, no mediator, no GitHub writes yet.
+5. No new dependencies.
+
+Checks:
+- Run `pnpm exec tsc --noEmit`
+- Run `pnpm lint`
+
+Do not commit.
+
+---
+
+Review feedback: the Codex CLI adapter is good, but the HTTP endpoint should not accept arbitrary `configOverrides` yet. ADR 0010 says Rhapsody-owned invocation overrides the execution boundary, and arbitrary config keys over HTTP could weaken or confuse that boundary.
+
+Please make a focused adjustment:
+1. Keep `configOverrides` support in `lib/codex/cli.ts` for future internal use.
+2. Remove `configOverrides` from the public `POST /api/v1/runs/[runId]/attempts/[attemptId]/codex-local` request contract and parser.
+3. Do not pass request-provided config overrides from the route. If you need a placeholder, pass no overrides.
+4. Ensure returned dry-run command still shows the fixed sandbox mode `workspace-write`, approval policy `never`, json mode, cwd, and timeout.
+5. Re-run `pnpm exec tsc --noEmit` and `pnpm lint`.
+
+Do not commit.
