@@ -1,0 +1,29 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "07b0ada318bc",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".env.example",
+    "app/api/v1/admin/db/migrate/route.ts",
+    "app/api/v1/runs/route.ts",
+    "lib/server/admin-auth.ts",
+    "lib/server/json.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/07/b0ada318bc/0/metadata.json",
+      "transcript": "/07/b0ada318bc/0/full.jsonl",
+      "content_hash": "/07/b0ada318bc/0/content_hash.txt",
+      "prompt": "/07/b0ada318bc/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 24770,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 659712,
+    "output_tokens": 3257,
+    "api_call_count": 11
+  }
+}

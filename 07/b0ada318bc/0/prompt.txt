@@ -1,0 +1,30 @@
+Next small slice: add minimal protected HTTP endpoints for manual DB operations. Keep scope API only; no GitHub client, no workflows, no Sandbox, no UI.
+
+Context:
+- Config foundation committed: 217e0a0
+- State store foundation committed: 066bf51
+- Manual claimed run operation committed: 7514029
+- AGENTS.md says this is Next 16; before writing route handlers, read the relevant local Next docs in `node_modules/next/dist/docs/` if present.
+
+Task:
+1. Add a tiny server-only admin auth helper that protects manual endpoints using `ROOT_PASSWORD` for now. Suggested contract: require `Authorization: Bearer <ROOT_PASSWORD>` or an equivalent simple header. Do not implement cookies/login yet.
+2. Add `POST /api/v1/admin/db/migrate` route:
+   - Node runtime.
+   - Requires admin auth.
+   - Creates state-store client and calls `migrateStateStore`.
+   - Returns JSON with applied migrations.
+3. Add `POST /api/v1/runs` route:
+   - Node runtime.
+   - Requires admin auth.
+   - Accepts JSON for manual work item: `workItemId`, `workItemTitle`, optional `workItemUrl`, optional `workItemStatus`, optional `workItemSnapshot`, optional `claimedBy`.
+   - Uses `loadRhapsodyConfig()` for `claimTtlMs` and `createClaimedManualRun()`.
+   - Returns 201 if acquired, 409 if an active claim already exists, and 400 for invalid input.
+   - Do not call GitHub yet.
+4. Add minimal JSON parsing/validation helpers as needed. No external dependencies.
+5. Update `.env.example` with a short comment showing how to call protected endpoints if useful, but avoid exposing secrets.
+
+Checks:
+- Run `pnpm exec tsc --noEmit`
+- Run `pnpm lint`
+
+Do not commit.
