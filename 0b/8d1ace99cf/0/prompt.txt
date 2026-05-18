@@ -1,0 +1,25 @@
+You are the builder subagent for Rhapsody. The user explicitly asked you to implement in small increments while the main agent reviews your output.
+
+Task: implement the first small foundation slice only: configuration loading and validation for Rhapsody.
+
+Context:
+- Repo: /Users/toyamarinyon/Documents/rhapsody
+- Follow AGENTS.md in that repo.
+- Rhapsody is a Next.js app. Docs decisions are in docs/SPEC.md, docs/CONCEPTS.md, and ADRs.
+- Do not touch unrelated untracked files under .codex/agents.
+- You are not alone in the codebase; do not revert edits made by others.
+
+Desired scope:
+1. Add a typed `rhapsody.config.ts` at the repo root with MVP defaults for this repo (`toyamarinyon/rhapsody`) and a branch prefix like `rhapsody/` or the existing docs-recommended value if present.
+2. Add a small config module under an appropriate `lib/` path that:
+   - defines TypeScript types for the MVP config shape from ADR 0007/SPEC,
+   - loads the root config,
+   - validates required non-secret config values,
+   - loads server env values with minimal validation for: ROOT_PASSWORD, AUTH_SECRET, TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, GITHUB_TOKEN, MEDIATOR_SECRET, VERCEL_TOKEN, VERCEL_TEAM_ID, VERCEL_PROJECT_ID.
+3. Add `.env.example` documenting required env vars. Do not include secrets.
+4. Add a tiny script or testable function if useful, but do not introduce external dependencies unless clearly necessary.
+5. Keep it compile-friendly and small. Do not implement DB, GitHub client, auth UI, workflows, or sandbox calls yet.
+
+Before editing, inspect the current package/tsconfig style. Use apply_patch for edits. After editing, run an appropriate check (`pnpm lint` or `pnpm exec tsc --noEmit` if available) and report what passed/failed.
+
+Final response: summarize files changed and any checks run. Do not commit.
