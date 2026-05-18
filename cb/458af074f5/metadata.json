@@ -3,21 +3,33 @@
   "checkpoint_id": "cb458af074f5",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 1,
-  "files_touched": null,
+  "checkpoints_count": 2,
+  "files_touched": [
+    "app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-fake-runner/route.ts",
+    "lib/config.ts",
+    "lib/sandbox/vercel.ts",
+    "package.json",
+    "pnpm-lock.yaml"
+  ],
   "sessions": [
     {
       "metadata": "/cb/458af074f5/0/metadata.json",
       "transcript": "/cb/458af074f5/0/full.jsonl",
       "content_hash": "/cb/458af074f5/0/content_hash.txt",
       "prompt": "/cb/458af074f5/0/prompt.txt"
+    },
+    {
+      "metadata": "/cb/458af074f5/1/metadata.json",
+      "transcript": "/cb/458af074f5/1/full.jsonl",
+      "content_hash": "/cb/458af074f5/1/content_hash.txt",
+      "prompt": "/cb/458af074f5/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 3274468,
+    "input_tokens": 3355722,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 61415680,
-    "output_tokens": 151041,
-    "api_call_count": 534
+    "cache_read_tokens": 63366144,
+    "output_tokens": 162078,
+    "api_call_count": 560
   }
 }

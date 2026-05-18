@@ -1,0 +1,39 @@
+You are the builder subagent for Rhapsody. Implement the next small slice: Sandbox fake runner. The main agent will review and test.
+
+Context:
+- Repo: /Users/toyamarinyon/Documents/rhapsody
+- Follow AGENTS.md.
+- `@vercel/sandbox` has just been added.
+- Latest docs/skill notes: import `{ Sandbox }` from `@vercel/sandbox`; create with `Sandbox.create({ runtime: 'node24', env?, networkPolicy? })`; write files with `sandbox.writeFiles([{ path, content: Buffer, mode? }])`; run command with `sandbox.runCommand({ cmd, args, cwd?, env? })` or `sandbox.runCommand('node', ['-e', ...])`; command result supports `stdout()` and probably `stderr()`; stop with `sandbox.stop()`.
+- Current control plane exists: Run creation, prompt rendering, `markAttemptStarted`, `/api/internal/runs/callback`, visibility APIs.
+- Goal: no Codex yet. Just prove Vercel Sandbox can execute a tiny wrapper that POSTs terminal callback to Rhapsody.
+
+Desired scope:
+1. Add a small Vercel Sandbox adapter module, e.g. `lib/sandbox/vercel.ts`, that:
+   - creates a sandbox with runtime `node24` by default;
+   - writes files into `/vercel/sandbox` or relative paths;
+   - runs a command and returns stdout/stderr/exit summary;
+   - stops sandbox in finally when requested;
+   - reads only Vercel env it needs using existing config loader or a narrow loader (`VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` if required by SDK). Do not require unrelated env.
+2. Add a protected endpoint:
+   `POST /api/v1/runs/[runId]/attempts/[attemptId]/sandbox-fake-runner`
+   - Node runtime, admin auth.
+   - Fetch run detail and selected attempt.
+   - Render prompt via existing instructions code.
+   - If terminal run/attempt, return 200 idempotent before creating sandbox.
+   - Create a Vercel Sandbox.
+   - Write a tiny JS wrapper file that POSTs to Rhapsody callback URL with `X-Rhapsody-Mediator-Secret` and payload `{ run_id, attempt_id, claim_token, execution_status: 'completed', exit_code: 0, sandbox_id, command_id?, completed_at, error: null }`.
+   - Also write a prompt file or metadata file if useful, but do not execute Codex.
+   - Call `markAttemptStarted` with real sandbox id if available and command `sandbox-fake-runner`.
+   - Run `node wrapper.js` in the sandbox with env containing callback URL and mediator secret. The callback URL should come from body or request origin for local testing. Body can support `{ "callbackBaseUrl": "https://..." }`; default to request origin.
+   - Return sandbox id, command summary, prompt length/preview, and current transition/callback info if possible.
+   - Stop sandbox after command completes.
+3. Avoid storing raw mediator secret in events. Do not return it.
+4. Keep this synchronous/waiting for command completion for this fake slice. Long detached Workflow comes later.
+5. No Codex, no GitHub writes, no source init yet.
+
+Checks:
+- `pnpm exec tsc --noEmit`
+- `pnpm lint`
+
+Do not commit.
