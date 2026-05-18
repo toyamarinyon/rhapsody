@@ -1,0 +1,276 @@
+実装初めていけそう？とりあえず永続層の検討がいるような気はしているのですが、不要でしたら教えてください。
+
+---
+
+まずはディスカッションしたいよ
+
+---
+
+Tursoがいいかなと思っています。
+
+---
+
+drizzle使うもんかなーと思っていましたが、確かに生SQL + `@libsql/client` もいいか
+
+---
+
+なるほど、なんかこういう意思決定をADRとして残しつつ [SPEC.md](docs/SPEC.md) も更新できるといいですね。どう思います？
+
+---
+
+いいですね。 [SPEC.md](docs/SPEC.md) 側に ADRのリンクがあるとなお良さそうです。
+
+---
+
+他に実装を始める前に検討し意思決定が必要なものはありますか？
+
+---
+
+# Selected text:
+
+## Selection 1
+State Store の最小スキーマと claim lifecycle を決める
+
+## My request for Codex:
+これからやっていきましょう。議論のポイントを教えてください。
+
+---
+
+# Selected text:
+
+## Selection 1
+1. claim を独立テーブルにするか
+
+## My request for Codex:
+独立テーブルにしない場合の設計はどうなります？
+
+---
+
+独立テーブルの方が色々良さそうに思います。
+他の検討項目についても考えられる選択肢とProps/Consあなたのおすすめをまとめて表にしてください。
+
+---
+
+良さそうです。あなたの提案の場合、現時点で見送っているのは何になりますか？
+
+---
+
+良さそうなので、これでADR作成と [SPEC.md](docs/SPEC.md) の更新お願いします。
+
+---
+
+次の議論に進みましょう
+
+---
+
+まず、このプロダクトはSaaSではなくて、個人や将来的には開発チームで使えればいいと思っています。
+なので、全体公開+認証というよりは、GitHub ログイン + usernameやorgやteamで認証・認可が全体にかかるイメージです。
+APIの認証・認可はどうしましょうというところですが、不特定多数を相手にする必要ないのは同じです。
+GitHub Appを本命設計というのはそうですが、一方で、このレポジトリは公開して、各々がVercelにデプロイして手軽に試して欲しいんですよね。そういう意味ではPATはかなり楽。 `gh auth token | pbcopy`
+あと、Codexの認証ですが、これはLogin with ChatGPTにして、ChatGPTのsubscriptionで使えるようにしようと思っています。auth.json をVercelのEnvironemnt Variablesに登録してそれを使って認証できないかなと思っています。
+ただ、Sandbox内に auth.json を保存するのは危険なので、 https://vercel.com/docs/vercel-sandbox/concepts/firewall#credentials-brokering で実現したくて、それをどうやるかはこれからの検証です。
+
+私の考えはこんなところです。どうでしょう？
+
+---
+
+sandboxにはauth.jsonのダミーファイルを置いて、実際にはどこかでapi実行していると思うので、そこをCredential Breachingで置き換えるイメージです。検証は必要そうですが、多分なんとかなるんじゃないかと思っています。どうでしょう？
+
+---
+
+誰かやってそうなので調べてみて欲しいサブエージェント使って手分けして探すといいかも
+
+---
+
+codexの実装を見たほうが早いかもgithubにある
+
+---
+
+ChatGPT OAuth refresh flowでできないと意味ないんですよね。
+検証するプロジェクト作っていろいろ試してみるのがいいですかね。
+
+このレポジトリにするとややこしいので、新しいプロジェクトに書くプロンプトください
+
+---
+
+/Users/toyamarinyon/Documents/Codex x Vercel Sandbox で検証したので結果を見てみてください。
+
+---
+
+github loginと言っていたのですが、login用にgithub appの作成が必要で手間なので、環境変数にROOT_PASSWORD設定してしてそれを入力する感じがいいかも
+
+---
+
+いいですね。ADR003は認証のみにして、004でLogin with ChatGPTについて書くのが良さそうです。
+004の方、　/Users/toyamarinyon/Documents/Codex x Vercel Sandbox のリンクを置いても読めないので、　/Users/toyamarinyon/Documents/Codex x Vercel Sandbox の内容をもとにまとめたドキュメントをADRに書きましょう
+
+---
+
+他の検討事項はなんでしたっけ？
+
+---
+
+GitHub Project access / credential modelはPATで進めましょう。
+permissions/scopes、scheduler-owned writes と agent-owned writes の境界については整理して提案して欲しいです。
+
+Workflow SDK の導入境界についても構成案が欲しいです。
+
+---
+
+# Selected text:
+
+## Selection 1
+agent はコード変更と説明を生成する。GitHub への書き込みは runner が行う。
+
+## My request for Codex:
+これどうやって、実現します？
+agent(=Codex CLI)がSandboxでコードを変更してcommit, pushはできますが、説明はどうやります？
+
+---
+
+CodexCLIにPull requestの作成やCommentの作成まで依頼してGitHub TokenをCredential Broakeringでやればどう？
+
+---
+
+ちなみにSymphonyはどうやってますか？ [ORIGINAL_SPEC.md](docs/ORIGINAL_SPEC.md) をみてもいいし、コードは /Users/toyamarinyon/repo/openai/symphony にあります
+
+---
+
+mediator(Proxy)でやりましょう。どんな設計なりますかね。どうやると絞れるでしょう？
+
+---
+
+# Selected text:
+
+## Selection 1
+git push は最初 runner-owned
+
+## My request for Codex:
+これどうやるんです？FSはsandboxにありますよね
+
+---
+
+そもそもcommitをagentに作らせると何が危険ですか？
+
+---
+
+どこまで安全にしましょうね。
+
+---
+
+どこまで安全にしましょうね。ローカルでCodex使っていても同じような問題はありますが気にしてないです
+
+---
+
+いいかなと思います。proxyするときにrunIdを付与して、runIdからorg,repo,issue numberを取り出して、それがエンドポイントと整合するかチェックすれば良さそうです
+
+---
+
+claimTokenなくても、mediator_secretみたいなのを固定で作っておいて、それ使えば十分じゃないですか？
+
+---
+
+良いと思います。これでADR作りましょう
+
+---
+
+残りの検討ポイントはなんですかね。
+
+---
+
+# Selected text:
+
+## Selection 1
+Workflow SDK の導入境界
+
+## My request for Codex:
+これは具体的にどんなことを決める必要がありますか？
+
+---
+
+mermeidでそれぞれ図示してください。
+
+---
+
+# Selected text:
+
+## Selection 1
+Codex 実行部分を detached + poll にする案です。
+
+## My request for Codex:
+ここなんですけど、WorkflowはVercel Functionで実行します。最長実行時間が800秒です。
+Sandboxは5時間実行できます。pollだとうまくいかないんだろうなと思っています。
+
+---
+
+# Selected text:
+
+## Selection 1
+ここは Vercel Workflow SDK の機能確認が必要です。もし signal/event wait があるならそれを使う。
+
+## My request for Codex:
+これ調べてください。
+
+---
+
+良いですね。それでADR作りましょう
+
+---
+
+残りの検討ポイントは？
+
+---
+
+[toyamarinyon/rhapsody](https://github.com/toyamarinyon/rhapsody) にそれぞれissue作って検討できるようにしましょう。それぞれ、ADRを書くこと、ADRを書いたら [SPEC.md](docs/SPEC.md) に参照を書くことなどゴールイメージを記載してください。
+
+---
+
+それぞれ検討がすぐに始められるようにあなたが思う案と、懸念点をまとめておいてください。複数ある場合はpros,consにまとめてください
+
+---
+
+優先度ラベルで表現してください
+
+---
+
+highのissueは全部検討終わって、ADRにしたので一度見てみてください。
+
+---
+
+> before_run / after_run / after_create の設定元が浮いています。
+
+これはYAML front matterではやらずに決め打ちでjobの状態更新をするイメージでした。event発行とも言えるかも（ここの語彙を揃える）
+
+> .codex/config.toml の安全境界はもう少し強く書いた方がよさそうです。
+
+Codexのsandboxの設定はyolo固定ですね。Vercel Sandbox内で実行するのでなんでもやっていいです。
+その上で、ネットワークアクセス、特にSide effectはMediatorでやります。
+安全境界を強く書くというか、.codex/config.tomlをコピーして使うが、いくつかの設定はoverrideしたりネットワークはmediatorを経由して実行するということを書いた方が良さそうですね。
+
+> ADR 0007 の古い workflow file 契約が Decision 本文に残っています。
+
+全体の整合性が合うように表現を調整してください。
+
+> SPEC の Git Provider Client が少し古いままです。
+
+お願いします。
+
+---
+
+> before_run / after_run / after_create の設定元が浮いています。
+
+これはYAML front matterではやらずに決め打ちでjobの状態更新をするイメージでした。event発行とも言えるかも（ここの語彙を揃える）
+
+> .codex/config.toml の安全境界はもう少し強く書いた方がよさそうです。
+
+Codexのsandboxの設定はyolo固定ですね。Vercel Sandbox内で実行するのでなんでもやっていいです。
+その上で、ネットワークアクセス、特にSide effectはMediatorでやります。
+安全境界を強く書くというか、.codex/config.tomlをコピーして使うが、いくつかの設定はoverrideしたりネットワークはmediatorを経由して実行するということを書いた方が良さそうですね。
+
+> ADR 0007 の古い workflow file 契約が Decision 本文に残っています。
+
+全体の整合性が合うように表現を調整してください。
+
+> SPEC の Git Provider Client が少し古いままです。
+
+お願いします。
