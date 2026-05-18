@@ -1,0 +1,30 @@
+Next small slice: add minimal read APIs so the manual run we created is observable. Keep scope read-only state/API; no UI, no GitHub, no workflows.
+
+Context:
+- Protected manual endpoints are committed.
+- Runtime verification succeeded for migration and creating a manual run.
+- We need visibility next.
+
+Task:
+1. Add state-store read helpers to fetch a run detail by `runId`, including:
+   - run row
+   - attempts for the run ordered by attempt_number
+   - events for the run ordered by created_at
+   - claim row for the run/work item if available
+2. Add `GET /api/v1/runs/[runId]` route:
+   - Node runtime.
+   - Requires the same admin auth helper.
+   - Returns 404 if not found.
+   - Returns JSON detail if found.
+3. Add `GET /api/v1/state` route:
+   - Node runtime.
+   - Requires admin auth.
+   - Returns a small summary: counts by run status, counts by attempt status, active claim count, recent events limit 20.
+4. Keep SQL raw and simple. No external deps.
+5. Export new store helpers from `lib/state/index.ts`.
+
+Checks:
+- Run `pnpm exec tsc --noEmit`
+- Run `pnpm lint`
+
+Do not commit.
