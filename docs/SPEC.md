@@ -117,10 +117,10 @@ Important boundary:
    - Applies network policy and environment configuration.
    - Ensures commands run only in the sandbox workspace.
 
-8. `Git Provider Client`
-   - Clones repositories into sandboxes.
-   - Creates branches, commits, and pull requests when the workflow asks for them.
-   - May use GitHub App credentials or fine-grained tokens.
+8. `GitHub Integration and Mediator`
+   - Resolves repository, issue, branch, pull request, and ProjectV2 metadata.
+   - Enforces run-scoped mediator authorization for agent-owned GitHub reads and writes.
+   - Uses the MVP PAT credential held by trusted Rhapsody code; GitHub App credentials are deferred.
 
 9. `Dashboard and API`
    - Next.js UI plus JSON endpoints for current state, issue details, refresh triggers, and run logs.
@@ -319,6 +319,13 @@ The repository may also contain normal Codex CLI configuration:
 These files are Codex-native configuration, not Rhapsody workflow schema. The runner launches Codex
 from the repository root inside the sandbox so Codex can discover and use them normally.
 
+Rhapsody may copy or mount `.codex/` configuration into the prepared sandbox workspace, but the
+wrapper invocation remains Rhapsody-owned. Codex approval/sandbox mode is fixed for Rhapsody
+execution; the MVP runs Codex in YOLO-style mode inside the Vercel Sandbox because the Sandbox is
+the isolation boundary. Network access and external side effects are constrained by sandbox network
+policy and the trusted mediators. Repository-owned Codex config cannot weaken Rhapsody's sandbox,
+mediator, credential, or post-run verification boundaries.
+
 ### 5.2 Instruction Template Contract
 
 `.rhapsody/INSTRUCTIONS.md` is the per-work-item prompt template.
@@ -471,14 +478,13 @@ Required steps:
 3. Create or restore a Vercel Sandbox.
 4. Apply sandbox network policy and environment.
 5. Prepare source code in the sandbox.
-6. Run `after_create` if the sandbox/workspace was newly initialized.
+6. Emit runner events and state updates for sandbox/source readiness.
 7. Render prompt.
 8. Prepare brokered agent authentication without writing real credentials into the sandbox.
-9. Prepare wrapper inputs, including rendered prompt, hook metadata, and any configured
-   `before_run` or `after_run` commands.
+9. Prepare wrapper inputs, including rendered prompt, Workflow hook metadata, and event metadata.
 10. Create a deterministic Workflow hook token for this attempt.
-11. Launch the wrapper inside the sandbox workspace. The wrapper runs `before_run`, `codex exec`,
-    `after_run`, and terminal callback delivery.
+11. Launch the wrapper inside the sandbox workspace. The wrapper emits fixed runner events around
+    `codex exec` and delivers the terminal callback.
 12. Persist sandbox ID, command ID, callback metadata, and attempt status.
 13. Pause on the Workflow hook until the wrapper posts a terminal callback.
 14. Resume from the callback payload.
@@ -495,7 +501,7 @@ invocation. Agent execution completion is callback-driven, with watchdog reconci
 fallback. See [ADR 0006](adr/0006-use-callback-driven-workflow-orchestration.md).
 
 For the MVP, agent execution uses a TypeScript/Node sandbox wrapper. The wrapper is the
-sandbox-side attempt executor and owns `before_run`, `codex exec`, `after_run`, and terminal
+sandbox-side attempt executor and owns fixed runner event emission around `codex exec` plus terminal
 callback delivery. It reports observed execution status only; the runner workflow evaluates final
 attempt and run status after GitHub handoff verification and policy checks. See
 [ADR 0011](adr/0011-use-sandbox-wrapper-for-mvp-runner-execution.md).

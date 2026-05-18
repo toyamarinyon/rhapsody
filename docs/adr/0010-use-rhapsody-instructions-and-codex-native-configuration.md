@@ -116,6 +116,19 @@ Rhapsody-owned safety and scheduling settings remain outside `.codex/`:
 Those settings are defined in trusted Rhapsody configuration and code, not in repository prompt or
 Codex config files.
 
+The runner may copy or mount repository-owned `.codex/` files into the sandbox workspace so Codex can
+use normal repository configuration. However, the wrapper invocation remains host-owned. Rhapsody
+MUST override or constrain Codex settings that define the execution boundary for sandboxed runs:
+
+- Codex approval/sandbox mode is fixed for Rhapsody execution. The MVP runs Codex in YOLO-style mode
+  inside the Vercel Sandbox because the Sandbox is the isolation boundary.
+- Network access, especially external side effects, is constrained by sandbox network policy and the
+  trusted mediators.
+- Real ChatGPT and GitHub credentials are never delegated to `.codex/` configuration or repository
+  instructions.
+- Repository-owned Codex config may tune normal Codex behavior, model choice, and subagents, but it
+  cannot weaken Rhapsody's sandbox, mediator, credential, or post-run verification boundaries.
+
 ## Runner Behavior
 
 The MVP runner sequence is:
@@ -126,7 +139,8 @@ The MVP runner sequence is:
 4. Verify `.rhapsody/INSTRUCTIONS.md` exists.
 5. Render `.rhapsody/INSTRUCTIONS.md` with the work item context.
 6. Launch Codex from the repository root through the sandbox wrapper.
-7. Let Codex read `.codex/config.toml` and `.codex/agents/*.toml` normally.
+7. Let Codex read `.codex/config.toml` and `.codex/agents/*.toml` normally, while applying
+   Rhapsody-owned overrides for sandbox mode, network access, and credential boundaries.
 8. Await the wrapper completion callback.
 9. Verify GitHub handoff and post-run policy.
 10. Finalize the attempt and release the claim.

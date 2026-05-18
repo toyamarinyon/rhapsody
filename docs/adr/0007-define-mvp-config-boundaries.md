@@ -29,7 +29,12 @@ Use three MVP configuration layers:
 
 1. Environment variables define secrets and deployment infrastructure.
 2. `rhapsody.config.ts` defines the single GitHub Project scheduler boundary.
-3. `RHAPSODY.md`, with fallback to `WORKFLOW.md`, defines team workflow guidance for the agent.
+3. Repository-owned instructions define team workflow guidance for the agent.
+
+The original decision selected `RHAPSODY.md`, with fallback to `WORKFLOW.md`, for repository-owned
+guidance. That file naming decision is superseded by
+[ADR 0010](0010-use-rhapsody-instructions-and-codex-native-configuration.md), which uses
+`.rhapsody/INSTRUCTIONS.md` and Codex-native `.codex/` configuration.
 
 The MVP is intentionally single-project. Do not design a partial multi-project or multi-tenant
 configuration model yet. If Rhapsody later needs multiple projects or tenants, revisit the config,
@@ -60,7 +65,8 @@ MVP environment variables include:
 `no-ish` means the value is not a credential by itself but can reveal deployment topology and should
 not be logged casually.
 
-Raw secrets MUST NOT be stored in `rhapsody.config.ts`, `RHAPSODY.md`, or `WORKFLOW.md`.
+Raw secrets MUST NOT be stored in `rhapsody.config.ts`, repository-owned instruction files, or
+Codex configuration files.
 
 ## `rhapsody.config.ts`
 
@@ -111,13 +117,14 @@ It does not own:
 - per-task completion rules such as a single `handoff_status`;
 - general multi-project routing.
 
-## `RHAPSODY.md`
+## Repository Instructions
 
-`RHAPSODY.md` is repository-owned team workflow guidance. It tells the agent how to behave inside the
-world that Rhapsody has already constrained.
+Repository instructions are repository-owned team workflow guidance. They tell the agent how to
+behave inside the world that Rhapsody has already constrained.
 
-For the MVP, `RHAPSODY.md` may be plain Markdown prompt text with no required YAML front matter.
-`WORKFLOW.md` remains a fallback filename for compatibility with the original Symphony convention.
+This ADR originally named that file `RHAPSODY.md`, with `WORKFLOW.md` fallback for compatibility
+with the original Symphony convention. ADR 0010 replaces that with `.rhapsody/INSTRUCTIONS.md` and
+removes the fallback behavior.
 
 Example:
 
@@ -136,8 +143,8 @@ Do not add a first-class `handoff_status` setting in the MVP. Some tasks should 
 review, some can be answered directly, and some should remain active with a clarifying comment. That
 choice is part of the agent's contextual workflow judgment, guided by the prompt.
 
-YAML front matter can be added later for runner-specific settings such as validation commands,
-hooks, or agent limits, but the MVP does not require it.
+YAML front matter is not part of the current MVP contract. Runner state transitions and event
+emission are owned by Rhapsody runner code rather than repository-owned front matter.
 
 ## Mediator Checks
 
@@ -190,18 +197,21 @@ Positive consequences:
 
 - Non-secret project configuration is visible in source as `rhapsody.config.ts`.
 - Rhapsody keeps a narrow single-project MVP instead of prematurely designing multi-tenancy.
-- `RHAPSODY.md` stays expressive and team-owned rather than becoming a rigid workflow program.
+- Repository instructions stay expressive and team-owned rather than becoming a rigid workflow
+  program.
 - Safety-critical side effects are enforced by trusted mediator checks.
 
 Negative consequences:
 
 - The MVP cannot configure different authority policies per project.
-- Some runner behavior is fixed until `RHAPSODY.md` front matter is introduced.
+- Some runner behavior is fixed until Rhapsody deliberately introduces repository-configurable
+  runtime settings.
 - Multi-project support will require a deliberate redesign rather than a small config change.
 
 ## Revisit When
 
 - Operators need multiple projects or tenants in one deployment.
 - Mediator checks become complex enough to justify a first-class policy module.
-- Repositories need configurable validation commands, hooks, or agent limits in `RHAPSODY.md`.
+- Repositories need configurable validation commands, runner events, or agent limits beyond
+  `.rhapsody/INSTRUCTIONS.md` and Codex-native `.codex/` configuration.
 - GitHub App installation credentials replace the MVP GitHub token.

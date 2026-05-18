@@ -15,9 +15,9 @@ which branches were updated by reading packfile contents before GitHub accepts t
 therefore needs a post-run verification step after the sandbox wrapper completes and before the run
 is marked successful.
 
-ADR 0011 separates wrapper execution status from final run evaluation. A successful `codex exec`
-or `after_run` command is necessary signal, but it is not enough to prove that the work was handed
-to the correct repository, branch, base, issue, project item, or pull request.
+ADR 0011 separates wrapper execution status from final run evaluation. Successful wrapper execution
+and `codex exec` completion are necessary signals, but they are not enough to prove that the work was
+handed to the correct repository, branch, base, issue, project item, or pull request.
 
 ## Decision
 

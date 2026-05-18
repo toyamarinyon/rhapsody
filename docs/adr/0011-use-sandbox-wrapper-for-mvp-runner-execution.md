@@ -20,8 +20,8 @@ Two plausible Codex runner shapes exist:
 
 Running `codex exec` directly is simpler, but it leaves Rhapsody dependent on Sandbox command APIs
 for completion detection, timeout handling, execution status, and Workflow resumption. The direct
-command also has no Rhapsody-native place to run sandbox-local hooks after the Workflow has paused
-or timed out.
+command also has no Rhapsody-native place to emit consistent runner events and state transitions
+after the Workflow has paused or timed out.
 
 ## Decision
 
@@ -33,10 +33,13 @@ pauses on the Workflow hook.
 
 The wrapper is the sandbox-side attempt executor. It runs, in order:
 
-1. `before_run`
-2. `codex exec`
-3. `after_run`
-4. terminal callback delivery
+1. emit `agent_execution_started`;
+2. run `codex exec`;
+3. emit `agent_execution_finished`;
+4. deliver the terminal callback.
+
+These are fixed Rhapsody runner events and state updates, not repository-configurable YAML front
+matter hooks.
 
 The wrapper is intentionally not the source of truth for run success. It reports observed execution
 status. The runner workflow records that execution status, then evaluates final attempt and run
@@ -48,7 +51,8 @@ The wrapper owns:
 
 - validating its required runtime inputs;
 - running from the normalized sandbox workspace path;
-- executing `before_run`, `codex exec`, and `after_run` in sequence;
+- emitting fixed runner events around `codex exec`;
+- executing `codex exec`;
 - preserving the Codex process exit code as execution status input;
 - applying wrapper-level timeout behavior when configured;
 - sending exactly one terminal callback when possible;
@@ -86,14 +90,14 @@ The runner workflow then evaluates:
 - final run status, including retrying, succeeded, failed, or abandoned.
 
 A successful wrapper execution is necessary but not sufficient for a successful run. For example,
-`codex exec` and `after_run` may exit successfully while GitHub handoff verification fails. In that
-case, execution status is successful but the evaluated attempt or run can still fail.
+`codex exec` may exit successfully while GitHub handoff verification fails. In that case, execution
+status is successful but the evaluated attempt or run can still fail.
 
-## Hooks and Workflow Timeout
+## Runner Events and Workflow Timeout
 
-`before_run` and `after_run` run inside the wrapper rather than as separate runner workflow steps.
-The runner workflow may be paused, timed out, retried, or otherwise unavailable while sandbox work
-is active. Keeping sandbox-local hooks inside the wrapper makes the attempt execution sequence
+Runner execution events run inside the wrapper rather than as separate runner workflow steps. The
+runner workflow may be paused, timed out, retried, or otherwise unavailable while sandbox work is
+active. Keeping fixed event emission inside the wrapper makes the attempt execution sequence
 self-contained after the wrapper command starts.
 
 ## Heartbeats
@@ -130,7 +134,7 @@ Sandbox logging facilities.
 ### Direct `codex exec` without a wrapper
 
 This has less code and may be useful for early spikes. It was rejected for the MVP architecture
-because it does not provide a Rhapsody-owned completion contract, hook execution boundary, callback
+because it does not provide a Rhapsody-owned completion contract, runner event boundary, callback
 retry point, or clear place to separate execution status from run evaluation.
 
 If Vercel Sandbox later provides durable command completion events that can directly resume Workflow
@@ -151,7 +155,8 @@ Positive consequences:
 
 - The MVP has a concrete sandbox-side execution contract.
 - Runner workflows can pause while sandbox work continues.
-- `before_run`, `codex exec`, and `after_run` execute as one sandbox-local attempt sequence.
+- Runner event emission, `codex exec`, and callback delivery execute as one sandbox-local attempt
+  sequence.
 - Execution facts and final run evaluation remain separate.
 - The wrapper can stay small while preserving room for callback retry, timeout, and future
   heartbeat support.
@@ -166,7 +171,7 @@ Negative consequences:
 ## Revisit When
 
 - Vercel Sandbox command APIs provide durable completion events that can directly resume Workflow
-  hooks with enough execution metadata.
+  hooks and replace wrapper event emission with enough execution metadata.
 - Codex app-server plus sandbox exec-server is proven viable for Rhapsody's Vercel Sandbox
   networking and security model.
 - Rhapsody needs richer log, artifact, heartbeat, or cancellation behavior than the MVP wrapper
