@@ -1,9 +1,9 @@
 import { createClient, type Client } from "@libsql/client";
 
-import { loadRhapsodyServerEnv, type RhapsodyServerEnv } from "../config";
+import { loadRhapsodyStateStoreEnv, type RhapsodyStateStoreEnv } from "../config";
 
 export function createStateStoreClient(
-	env: RhapsodyServerEnv = loadRhapsodyServerEnv(),
+	env: RhapsodyStateStoreEnv = loadRhapsodyStateStoreEnv(),
 ): Client {
 	return createClient({
 		url: env.TURSO_DATABASE_URL,

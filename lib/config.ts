@@ -42,6 +42,8 @@ export type RhapsodyServerEnv = {
 	VERCEL_PROJECT_ID: string;
 };
 
+export type RhapsodyStateStoreEnv = Pick<RhapsodyServerEnv, "TURSO_DATABASE_URL" | "TURSO_AUTH_TOKEN">;
+
 const REQUIRED_ENV_KEYS = [
 	"ROOT_PASSWORD",
 	"AUTH_SECRET",
@@ -53,6 +55,11 @@ const REQUIRED_ENV_KEYS = [
 	"VERCEL_TEAM_ID",
 	"VERCEL_PROJECT_ID",
 ] as const satisfies readonly (keyof RhapsodyServerEnv)[];
+
+const REQUIRED_STATE_STORE_ENV_KEYS = [
+	"TURSO_DATABASE_URL",
+	"TURSO_AUTH_TOKEN",
+] as const satisfies readonly (keyof RhapsodyStateStoreEnv)[];
 
 export class RhapsodyConfigError extends Error {
 	constructor(readonly issues: string[]) {
@@ -67,10 +74,21 @@ export function loadRhapsodyConfig(): RhapsodyProjectConfig {
 }
 
 export function loadRhapsodyServerEnv(env = process.env): RhapsodyServerEnv {
-	const issues: string[] = [];
-	const values = {} as RhapsodyServerEnv;
+	return loadRequiredEnv(env, REQUIRED_ENV_KEYS);
+}
 
-	for (const key of REQUIRED_ENV_KEYS) {
+export function loadRhapsodyStateStoreEnv(env = process.env): RhapsodyStateStoreEnv {
+	return loadRequiredEnv(env, REQUIRED_STATE_STORE_ENV_KEYS);
+}
+
+function loadRequiredEnv<const TKey extends string>(
+	env: NodeJS.ProcessEnv,
+	keys: readonly TKey[],
+): Record<TKey, string> {
+	const issues: string[] = [];
+	const values = {} as Record<TKey, string>;
+
+	for (const key of keys) {
 		const value = env[key];
 
 		if (!value?.trim()) {
