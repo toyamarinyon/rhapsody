@@ -1,0 +1,26 @@
+Next small slice: make manual run creation useful for dogfooding by allowing an operator to start a run from a GitHub issue number. Keep scope GitHub read + existing run creation only; no ProjectV2 resolution, no writes, no Sandbox.
+
+Task:
+1. Add a narrow GitHub env loader in `lib/config.ts`, e.g. `RhapsodyGitHubEnv` with only `GITHUB_TOKEN`, so GitHub read code doesn't require all server env.
+2. Add a minimal GitHub issue client module, e.g. `lib/github/issues.ts`, using native `fetch`:
+   - Fetch `GET /repos/{owner}/{repo}/issues/{issue_number}`.
+   - Use token auth from `GITHUB_TOKEN`.
+   - Return a typed normalized issue with `number`, `id`, `nodeId`, `title`, `body`, `htmlUrl`, `state`, `labels` maybe optional.
+   - Treat non-2xx as a typed error or throw with a useful message, but do not log tokens.
+3. Extend `POST /api/v1/runs` to accept either:
+   - existing manual payload with `workItemId` + `workItemTitle`, OR
+   - `{ "issueNumber": 123, "claimedBy": "manual" }`.
+4. For `issueNumber`, use `loadRhapsodyConfig()` repository owner/name, fetch the issue, and create a manual claimed run with:
+   - `workItemId`: something stable like `github_issue:${owner}/${repo}#${number}` for now,
+   - `workItemTitle`: issue title,
+   - `workItemUrl`: html_url,
+   - `workItemStatus`: issue state,
+   - `workItemSnapshot`: normalized issue plus repository metadata.
+5. Keep response shape compatible with current route. Maybe include `source: "github_issue"` if useful.
+6. Keep no external deps.
+
+Checks:
+- Run `pnpm exec tsc --noEmit`
+- Run `pnpm lint`
+
+Do not commit.
