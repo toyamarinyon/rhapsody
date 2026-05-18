@@ -1,4 +1,5 @@
 import { loadRhapsodyConfig } from "@/lib/config";
+import { fetchGitHubIssue, GitHubIssueFetchError } from "@/lib/github/issues";
 import { requireAdminAuth } from "@/lib/server/admin-auth";
 import { isRecord, optionalString, readJson } from "@/lib/server/json";
 import { createClaimedManualRun, createStateStoreClient } from "@/lib/state";
@@ -13,6 +14,13 @@ type ManualRunRequest = {
 	workItemSnapshot?: unknown;
 	claimedBy?: string;
 };
+
+type GitHubIssueRunRequest = {
+	issueNumber: number;
+	claimedBy?: string;
+};
+
+type RunRequest = ManualRunRequest | GitHubIssueRunRequest;
 
 export async function POST(request: Request) {
 	const auth = requireAdminAuth(request);
@@ -34,12 +42,19 @@ export async function POST(request: Request) {
 	}
 
 	const config = loadRhapsodyConfig();
+	const runInputResult = await resolveRunInput(parsed.value, config);
+
+	if (!runInputResult.ok) {
+		return runInputResult.response;
+	}
+
+	const runInput = runInputResult.value;
 	const client = createStateStoreClient();
 
 	try {
 		const result = await createClaimedManualRun(client, {
-			...parsed.value,
-			claimedBy: parsed.value.claimedBy ?? "manual",
+			...runInput,
+			claimedBy: runInput.claimedBy ?? "manual",
 			claimTtlMs: config.scheduler.claimTtlMs,
 		});
 
@@ -53,9 +68,13 @@ export async function POST(request: Request) {
 	}
 }
 
-function parseManualRunRequest(value: unknown): { ok: true; value: ManualRunRequest } | { ok: false; error: string } {
+function parseManualRunRequest(value: unknown): { ok: true; value: RunRequest } | { ok: false; error: string } {
 	if (!isRecord(value)) {
 		return { ok: false, error: "Request body must be a JSON object." };
+	}
+
+	if ("issueNumber" in value) {
+		return parseGitHubIssueRunRequest(value);
 	}
 
 	if (typeof value.workItemId !== "string" || !value.workItemId.trim()) {
@@ -97,6 +116,88 @@ function parseManualRunRequest(value: unknown): { ok: true; value: ManualRunRequ
 			workItemStatus,
 			workItemSnapshot: value.workItemSnapshot,
 			claimedBy,
+		},
+	};
+}
+
+function parseGitHubIssueRunRequest(
+	value: Record<string, unknown>,
+): { ok: true; value: GitHubIssueRunRequest } | { ok: false; error: string } {
+	const issueNumber = value.issueNumber;
+
+	if (typeof issueNumber !== "number" || !Number.isInteger(issueNumber) || issueNumber <= 0) {
+		return { ok: false, error: "issueNumber must be a positive integer." };
+	}
+
+	const claimedBy = optionalString(value.claimedBy);
+
+	if (claimedBy === null || (claimedBy === undefined && "claimedBy" in value)) {
+		return { ok: false, error: "claimedBy must be a string when provided." };
+	}
+
+	if (claimedBy !== undefined && !claimedBy.trim()) {
+		return { ok: false, error: "claimedBy must be a non-empty string when provided." };
+	}
+
+	return {
+		ok: true,
+		value: {
+			issueNumber,
+			claimedBy,
+		},
+	};
+}
+
+async function resolveRunInput(
+	request: RunRequest,
+	config: ReturnType<typeof loadRhapsodyConfig>,
+): Promise<
+	| { ok: true; value: ManualRunRequest & { source?: "github_issue" } }
+	| { ok: false; response: Response }
+> {
+	if (!("issueNumber" in request)) {
+		return { ok: true, value: request };
+	}
+
+	let issue;
+
+	try {
+		issue = await fetchGitHubIssue({
+			owner: config.repository.owner,
+			repository: config.repository.name,
+			issueNumber: request.issueNumber,
+		});
+	} catch (error) {
+		if (error instanceof GitHubIssueFetchError) {
+			return {
+				ok: false,
+				response: Response.json(
+					{ error: error.status === 404 ? "GitHub issue not found." : "GitHub issue fetch failed." },
+					{ status: error.status === 404 ? 404 : 502 },
+				),
+			};
+		}
+
+		throw error;
+	}
+
+	return {
+		ok: true,
+		value: {
+			source: "github_issue",
+			workItemId: `github_issue:${config.repository.owner}/${config.repository.name}#${issue.number}`,
+			workItemTitle: issue.title,
+			workItemUrl: issue.htmlUrl,
+			workItemStatus: issue.state,
+			workItemSnapshot: {
+				source: "github_issue",
+				repository: {
+					owner: config.repository.owner,
+					name: config.repository.name,
+				},
+				issue,
+			},
+			claimedBy: request.claimedBy,
 		},
 	};
 }
