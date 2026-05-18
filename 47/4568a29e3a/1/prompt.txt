@@ -1,0 +1,53 @@
+You are the builder subagent for Rhapsody. Continue in small increments. The user asked that implementation is delegated to builder while the main agent reviews and owns the goal.
+
+Task: implement the next small slice only: attempt state transitions and a minimal runner callback API so fake/manual runner progress can be recorded.
+
+Context:
+- Repo: /Users/toyamarinyon/Documents/rhapsody
+- Follow AGENTS.md.
+- Existing state/API foundation is committed through `407721c feat: start manual runs from GitHub issues`.
+- Relevant docs: docs/SPEC.md section 7.1, ADR 0002, ADR 0011, ADR 0012.
+- Do not touch unrelated files. You are not alone in the codebase; do not revert edits made by others.
+
+Desired scope:
+1. Add state-store helpers for:
+   - marking an attempt started/running with fencing validation against `run_id`, `attempt_id`, and `claim_token`.
+   - applying a terminal callback idempotently: update attempt execution fields (`status`, `exit_code`, `started_at`, `finished_at`, maybe `sandbox_id`/`command`), update run status separately but minimally, append an event.
+2. Keep final evaluation simple for this slice:
+   - callback `execution_status: "completed"` with `exit_code: 0` may mark attempt `completed` and run `completed` for now.
+   - callback `execution_status: "timed_out"` marks attempt/run `timed_out`.
+   - callback `execution_status: "stopped"` marks attempt/run `canceled`.
+   - otherwise mark attempt/run `failed`.
+   - We know post-run verification will later refine this; add comments only if needed.
+3. Use the existing `claim_token` from the run/claim as a fencing token. If missing/mismatched/expired/terminal, return a typed not-applied result rather than silently updating.
+4. Add minimal protected callback route, suggested path `POST /api/internal/runs/callback`:
+   - Node runtime.
+   - Authenticate with `X-Rhapsody-Mediator-Secret: <MEDIATOR_SECRET>` using a narrow env loader if needed.
+   - Accept JSON: `run_id`, `attempt_id`, `claim_token`, `execution_status`, optional `exit_code`, optional `sandbox_id`, optional `command_id`, optional `started_at`, optional `completed_at`, optional `error`.
+   - Return 202/200 for applied/idempotent result, 409 for stale/fencing mismatch, 400 invalid input.
+5. Add a protected manual start route if it makes verification easier, e.g. `POST /api/v1/runs/[runId]/attempts/[attemptId]/start` with admin auth, but keep it minimal. It should call the same state helper. If this feels too much, skip it and only implement callback.
+6. Keep SQL raw and visible. No new dependencies.
+7. Export new helpers/types from `lib/state/index.ts`.
+
+Checks:
+- Run `pnpm exec tsc --noEmit`
+- Run `pnpm lint`
+
+Do not commit.
+
+---
+
+Review result: callback API works in local smoke test, including idempotent repeat callback. I want one small addition before accepting this slice so we can verify pending -> running -> completed through HTTP.
+
+Please add a minimal protected manual start route:
+
+`POST /api/v1/runs/[runId]/attempts/[attemptId]/start`
+- Node runtime.
+- Admin auth with existing `requireAdminAuth`.
+- Accept JSON: `claimToken`, optional `sandboxId`, optional `command`, optional `startedAt`.
+- Call `markAttemptStarted`.
+- Return 202 when applied, 200 when idempotent, 409 for not-applied, 400 invalid input.
+- Use the path params for `runId` and `attemptId`, not body fields.
+- Keep parsing helpers local/simple; no dependencies.
+
+Then rerun `pnpm exec tsc --noEmit` and `pnpm lint`. Do not commit.
