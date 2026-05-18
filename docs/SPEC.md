@@ -9,6 +9,9 @@ This document is derived from the Symphony service specification, but Rhapsody d
 the execution model from a long-running local daemon to a Vercel-deployed application made of
 durable workflows, Vercel Functions, persistent state, and sandboxed runners.
 
+For the core product and execution concepts used by this specification, see
+[CONCEPTS.md](CONCEPTS.md).
+
 ## Normative Language
 
 The key words `MUST`, `MUST NOT`, `REQUIRED`, `SHOULD`, `SHOULD NOT`, `RECOMMENDED`, `MAY`, and
