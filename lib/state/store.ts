@@ -1,4 +1,4 @@
-import type { Client } from "@libsql/client";
+import type { Client, Transaction } from "@libsql/client";
 import type { Row } from "@libsql/client";
 
 export type RunStatus =
@@ -168,6 +168,61 @@ export type StateSummary = {
 	recentEvents: StateStoreEvent[];
 };
 
+export type AttemptExecutionStatus = "completed" | "failed" | "timed_out" | "stopped";
+
+export type AttemptStartInput = {
+	runId: string;
+	attemptId: string;
+	claimToken: string;
+	startedAt?: number | null;
+	sandboxId?: string | null;
+	command?: string | null;
+	now?: number;
+	eventId?: string;
+};
+
+export type AttemptTerminalCallbackInput = {
+	runId: string;
+	attemptId: string;
+	claimToken: string;
+	executionStatus: string;
+	exitCode?: number | null;
+	startedAt?: number | null;
+	completedAt?: number | null;
+	sandboxId?: string | null;
+	command?: string | null;
+	error?: string | null;
+	now?: number;
+	eventId?: string;
+};
+
+export type AttemptTransitionNotAppliedReason =
+	| "run_not_found"
+	| "attempt_not_found"
+	| "claim_not_found"
+	| "claim_mismatch"
+	| "claim_expired"
+	| "run_terminal"
+	| "attempt_terminal";
+
+export type AttemptTransitionApplied = {
+	applied: true;
+	idempotent: boolean;
+	runStatus: RunStatus;
+	attemptStatus: AttemptStatus;
+	eventId: string | null;
+	updatedAt: number;
+};
+
+export type AttemptTransitionNotApplied = {
+	applied: false;
+	reason: AttemptTransitionNotAppliedReason;
+	runStatus?: RunStatus;
+	attemptStatus?: AttemptStatus;
+};
+
+export type AttemptTransitionResult = AttemptTransitionApplied | AttemptTransitionNotApplied;
+
 export async function getRunDetail(client: Client, runId: string): Promise<RunDetail | null> {
 	const runResult = await client.execute({
 		sql: `
@@ -306,6 +361,205 @@ export async function getStateSummary(client: Client, now = Date.now()): Promise
 		activeClaimCount: getNumber(activeClaimsResult.rows[0], "count"),
 		recentEvents: recentEventsResult.rows.map(mapEvent),
 	};
+}
+
+export async function markAttemptStarted(
+	client: Client,
+	input: AttemptStartInput,
+): Promise<AttemptTransitionResult> {
+	const now = input.now ?? Date.now();
+	const startedAt = input.startedAt ?? now;
+	const eventId = input.eventId ?? createPrefixedId("evt");
+	const tx = await client.transaction("write");
+
+	try {
+		const validation = await validateAttemptTransition(tx, input, now);
+
+		if (!validation.ok) {
+			await tx.commit();
+			return validation.result;
+		}
+
+		const { run, attempt } = validation;
+
+		if (attempt.status === "running" && run.status === "running") {
+			await tx.commit();
+			return {
+				applied: true,
+				idempotent: true,
+				runStatus: "running",
+				attemptStatus: "running",
+				eventId: null,
+				updatedAt: now,
+			};
+		}
+
+		await tx.execute({
+			sql: `
+				UPDATE attempts
+				SET
+					status = ?,
+					sandbox_id = COALESCE(?, sandbox_id),
+					command = COALESCE(?, command),
+					started_at = COALESCE(started_at, ?),
+					updated_at = ?
+				WHERE id = ? AND run_id = ?
+			`,
+			args: ["running", input.sandboxId ?? null, input.command ?? null, startedAt, now, input.attemptId, input.runId],
+		});
+
+		await tx.execute({
+			sql: `
+				UPDATE runs
+				SET
+					status = ?,
+					started_at = COALESCE(started_at, ?),
+					updated_at = ?
+				WHERE id = ?
+			`,
+			args: ["running", startedAt, now, input.runId],
+		});
+
+		await insertEvent(tx, {
+			id: eventId,
+			runId: input.runId,
+			attemptId: input.attemptId,
+			level: "info",
+			type: "attempt.started",
+			message: "Attempt started.",
+			data: {
+				sandboxId: input.sandboxId ?? null,
+				command: input.command ?? null,
+				startedAt,
+			},
+			now,
+		});
+
+		await tx.commit();
+
+		return {
+			applied: true,
+			idempotent: false,
+			runStatus: "running",
+			attemptStatus: "running",
+			eventId,
+			updatedAt: now,
+		};
+	} catch (error) {
+		await tx.rollback();
+		throw error;
+	} finally {
+		tx.close();
+	}
+}
+
+export async function applyAttemptTerminalCallback(
+	client: Client,
+	input: AttemptTerminalCallbackInput,
+): Promise<AttemptTransitionResult> {
+	const now = input.now ?? Date.now();
+	const completedAt = input.completedAt ?? now;
+	const startedAt = input.startedAt ?? null;
+	const eventId = input.eventId ?? createPrefixedId("evt");
+	const { runStatus, attemptStatus } = evaluateTerminalStatus(input.executionStatus, input.exitCode ?? null);
+	const tx = await client.transaction("write");
+
+	try {
+		const validation = await validateAttemptTransition(tx, input, now, { allowTerminalAttempt: true });
+
+		if (!validation.ok) {
+			await tx.commit();
+			return validation.result;
+		}
+
+		const { run, attempt } = validation;
+
+		if (isTerminalAttemptStatus(attempt.status)) {
+			await tx.commit();
+			return {
+				applied: true,
+				idempotent: true,
+				runStatus: run.status,
+				attemptStatus: attempt.status,
+				eventId: null,
+				updatedAt: now,
+			};
+		}
+
+		await tx.execute({
+			sql: `
+				UPDATE attempts
+				SET
+					status = ?,
+					sandbox_id = COALESCE(?, sandbox_id),
+					command = COALESCE(?, command),
+					exit_code = ?,
+					started_at = COALESCE(started_at, ?),
+					finished_at = COALESCE(finished_at, ?),
+					updated_at = ?
+				WHERE id = ? AND run_id = ?
+			`,
+			args: [
+				attemptStatus,
+				input.sandboxId ?? null,
+				input.command ?? null,
+				input.exitCode ?? null,
+				startedAt ?? completedAt,
+				completedAt,
+				now,
+				input.attemptId,
+				input.runId,
+			],
+		});
+
+		await tx.execute({
+			sql: `
+				UPDATE runs
+				SET
+					status = ?,
+					started_at = COALESCE(started_at, ?),
+					finished_at = COALESCE(finished_at, ?),
+					updated_at = ?
+				WHERE id = ?
+			`,
+			args: [runStatus, startedAt ?? completedAt, completedAt, now, input.runId],
+		});
+
+		await insertEvent(tx, {
+			id: eventId,
+			runId: input.runId,
+			attemptId: input.attemptId,
+			level: attemptStatus === "completed" ? "info" : "error",
+			type: "attempt.terminal_callback",
+			message: `Attempt callback recorded as ${attemptStatus}.`,
+			data: {
+				executionStatus: input.executionStatus,
+				exitCode: input.exitCode ?? null,
+				sandboxId: input.sandboxId ?? null,
+				command: input.command ?? null,
+				startedAt,
+				completedAt,
+				error: input.error ?? null,
+			},
+			now,
+		});
+
+		await tx.commit();
+
+		return {
+			applied: true,
+			idempotent: false,
+			runStatus,
+			attemptStatus,
+			eventId,
+			updatedAt: now,
+		};
+	} catch (error) {
+		await tx.rollback();
+		throw error;
+	} finally {
+		tx.close();
+	}
 }
 
 export async function createClaimedManualRun(
@@ -578,6 +832,219 @@ export async function createEvent(
 	});
 
 	return { id, level, createdAt: now };
+}
+
+type TransitionValidationRow = {
+	runId: string;
+	runStatus: RunStatus;
+	runClaimToken: string;
+	workItemId: string;
+	attemptId: string | null;
+	attemptStatus: AttemptStatus | null;
+	claimToken: string | null;
+	claimRunId: string | null;
+	claimExpiresAt: number | null;
+};
+
+type TransitionValidationResult =
+	| {
+			ok: true;
+			run: { id: string; status: RunStatus };
+			attempt: { id: string; status: AttemptStatus };
+	  }
+	| { ok: false; result: AttemptTransitionNotApplied };
+
+async function validateAttemptTransition(
+	client: Client | Transaction,
+	input: { runId: string; attemptId: string; claimToken: string },
+	now: number,
+	options: { allowTerminalAttempt?: boolean } = {},
+): Promise<TransitionValidationResult> {
+	const result = await client.execute({
+		sql: `
+			SELECT
+				runs.id AS run_id,
+				runs.status AS run_status,
+				runs.claim_token AS run_claim_token,
+				runs.work_item_id AS work_item_id,
+				attempts.id AS attempt_id,
+				attempts.status AS attempt_status,
+				claims.claim_token AS claim_token,
+				claims.run_id AS claim_run_id,
+				claims.claim_expires_at AS claim_expires_at
+			FROM runs
+			LEFT JOIN attempts
+				ON attempts.run_id = runs.id
+				AND attempts.id = ?
+			LEFT JOIN claims
+				ON claims.work_item_id = runs.work_item_id
+			WHERE runs.id = ?
+			LIMIT 1
+		`,
+		args: [input.attemptId, input.runId],
+	});
+	const row = result.rows[0];
+
+	if (!row) {
+		return { ok: false, result: { applied: false, reason: "run_not_found" } };
+	}
+
+	const validationRow: TransitionValidationRow = {
+		runId: getString(row, "run_id"),
+		runStatus: getString(row, "run_status") as RunStatus,
+		runClaimToken: getString(row, "run_claim_token"),
+		workItemId: getString(row, "work_item_id"),
+		attemptId: getNullableString(row, "attempt_id"),
+		attemptStatus: getNullableString(row, "attempt_status") as AttemptStatus | null,
+		claimToken: getNullableString(row, "claim_token"),
+		claimRunId: getNullableString(row, "claim_run_id"),
+		claimExpiresAt: getNullableNumber(row, "claim_expires_at"),
+	};
+
+	if (validationRow.attemptId === null || validationRow.attemptStatus === null) {
+		return {
+			ok: false,
+			result: { applied: false, reason: "attempt_not_found", runStatus: validationRow.runStatus },
+		};
+	}
+
+	if (validationRow.claimToken === null || validationRow.claimRunId === null || validationRow.claimExpiresAt === null) {
+		return {
+			ok: false,
+			result: {
+				applied: false,
+				reason: "claim_not_found",
+				runStatus: validationRow.runStatus,
+				attemptStatus: validationRow.attemptStatus,
+			},
+		};
+	}
+
+	if (
+		input.claimToken !== validationRow.runClaimToken ||
+		input.claimToken !== validationRow.claimToken ||
+		input.runId !== validationRow.claimRunId
+	) {
+		return {
+			ok: false,
+			result: {
+				applied: false,
+				reason: "claim_mismatch",
+				runStatus: validationRow.runStatus,
+				attemptStatus: validationRow.attemptStatus,
+			},
+		};
+	}
+
+	if (validationRow.claimExpiresAt <= now) {
+		return {
+			ok: false,
+			result: {
+				applied: false,
+				reason: "claim_expired",
+				runStatus: validationRow.runStatus,
+				attemptStatus: validationRow.attemptStatus,
+			},
+		};
+	}
+
+	if (
+		isTerminalRunStatus(validationRow.runStatus) &&
+		!(options.allowTerminalAttempt && isTerminalAttemptStatus(validationRow.attemptStatus))
+	) {
+		return {
+			ok: false,
+			result: {
+				applied: false,
+				reason: "run_terminal",
+				runStatus: validationRow.runStatus,
+				attemptStatus: validationRow.attemptStatus,
+			},
+		};
+	}
+
+	if (isTerminalAttemptStatus(validationRow.attemptStatus) && !options.allowTerminalAttempt) {
+		return {
+			ok: false,
+			result: {
+				applied: false,
+				reason: "attempt_terminal",
+				runStatus: validationRow.runStatus,
+				attemptStatus: validationRow.attemptStatus,
+			},
+		};
+	}
+
+	return {
+		ok: true,
+		run: { id: validationRow.runId, status: validationRow.runStatus },
+		attempt: { id: validationRow.attemptId, status: validationRow.attemptStatus },
+	};
+}
+
+function evaluateTerminalStatus(
+	executionStatus: string,
+	exitCode: number | null,
+): { runStatus: RunStatus; attemptStatus: AttemptStatus } {
+	if (executionStatus === "completed" && exitCode === 0) {
+		return { runStatus: "completed", attemptStatus: "completed" };
+	}
+
+	if (executionStatus === "timed_out") {
+		return { runStatus: "timed_out", attemptStatus: "timed_out" };
+	}
+
+	if (executionStatus === "stopped") {
+		return { runStatus: "canceled", attemptStatus: "canceled" };
+	}
+
+	return { runStatus: "failed", attemptStatus: "failed" };
+}
+
+type InsertEventInput = Required<Pick<CreateEventInput, "type">> & {
+	id: string;
+	runId: string | null;
+	attemptId: string | null;
+	level: EventLevel;
+	message: string | null;
+	data: unknown;
+	now: number;
+};
+
+async function insertEvent(client: Client | Transaction, input: InsertEventInput) {
+	await client.execute({
+		sql: `
+			INSERT INTO events (
+				id,
+				run_id,
+				attempt_id,
+				level,
+				type,
+				message,
+				data_json,
+				created_at
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`,
+		args: [
+			input.id,
+			input.runId,
+			input.attemptId,
+			input.level,
+			input.type,
+			input.message,
+			JSON.stringify(input.data),
+			input.now,
+		],
+	});
+}
+
+function isTerminalRunStatus(status: RunStatus) {
+	return status === "completed" || status === "failed" || status === "canceled" || status === "timed_out" || status === "stale";
+}
+
+function isTerminalAttemptStatus(status: AttemptStatus) {
+	return status === "completed" || status === "failed" || status === "canceled" || status === "timed_out" || status === "stale";
 }
 
 function createPrefixedId(prefix: "claim" | "run" | "att" | "evt") {

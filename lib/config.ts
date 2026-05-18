@@ -44,6 +44,7 @@ export type RhapsodyServerEnv = {
 
 export type RhapsodyStateStoreEnv = Pick<RhapsodyServerEnv, "TURSO_DATABASE_URL" | "TURSO_AUTH_TOKEN">;
 export type RhapsodyGitHubEnv = Pick<RhapsodyServerEnv, "GITHUB_TOKEN">;
+export type RhapsodyMediatorEnv = Pick<RhapsodyServerEnv, "MEDIATOR_SECRET">;
 
 const REQUIRED_ENV_KEYS = [
 	"ROOT_PASSWORD",
@@ -63,6 +64,9 @@ const REQUIRED_STATE_STORE_ENV_KEYS = [
 ] as const satisfies readonly (keyof RhapsodyStateStoreEnv)[];
 
 const REQUIRED_GITHUB_ENV_KEYS = ["GITHUB_TOKEN"] as const satisfies readonly (keyof RhapsodyGitHubEnv)[];
+const REQUIRED_MEDIATOR_ENV_KEYS = [
+	"MEDIATOR_SECRET",
+] as const satisfies readonly (keyof RhapsodyMediatorEnv)[];
 
 export class RhapsodyConfigError extends Error {
 	constructor(readonly issues: string[]) {
@@ -86,6 +90,10 @@ export function loadRhapsodyStateStoreEnv(env = process.env): RhapsodyStateStore
 
 export function loadRhapsodyGitHubEnv(env = process.env): RhapsodyGitHubEnv {
 	return loadRequiredEnv(env, REQUIRED_GITHUB_ENV_KEYS);
+}
+
+export function loadRhapsodyMediatorEnv(env = process.env): RhapsodyMediatorEnv {
+	return loadRequiredEnv(env, REQUIRED_MEDIATOR_ENV_KEYS);
 }
 
 function loadRequiredEnv<const TKey extends string>(
