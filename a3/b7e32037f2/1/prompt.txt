@@ -1,0 +1,24 @@
+You are the builder subagent for Rhapsody. Fix a small bug found by the local Codex smoke test.
+
+Context:
+- Repo: /Users/toyamarinyon/Documents/rhapsody
+- Current Codex local bridge is committed in `c6ad776 feat: prepare local Codex execution bridge`.
+- Smoke test failed with exit code 2. Reproducing directly showed:
+  `codex exec --cd ... --json --sandbox workspace-write --ask-for-approval never`
+  fails with `error: unexpected argument '--ask-for-approval' found`.
+- `--ask-for-approval` is a global Codex option and must appear before the `exec` subcommand, e.g. `codex --ask-for-approval never exec ...`.
+
+Task:
+1. Update `lib/codex/cli.ts` so approval policy is emitted before the `exec` subcommand, not after it.
+   - Keep `--sandbox workspace-write` as an `exec` option if that is accepted by `codex exec`.
+   - Keep shell-free spawn.
+   - Keep dry-run preview accurate.
+2. Consider the command model shape if needed so it remains clear which argv are passed to `codex`.
+3. Add a small bounded stderr/stdout preview to `summarizeCodexResult` in the route if you think useful for future smoke-test failures. Keep it short, e.g. 500 chars, and do not store full logs.
+4. Do not broaden scope.
+
+Checks:
+- Run `pnpm exec tsc --noEmit`
+- Run `pnpm lint`
+
+Do not commit.
