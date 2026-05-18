@@ -45,6 +45,7 @@ export type RhapsodyServerEnv = {
 export type RhapsodyStateStoreEnv = Pick<RhapsodyServerEnv, "TURSO_DATABASE_URL" | "TURSO_AUTH_TOKEN">;
 export type RhapsodyGitHubEnv = Pick<RhapsodyServerEnv, "GITHUB_TOKEN">;
 export type RhapsodyMediatorEnv = Pick<RhapsodyServerEnv, "MEDIATOR_SECRET">;
+export type RhapsodySandboxEnv = Pick<RhapsodyServerEnv, "VERCEL_TOKEN" | "VERCEL_TEAM_ID" | "VERCEL_PROJECT_ID">;
 
 const REQUIRED_ENV_KEYS = [
 	"ROOT_PASSWORD",
@@ -67,6 +68,11 @@ const REQUIRED_GITHUB_ENV_KEYS = ["GITHUB_TOKEN"] as const satisfies readonly (k
 const REQUIRED_MEDIATOR_ENV_KEYS = [
 	"MEDIATOR_SECRET",
 ] as const satisfies readonly (keyof RhapsodyMediatorEnv)[];
+const SANDBOX_ENV_KEYS = [
+	"VERCEL_TOKEN",
+	"VERCEL_TEAM_ID",
+	"VERCEL_PROJECT_ID",
+] as const satisfies readonly (keyof RhapsodySandboxEnv)[];
 
 export class RhapsodyConfigError extends Error {
 	constructor(readonly issues: string[]) {
@@ -94,6 +100,37 @@ export function loadRhapsodyGitHubEnv(env = process.env): RhapsodyGitHubEnv {
 
 export function loadRhapsodyMediatorEnv(env = process.env): RhapsodyMediatorEnv {
 	return loadRequiredEnv(env, REQUIRED_MEDIATOR_ENV_KEYS);
+}
+
+export function loadRhapsodySandboxEnv(env = process.env): RhapsodySandboxEnv | null {
+	const values = {} as RhapsodySandboxEnv;
+	const missing: string[] = [];
+	const present: string[] = [];
+
+	for (const key of SANDBOX_ENV_KEYS) {
+		const value = env[key];
+
+		if (!value?.trim()) {
+			missing.push(key);
+			continue;
+		}
+
+		present.push(key);
+		values[key] = value;
+	}
+
+	if (present.length === 0) {
+		return null;
+	}
+
+	if (missing.length > 0) {
+		throw new RhapsodyConfigError([
+			`Vercel Sandbox credentials must include all of ${SANDBOX_ENV_KEYS.join(", ")} when any are provided`,
+			`Missing: ${missing.join(", ")}`,
+		]);
+	}
+
+	return values;
 }
 
 function loadRequiredEnv<const TKey extends string>(
