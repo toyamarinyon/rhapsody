@@ -41,6 +41,7 @@ export type RhapsodyServerEnv = {
 	VERCEL_TEAM_ID: string;
 	VERCEL_PROJECT_ID: string;
 	VERCEL_PROTECTION_BYPASS_SECRET?: string;
+	RHAPSODY_CODEX_BASE_SNAPSHOT_ID?: string;
 };
 
 export type RhapsodyStateStoreEnv = Pick<RhapsodyServerEnv, "TURSO_DATABASE_URL" | "TURSO_AUTH_TOKEN">;
@@ -48,6 +49,10 @@ export type RhapsodyGitHubEnv = Pick<RhapsodyServerEnv, "GITHUB_TOKEN">;
 export type RhapsodyMediatorEnv = Pick<RhapsodyServerEnv, "MEDIATOR_SECRET">;
 export type RhapsodyProtectionBypassEnv = Pick<RhapsodyServerEnv, "VERCEL_PROTECTION_BYPASS_SECRET">;
 export type RhapsodySandboxEnv = Pick<RhapsodyServerEnv, "VERCEL_TOKEN" | "VERCEL_TEAM_ID" | "VERCEL_PROJECT_ID">;
+export type RhapsodyCodexBaseSnapshotEnv = Pick<
+	RhapsodyServerEnv,
+	"RHAPSODY_CODEX_BASE_SNAPSHOT_ID"
+>;
 
 const REQUIRED_ENV_KEYS = [
 	"ROOT_PASSWORD",
@@ -106,6 +111,10 @@ export function loadRhapsodyMediatorEnv(env = process.env): RhapsodyMediatorEnv 
 
 export function loadRhapsodyProtectionBypassEnv(env = process.env): RhapsodyProtectionBypassEnv {
 	return loadOptionalEnv(env, ["VERCEL_PROTECTION_BYPASS_SECRET"] as const);
+}
+
+export function loadRhapsodyCodexBaseSnapshotEnv(env = process.env): RhapsodyCodexBaseSnapshotEnv {
+	return loadOptionalEnv(env, ["RHAPSODY_CODEX_BASE_SNAPSHOT_ID"] as const);
 }
 
 export function loadRhapsodySandboxEnv(env = process.env): RhapsodySandboxEnv | null {

@@ -1,5 +1,6 @@
 import {
 	loadRhapsodyConfig,
+	loadRhapsodyCodexBaseSnapshotEnv,
 	loadRhapsodyMediatorEnv,
 	loadRhapsodyProtectionBypassEnv,
 } from "@/lib/config";
@@ -79,6 +80,8 @@ export async function POST(
 		const config = loadRhapsodyConfig();
 		const mediatorEnv = loadRhapsodyMediatorEnv();
 		const protectionBypassEnv = loadRhapsodyProtectionBypassEnv();
+		const codexBaseSnapshotEnv = loadRhapsodyCodexBaseSnapshotEnv();
+		const sourceSnapshotId = codexBaseSnapshotEnv.RHAPSODY_CODEX_BASE_SNAPSHOT_ID ?? null;
 		const instructions = await loadRepositoryInstructions();
 		const prompt = renderRepositoryInstructions({
 			template: instructions.template,
@@ -107,6 +110,14 @@ export async function POST(
 				mediatorSecret: mediatorEnv.MEDIATOR_SECRET,
 				vercelProtectionBypassSecret: protectionBypassEnv.VERCEL_PROTECTION_BYPASS_SECRET,
 			}),
+			...(sourceSnapshotId
+				? {
+						source: {
+							type: "snapshot",
+							snapshotId: sourceSnapshotId,
+						},
+					}
+				: {}),
 		});
 
 		await writeVercelSandboxFiles(sandbox, [
@@ -131,6 +142,7 @@ export async function POST(
 							command: SANDBOX_FAKE_RUNNER_COMMAND,
 							prompt_path: PROMPT_PATH,
 							callback_url: callbackUrl,
+							source_snapshot_id: sourceSnapshotId,
 						},
 						null,
 						2,
@@ -172,6 +184,7 @@ export async function POST(
 				promptLength: prompt.length,
 				previewLength: promptSummary.preview.length,
 				sandboxId: sandbox.sandboxId,
+				sourceSnapshotId,
 			},
 		});
 		const command = await runVercelSandboxCommand(sandbox, {
@@ -209,6 +222,7 @@ export async function POST(
 		return Response.json({
 			sandboxId: sandbox.sandboxId,
 			command: summarizeCommand(command),
+			sourceSnapshotId,
 			prompt: {
 				...promptSummary,
 				eventId: promptEvent.id,
