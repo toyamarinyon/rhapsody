@@ -4,6 +4,9 @@ Work item: {{ item.identifier }}
 Title: {{ item.title }}
 URL: {{ item.url }}
 
+Issue body:
+{{ item.body }}
+
 Run: {{ run.id }}
 Attempt: {{ attempt.id }}
 Repository: {{ repository.owner }}/{{ repository.name }}

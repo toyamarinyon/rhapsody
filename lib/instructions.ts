@@ -88,6 +88,7 @@ export function buildInstructionContext(input: {
 	const snapshotRepository = asInstructionObject(snapshot.repository);
 	const identifier = stringFromSnapshot(issue.identifier) ?? stringFromSnapshot(snapshot.identifier) ?? detail.run.workItemId;
 	const title = stringFromSnapshot(issue.title) ?? stringFromSnapshot(snapshot.title) ?? detail.run.workItemTitle;
+	const body = stringFromSnapshot(issue.body);
 	const url = stringFromSnapshot(issue.htmlUrl) ?? stringFromSnapshot(issue.url) ?? stringFromSnapshot(snapshot.url) ?? detail.run.workItemUrl;
 	const owner = stringFromSnapshot(snapshotRepository.owner) ?? config.repository.owner;
 	const repositoryName = stringFromSnapshot(snapshotRepository.name) ?? config.repository.name;
@@ -97,6 +98,7 @@ export function buildInstructionContext(input: {
 			id: detail.run.workItemId,
 			identifier,
 			title,
+			body,
 			url,
 			state: stringFromSnapshot(issue.state) ?? detail.run.workItemStatus,
 			projectStatus: detail.run.workItemStatus,
