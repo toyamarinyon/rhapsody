@@ -1,0 +1,22 @@
+Next small slice: add a focused state-store operation for manual run creation. Keep scope DB/domain only; no HTTP API, no GitHub client, no workflows yet.
+
+Context:
+- The state store foundation was committed as `066bf51 feat: add libsql state store foundation`.
+- Current files of interest: `lib/state/store.ts`, `lib/state/migrations.ts`.
+- Follow ADR 0002 claim lifecycle: a run should be created only after claim acquisition succeeds, and runner state should be fenced by `claim_token`.
+
+Task:
+1. Add a helper that atomically creates or reclaims a claim and creates a run + first attempt + initial event for a manually requested Work Item.
+2. Use a transaction. Keep the SQL visible and simple.
+3. Inputs should include at least: `workItemId`, `workItemTitle`, optional `workItemUrl`, optional `workItemStatus`, optional snapshot, `claimedBy`, `claimTtlMs`, optional now/id overrides for testability.
+4. If an unexpired claim already exists for the work item, return a typed result indicating it was not acquired, including existing `run_id` if present. Do not throw for this normal case.
+5. If expired or absent, write/replace the claim, create a new `run_...`, create first `att_...` attempt with `attempt_number = 1`, and append an event like `manual_run.created`.
+6. Keep timestamps epoch millis.
+7. Export the new types/functions from `lib/state/index.ts`.
+8. Avoid adding dependencies.
+
+Checks:
+- Run `pnpm exec tsc --noEmit`
+- Run `pnpm lint`
+
+Do not commit.
