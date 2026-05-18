@@ -1,0 +1,10 @@
+Runtime verification found an issue: `POST /api/v1/admin/db/migrate` fails if VERCEL_TOKEN / VERCEL_TEAM_ID / VERCEL_PROJECT_ID are missing, because `createStateStoreClient()` calls `loadRhapsodyServerEnv()`. But the state-store client only needs Turso env.
+
+Please make a focused fix:
+1. In `lib/config.ts`, add a narrower env type/loader for the state store, e.g. `RhapsodyStateStoreEnv` with only `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`.
+2. Update `createStateStoreClient()` to use that narrower loader by default.
+3. Keep `loadRhapsodyServerEnv()` for full runtime config, but don't force all server env when only DB is needed.
+4. Export any new type/function as appropriate.
+5. Re-run `pnpm exec tsc --noEmit` and `pnpm lint`.
+
+Do not commit.
