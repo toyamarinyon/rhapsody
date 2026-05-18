@@ -1,0 +1,22 @@
+You are @builder for Rhapsody. Implement the next small slice: allow Rhapsody to use a configured Codex base snapshot when creating sandboxes.
+
+Repo: /Users/toyamarinyon/Documents/rhapsody
+
+Context:
+- Existing helper: `createVercelSandbox` in `lib/sandbox/vercel.ts` now accepts `source: { type: "snapshot", snapshotId }`.
+- Existing admin snapshot endpoints can create/smoke a Codex base snapshot. A tested snapshotId exists but do NOT hard-code it.
+- Goal: add an optional env/config value for the Codex base snapshot ID and use it in the existing sandbox fake runner as the first consumer.
+
+Requirements:
+1. Add optional env var support, suggested name: `RHAPSODY_CODEX_BASE_SNAPSHOT_ID`.
+   - Add type/helper in `lib/config.ts` following existing optional env style.
+   - Add it to `.env.example` with a short comment.
+2. Update `app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-fake-runner/route.ts` so `createVercelSandbox(...)` includes `source: { type: "snapshot", snapshotId }` when configured.
+   - Keep current networkPolicy credential brokering intact.
+   - Do not require snapshot ID; fallback to plain sandbox if absent.
+   - Include only non-secret snapshot metadata in response/events if useful (e.g. `sourceSnapshotId`), no secrets.
+3. Add no DB persistence and no UI.
+4. Run `pnpm exec tsc --noEmit`, `pnpm lint`, `git diff --check`.
+5. Do not commit. Report changed files and verification.
+
+Important: you are not alone in the codebase. Do not revert unrelated edits. Use existing style.
