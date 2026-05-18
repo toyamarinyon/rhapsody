@@ -1,0 +1,44 @@
+You are the builder subagent for Rhapsody. Continue in small increments while the main agent reviews.
+
+Task: implement the next small slice only: repository instructions loading and strict prompt rendering for an existing Run/Attempt. No Sandbox, no Codex execution, no Workflow SDK.
+
+Context:
+- Repo: /Users/toyamarinyon/Documents/rhapsody
+- Follow AGENTS.md.
+- Relevant spec: docs/SPEC.md section 5.1 and 5.2.
+- Current app already has manual Run creation, visibility APIs, and attempt callback transitions.
+- Do not touch unrelated .codex/.entire/.next files.
+
+Desired scope:
+1. Add a default `.rhapsody/INSTRUCTIONS.md` for this repository so Rhapsody can dogfood itself. Keep it concise and use the documented template variables.
+2. Add a small prompt/instructions module, e.g. `lib/instructions.ts` or similar, that:
+   - loads `.rhapsody/INSTRUCTIONS.md` from a given repository root path, defaulting to `process.cwd()` for local/dev use;
+   - renders it with a strict, minimal template engine supporting simple dotted variables like `{{ item.identifier }}`, `{{ item.title }}`, `{{ item.url }}`, `{{ run.id }}`, `{{ attempt.id }}`, `{{ repository.owner }}`, `{{ repository.name }}`, `{{ project.owner }}` etc.;
+   - fails on unknown variables and empty variable expressions;
+   - does not support YAML front matter or arbitrary JS execution;
+   - adds a small Rhapsody-owned prelude or appendix with host-owned constraints around mediated GitHub access, branch prefix, no raw credentials, and callback completion.
+3. Add a protected read endpoint to render a prompt for an existing run/attempt, suggested path:
+   `GET /api/v1/runs/[runId]/attempts/[attemptId]/prompt`
+   - Node runtime.
+   - Admin auth.
+   - Fetch run detail via existing state helper.
+   - 404 if run or attempt missing.
+   - Render with item/run/attempt/repository/project context.
+   - Return JSON `{ prompt, instructionPath }`.
+4. Keep this local/dev-oriented for now. Do not fetch files from GitHub yet; read from current repo working tree.
+5. Export types/functions as appropriate. No external dependencies.
+
+Checks:
+- Run `pnpm exec tsc --noEmit`
+- Run `pnpm lint`
+
+Do not commit.
+
+---
+
+Review feedback, please make only these focused adjustments:
+
+1. In the prompt route, return `422` for `InstructionTemplateError` instead of `500`; it is an operator-fixable instruction/template error, not an internal crash.
+2. Avoid returning an absolute local filesystem path in the API response. Return `instructionPath: ".rhapsody/INSTRUCTIONS.md"` or another repo-relative path instead. It is fine if `loadRepositoryInstructions()` still uses the absolute path internally; just don't expose it from the route.
+
+Re-run `pnpm exec tsc --noEmit` and `pnpm lint`. Do not commit.

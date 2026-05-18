@@ -3,21 +3,31 @@
   "checkpoint_id": "d6b6f02f3cdf",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 1,
-  "files_touched": null,
+  "checkpoints_count": 3,
+  "files_touched": [
+    ".rhapsody/INSTRUCTIONS.md",
+    "app/api/v1/runs/[runId]/attempts/[attemptId]/prompt/route.ts",
+    "lib/instructions.ts"
+  ],
   "sessions": [
     {
       "metadata": "/d6/b6f02f3cdf/0/metadata.json",
       "transcript": "/d6/b6f02f3cdf/0/full.jsonl",
       "content_hash": "/d6/b6f02f3cdf/0/content_hash.txt",
       "prompt": "/d6/b6f02f3cdf/0/prompt.txt"
+    },
+    {
+      "metadata": "/d6/b6f02f3cdf/1/metadata.json",
+      "transcript": "/d6/b6f02f3cdf/1/full.jsonl",
+      "content_hash": "/d6/b6f02f3cdf/1/content_hash.txt",
+      "prompt": "/d6/b6f02f3cdf/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 2512556,
+    "input_tokens": 2638944,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 37435392,
-    "output_tokens": 119864,
-    "api_call_count": 379
+    "cache_read_tokens": 38429184,
+    "output_tokens": 126281,
+    "api_call_count": 400
   }
 }
