@@ -11,6 +11,7 @@ import {
 } from "@/lib/instructions";
 import {
 	createVercelSandbox,
+	buildVercelSandboxCallbackNetworkPolicy,
 	runVercelSandboxCommand,
 	stopVercelSandbox,
 	writeVercelSandboxFiles,
@@ -76,6 +77,7 @@ export async function POST(
 		}
 
 		const config = loadRhapsodyConfig();
+		const mediatorEnv = loadRhapsodyMediatorEnv();
 		const protectionBypassEnv = loadRhapsodyProtectionBypassEnv();
 		const instructions = await loadRepositoryInstructions();
 		const prompt = renderRepositoryInstructions({
@@ -97,18 +99,20 @@ export async function POST(
 			});
 		}
 
-		const mediatorEnv = loadRhapsodyMediatorEnv();
 		const claimToken = detail.run.claimToken;
 
-		sandbox = await createVercelSandbox();
+		sandbox = await createVercelSandbox({
+			networkPolicy: buildVercelSandboxCallbackNetworkPolicy({
+				callbackUrl,
+				mediatorSecret: mediatorEnv.MEDIATOR_SECRET,
+				vercelProtectionBypassSecret: protectionBypassEnv.VERCEL_PROTECTION_BYPASS_SECRET,
+			}),
+		});
 
 		await writeVercelSandboxFiles(sandbox, [
 			{
 				path: WRAPPER_PATH,
-				content: Buffer.from(
-					buildWrapperSource(Boolean(protectionBypassEnv.VERCEL_PROTECTION_BYPASS_SECRET)),
-					"utf8",
-				),
+				content: Buffer.from(buildWrapperSource(), "utf8"),
 				mode: 0o644,
 			},
 			{
@@ -176,17 +180,11 @@ export async function POST(
 			cwd: SANDBOX_WORKDIR,
 			env: {
 				RHAPSODY_CALLBACK_URL: callbackUrl,
-				RHAPSODY_MEDIATOR_SECRET: mediatorEnv.MEDIATOR_SECRET,
 				RHAPSODY_RUN_ID: runId,
 				RHAPSODY_ATTEMPT_ID: attemptId,
 				RHAPSODY_CLAIM_TOKEN: claimToken,
 				RHAPSODY_SANDBOX_ID: sandbox.sandboxId,
 				RHAPSODY_COMMAND_ID: SANDBOX_FAKE_RUNNER_COMMAND,
-				...(protectionBypassEnv.VERCEL_PROTECTION_BYPASS_SECRET
-					? {
-							RHAPSODY_VERCEL_PROTECTION_BYPASS_SECRET: protectionBypassEnv.VERCEL_PROTECTION_BYPASS_SECRET,
-						}
-					: {}),
 			},
 		});
 		const wrapperCallback = parseWrapperStdout(command.stdout);
@@ -302,7 +300,7 @@ function serializeError(error: unknown) {
 	};
 }
 
-function buildWrapperSource(includeProtectionBypass: boolean) {
+function buildWrapperSource() {
 	return `const required = (name) => {
 	const value = process.env[name];
 
@@ -330,8 +328,6 @@ const response = await fetch(callbackUrl, {
 	method: "POST",
 	headers: {
 		"content-type": "application/json",
-		"x-rhapsody-mediator-secret": required("RHAPSODY_MEDIATOR_SECRET"),
-		${includeProtectionBypass ? '"x-vercel-protection-bypass": required("RHAPSODY_VERCEL_PROTECTION_BYPASS_SECRET"),' : ""}
 	},
 	body: JSON.stringify(payload),
 });

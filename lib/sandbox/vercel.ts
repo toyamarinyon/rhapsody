@@ -37,6 +37,35 @@ export type WithVercelSandboxOptions = CreateVercelSandboxInput & {
 
 const DEFAULT_SANDBOX_RUNTIME = "node24";
 
+export function buildVercelSandboxCallbackNetworkPolicy(args: {
+	callbackUrl: string;
+	mediatorSecret: string;
+	vercelProtectionBypassSecret?: string;
+}): NetworkPolicy {
+	const callbackHost = new URL(args.callbackUrl).hostname;
+
+	const headers = {
+		"x-rhapsody-mediator-secret": args.mediatorSecret,
+		...(args.vercelProtectionBypassSecret
+			? { "x-vercel-protection-bypass": args.vercelProtectionBypassSecret }
+			: {}),
+	};
+
+	return {
+		allow: {
+			[callbackHost]: [
+				{
+					transform: [
+						{
+							headers,
+						},
+					],
+				},
+			],
+		},
+	};
+}
+
 export async function createVercelSandbox(input: CreateVercelSandboxInput = {}) {
 	const env = loadRhapsodySandboxEnv();
 
