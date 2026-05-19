@@ -12,6 +12,8 @@ export type CodexCliOptions = {
 	approvalPolicy?: CodexCliApprovalPolicy;
 	json?: boolean;
 	outputLastMessageFile?: string;
+	skipGitRepoCheck?: boolean;
+	ephemeral?: boolean;
 	configOverrides?: Record<string, CodexCliConfigValue>;
 	timeoutMs?: number;
 };
@@ -50,6 +52,14 @@ export function buildCodexExecCommand(options: CodexCliOptions): CodexCliCommand
 
 	if (options.outputLastMessageFile) {
 		execArgv.push("--output-last-message", options.outputLastMessageFile);
+	}
+
+	if (options.skipGitRepoCheck) {
+		execArgv.push("--skip-git-repo-check");
+	}
+
+	if (options.ephemeral) {
+		execArgv.push("--ephemeral");
 	}
 
 	if (options.sandboxMode) {
