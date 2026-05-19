@@ -1,0 +1,39 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "38ae25d9486a",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 24,
+  "files_touched": [
+    ".env.example",
+    "app/api/internal/codex-chatgpt-proxy/[...path]/route.ts",
+    "app/api/v1/admin/codex-chatgpt-credentials/seed-from-env/route.ts",
+    "app/api/v1/admin/sandbox-snapshots/codex-base/route.ts",
+    "app/api/v1/admin/sandbox-snapshots/codex-base/smoke/route.ts",
+    "app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-codex-runner/route.ts",
+    "app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-fake-runner/route.ts",
+    "lib/codex/auth.ts",
+    "lib/codex/credentials.ts",
+    "lib/config.ts",
+    "lib/sandbox/vercel.ts",
+    "lib/state/migrations.ts",
+    "lib/vercel/oidc.ts",
+    "package.json",
+    "pnpm-lock.yaml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/38/ae25d9486a/0/metadata.json",
+      "transcript": "/38/ae25d9486a/0/full.jsonl",
+      "content_hash": "/38/ae25d9486a/0/content_hash.txt",
+      "prompt": "/38/ae25d9486a/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 6662187,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 188195968,
+    "output_tokens": 326525,
+    "api_call_count": 2288
+  }
+}
