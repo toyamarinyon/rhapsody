@@ -10,17 +10,13 @@ import {
 	loadRepositoryInstructions,
 	renderRepositoryInstructions,
 } from "@/lib/instructions";
-import { requireAdminAuth } from "@/lib/server/admin-auth";
 import { isRecord, readJson } from "@/lib/server/json";
 import {
 	applyAttemptTerminalCallback,
 	createEvent,
-	createStateStoreClient,
-	getRunDetail,
 	markAttemptStarted,
 } from "@/lib/state";
-
-export const runtime = "nodejs";
+import { type RunnerRouteContext } from "./types";
 
 const CODEX_LOCAL_SANDBOX_ID = "local_dev_codex";
 const CODEX_LOCAL_COMMAND = "codex exec";
@@ -35,16 +31,8 @@ type CodexLocalRequest = {
 	timeoutMs: number;
 };
 
-export async function POST(
-	request: Request,
-	context: { params: Promise<{ runId: string; attemptId: string }> },
-) {
-	const auth = requireAdminAuth(request);
-
-	if (!auth.ok) {
-		return auth.response;
-	}
-
+export async function runCodexLocalRunner(context: RunnerRouteContext): Promise<Response> {
+	const { client, request, runId, attemptId, detail, attempt } = context;
 	const body = await readJson(request);
 
 	if (!body.ok) {
@@ -61,22 +49,7 @@ export async function POST(
 		return Response.json({ error: "confirm must be \"run-codex-local\" for execute mode." }, { status: 400 });
 	}
 
-	const { runId, attemptId } = await context.params;
-	const client = createStateStoreClient();
-
 	try {
-		const detail = await getRunDetail(client, runId);
-
-		if (!detail) {
-			return Response.json({ error: "Run not found." }, { status: 404 });
-		}
-
-		const attempt = detail.attempts.find((candidate) => candidate.id === attemptId);
-
-		if (!attempt) {
-			return Response.json({ error: "Attempt not found." }, { status: 404 });
-		}
-
 		const config = loadRhapsodyConfig();
 		const instructions = await loadRepositoryInstructions();
 		const prompt = renderRepositoryInstructions({
@@ -193,8 +166,6 @@ export async function POST(
 		}
 
 		throw error;
-	} finally {
-		client.close();
 	}
 }
 

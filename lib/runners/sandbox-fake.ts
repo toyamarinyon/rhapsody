@@ -19,17 +19,14 @@ import {
 	writeVercelSandboxFiles,
 	type RhapsodyVercelSandbox,
 } from "@/lib/sandbox/vercel";
-import { requireAdminAuth } from "@/lib/server/admin-auth";
 import { isRecord } from "@/lib/server/json";
 import {
 	createEvent,
-	createStateStoreClient,
-	getRunDetail,
 	applyAttemptTerminalCallback,
 	markAttemptStarted,
+	getRunDetail,
 } from "@/lib/state";
-
-export const runtime = "nodejs";
+import { type RunnerRouteContext } from "./types";
 
 const SANDBOX_FAKE_RUNNER_COMMAND = "sandbox-fake-runner";
 const SANDBOX_WORKDIR = "/vercel/sandbox";
@@ -43,41 +40,19 @@ type SandboxFakeRunnerRequest = {
 	callbackBaseUrl?: string;
 };
 
-export async function POST(
-	request: Request,
-	context: { params: Promise<{ runId: string; attemptId: string }> },
-) {
-	const auth = requireAdminAuth(request);
-
-	if (!auth.ok) {
-		return auth.response;
-	}
-
+export async function runSandboxFakeRunner(context: RunnerRouteContext): Promise<Response> {
+	const { client, request, runId, attemptId, detail, attempt } = context;
 	const parsedBody = await readOptionalSandboxFakeRunnerRequest(request);
 
 	if (!parsedBody.ok) {
 		return Response.json({ error: parsedBody.error }, { status: 400 });
 	}
 
-	const { runId, attemptId } = await context.params;
 	const callbackBaseUrl = parsedBody.value.callbackBaseUrl ?? new URL(request.url).origin;
 	const callbackUrl = new URL("/api/internal/runs/callback", callbackBaseUrl).toString();
-	const client = createStateStoreClient();
 	let sandbox: RhapsodyVercelSandbox | null = null;
 
 	try {
-		const detail = await getRunDetail(client, runId);
-
-		if (!detail) {
-			return Response.json({ error: "Run not found." }, { status: 404 });
-		}
-
-		const attempt = detail.attempts.find((candidate) => candidate.id === attemptId);
-
-		if (!attempt) {
-			return Response.json({ error: "Attempt not found." }, { status: 404 });
-		}
-
 		const config = loadRhapsodyConfig();
 		const mediatorEnv = loadRhapsodyMediatorEnv();
 		const protectionBypassEnv = loadRhapsodyProtectionBypassEnv();
@@ -251,8 +226,6 @@ export async function POST(
 			{ status: 500 },
 		);
 	} finally {
-		client.close();
-
 		if (sandbox) {
 			await stopVercelSandbox(sandbox);
 		}
