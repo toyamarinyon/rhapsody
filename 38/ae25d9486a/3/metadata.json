@@ -1,0 +1,79 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "38ae25d9486a",
+  "session_id": "019e3f64-1c81-7d33-b977-273ce3913379",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-19T13:23:58.841704Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".env.example",
+    "app/api/v1/admin/sandbox-snapshots/codex-base/route.ts",
+    "app/api/v1/admin/sandbox-snapshots/codex-base/smoke/route.ts",
+    "app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-codex-runner/route.ts",
+    "app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-fake-runner/route.ts",
+    "lib/config.ts",
+    "lib/sandbox/vercel.ts",
+    "lib/state/migrations.ts",
+    "package.json",
+    "pnpm-lock.yaml"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "a11102cc2969",
+  "token_usage": {
+    "input_tokens": 5771581,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 149050880,
+    "output_tokens": 273241,
+    "api_call_count": 1330
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-19T13:23:58.540954Z",
+    "agent_lines": 220,
+    "agent_removed": 5,
+    "human_added": 299,
+    "human_modified": 40,
+    "human_removed": 0,
+    "total_committed": 559,
+    "total_lines_changed": 564,
+    "agent_percentage": 39.8936170212766,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 841,
+      "user_lines_removed": 40,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".env.example": 5,
+        "app/api/internal/codex-chatgpt-proxy/[...path]/route.ts": 318,
+        "app/api/v1/admin/sandbox-snapshots/codex-base/route.ts": 2,
+        "app/api/v1/admin/sandbox-snapshots/codex-base/smoke/route.ts": 2,
+        "app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-codex-runner/route.ts": 34,
+        "app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-fake-runner/route.ts": 8,
+        "lib/codex/auth.ts": 71,
+        "lib/codex/credentials.ts": 279,
+        "lib/config.ts": 21,
+        "lib/sandbox/vercel.ts": 79,
+        "lib/state/migrations.ts": 16,
+        "package.json": 1,
+        "pnpm-lock.yaml": 5
+      },
+      "user_removed_per_file": {
+        "app/api/v1/admin/sandbox-snapshots/codex-base/route.ts": 1,
+        "app/api/v1/admin/sandbox-snapshots/codex-base/smoke/route.ts": 1,
+        "app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-codex-runner/route.ts": 9,
+        "app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-fake-runner/route.ts": 7,
+        "lib/sandbox/vercel.ts": 16,
+        "package.json": 1,
+        "pnpm-lock.yaml": 5
+      }
+    }
+  ]
+}
