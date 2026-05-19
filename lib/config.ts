@@ -24,10 +24,13 @@ export type RhapsodySchedulerConfig = {
 	maxRetryBackoffMs: number;
 };
 
+export type RhapsodyRunner = "fake" | "sandbox-fake" | "codex-local" | "sandbox-codex";
+
 export type RhapsodyProjectConfig = {
 	tracker: RhapsodyTrackerConfig;
 	repository: RhapsodyRepositoryConfig;
 	scheduler: RhapsodySchedulerConfig;
+	runner: RhapsodyRunner;
 };
 
 export type RhapsodyServerEnv = {
@@ -263,6 +266,10 @@ function validateProjectConfig(config: RhapsodyProjectConfig) {
 	requirePositiveInteger(issues, "scheduler.claimTtlMs", config.scheduler.claimTtlMs);
 	requirePositiveInteger(issues, "scheduler.maxRetryBackoffMs", config.scheduler.maxRetryBackoffMs);
 
+	if (!isRhapsodyRunner(config.runner)) {
+		issues.push("runner must be one of: fake, sandbox-fake, codex-local, sandbox-codex");
+	}
+
 	for (const [status, limit] of Object.entries(config.scheduler.maxConcurrentRunsByStatus)) {
 		requireNonEmptyString(issues, "scheduler.maxConcurrentRunsByStatus status", status);
 		requirePositiveInteger(issues, `scheduler.maxConcurrentRunsByStatus.${status}`, limit);
@@ -271,6 +278,15 @@ function validateProjectConfig(config: RhapsodyProjectConfig) {
 	if (issues.length > 0) {
 		throw new RhapsodyConfigError(issues);
 	}
+}
+
+export function isRhapsodyRunner(value: unknown): value is RhapsodyRunner {
+	return (
+		value === "fake" ||
+		value === "sandbox-fake" ||
+		value === "codex-local" ||
+		value === "sandbox-codex"
+	);
 }
 
 function requireNonEmptyString(issues: string[], field: string, value: string) {

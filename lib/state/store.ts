@@ -1,5 +1,6 @@
 import type { Client, Transaction } from "@libsql/client";
 import type { Row } from "@libsql/client";
+import type { RhapsodyRunner } from "@/lib/config";
 
 export type RunStatus =
 	| "pending"
@@ -22,6 +23,7 @@ export type EventLevel = "debug" | "info" | "warn" | "error";
 export type CreateManualRunInput = {
 	workItemId: string;
 	claimToken: string;
+	runner: RhapsodyRunner;
 	workItemTitle: string;
 	workItemUrl?: string | null;
 	workItemStatus?: string | null;
@@ -58,6 +60,7 @@ export type CreateClaimedManualRunInput = {
 	workItemUrl?: string | null;
 	workItemStatus?: string | null;
 	workItemSnapshot?: unknown;
+	runner: RhapsodyRunner;
 	claimedBy: string;
 	claimTtlMs: number;
 	now?: number;
@@ -70,6 +73,7 @@ export type CreateClaimedManualRunInput = {
 export type CreatedRun = {
 	id: string;
 	status: RunStatus;
+	runner: RhapsodyRunner;
 	createdAt: number;
 };
 
@@ -92,6 +96,7 @@ export type ClaimedManualRunCreated = {
 	runId: string;
 	attemptId: string;
 	eventId: string;
+	runner: RhapsodyRunner;
 	createdAt: number;
 };
 
@@ -107,6 +112,7 @@ export type StateStoreRun = {
 	id: string;
 	workItemId: string;
 	claimToken: string;
+	runner: RhapsodyRunner;
 	status: RunStatus;
 	workItemTitle: string;
 	workItemUrl: string | null;
@@ -251,6 +257,7 @@ export async function getRunDetail(client: Client, runId: string): Promise<RunDe
 				id,
 				work_item_id,
 				claim_token,
+				runner,
 				status,
 				work_item_title,
 				work_item_url,
@@ -726,6 +733,7 @@ export async function createClaimedManualRun(
 					id,
 					work_item_id,
 					claim_token,
+					runner,
 					status,
 					work_item_title,
 					work_item_url,
@@ -734,12 +742,13 @@ export async function createClaimedManualRun(
 					created_at,
 					updated_at
 				)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			`,
 			args: [
 				runId,
 				input.workItemId,
 				claimToken,
+				input.runner,
 				"pending",
 				input.workItemTitle,
 				input.workItemUrl ?? null,
@@ -786,7 +795,7 @@ export async function createClaimedManualRun(
 				"info",
 				"manual_run.created",
 				"Manual run created.",
-				JSON.stringify({ workItemId: input.workItemId, claimedBy: input.claimedBy }),
+				JSON.stringify({ workItemId: input.workItemId, claimedBy: input.claimedBy, runner: input.runner }),
 				now,
 			],
 		});
@@ -800,6 +809,7 @@ export async function createClaimedManualRun(
 			runId,
 			attemptId,
 			eventId,
+			runner: input.runner,
 			createdAt: now,
 		};
 	} catch (error) {
@@ -824,6 +834,7 @@ export async function createManualRun(
 				id,
 				work_item_id,
 				claim_token,
+				runner,
 				status,
 				work_item_title,
 				work_item_url,
@@ -832,12 +843,13 @@ export async function createManualRun(
 				created_at,
 				updated_at
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`,
 		args: [
 			id,
 			input.workItemId,
 			input.claimToken,
+			input.runner,
 			status,
 			input.workItemTitle,
 			input.workItemUrl ?? null,
@@ -848,7 +860,7 @@ export async function createManualRun(
 		],
 	});
 
-	return { id, status, createdAt: now };
+	return { id, status, runner: input.runner, createdAt: now };
 }
 
 export async function createAttempt(
@@ -1147,6 +1159,7 @@ function mapRun(row: Row): StateStoreRun {
 		id: getString(row, "id"),
 		workItemId: getString(row, "work_item_id"),
 		claimToken: getString(row, "claim_token"),
+		runner: getString(row, "runner") as RhapsodyRunner,
 		status: getString(row, "status") as RunStatus,
 		workItemTitle: getString(row, "work_item_title"),
 		workItemUrl: getNullableString(row, "work_item_url"),

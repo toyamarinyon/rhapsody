@@ -1,4 +1,4 @@
-import { loadRhapsodyConfig } from "@/lib/config";
+import { isRhapsodyRunner, loadRhapsodyConfig, type RhapsodyRunner } from "@/lib/config";
 import { fetchGitHubIssue, GitHubIssueFetchError } from "@/lib/github/issues";
 import { requireAdminAuth } from "@/lib/server/admin-auth";
 import { isRecord, optionalString, readJson } from "@/lib/server/json";
@@ -13,11 +13,13 @@ type ManualRunRequest = {
 	workItemStatus?: string | null;
 	workItemSnapshot?: unknown;
 	claimedBy?: string;
+	runner?: RhapsodyRunner;
 };
 
 type GitHubIssueRunRequest = {
 	issueNumber: number;
 	claimedBy?: string;
+	runner?: RhapsodyRunner;
 };
 
 type RunRequest = ManualRunRequest | GitHubIssueRunRequest;
@@ -54,6 +56,7 @@ export async function POST(request: Request) {
 	try {
 		const result = await createClaimedManualRun(client, {
 			...runInput,
+			runner: runInput.runner ?? config.runner,
 			claimedBy: runInput.claimedBy ?? "manual",
 			claimTtlMs: config.scheduler.claimTtlMs,
 		});
@@ -107,6 +110,12 @@ function parseManualRunRequest(value: unknown): { ok: true; value: RunRequest } 
 		return { ok: false, error: "claimedBy must be a non-empty string when provided." };
 	}
 
+	const runner = parseRunner(value.runner);
+
+	if (!runner.ok) {
+		return runner;
+	}
+
 	return {
 		ok: true,
 		value: {
@@ -116,6 +125,7 @@ function parseManualRunRequest(value: unknown): { ok: true; value: RunRequest } 
 			workItemStatus,
 			workItemSnapshot: value.workItemSnapshot,
 			claimedBy,
+			runner: runner.value,
 		},
 	};
 }
@@ -139,13 +149,35 @@ function parseGitHubIssueRunRequest(
 		return { ok: false, error: "claimedBy must be a non-empty string when provided." };
 	}
 
+	const runner = parseRunner(value.runner);
+
+	if (!runner.ok) {
+		return runner;
+	}
+
 	return {
 		ok: true,
 		value: {
 			issueNumber,
 			claimedBy,
+			runner: runner.value,
 		},
 	};
+}
+
+function parseRunner(value: unknown): { ok: true; value?: RhapsodyRunner } | { ok: false; error: string } {
+	if (value === undefined) {
+		return { ok: true };
+	}
+
+	if (!isRhapsodyRunner(value)) {
+		return {
+			ok: false,
+			error: "runner must be one of: fake, sandbox-fake, codex-local, sandbox-codex.",
+		};
+	}
+
+	return { ok: true, value };
 }
 
 async function resolveRunInput(

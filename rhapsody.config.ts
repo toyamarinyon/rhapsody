@@ -22,4 +22,5 @@ export default {
 		claimTtlMs: 900000,
 		maxRetryBackoffMs: 300000,
 	},
+	runner: "sandbox-codex",
 } satisfies RhapsodyProjectConfig;

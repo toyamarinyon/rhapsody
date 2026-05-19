@@ -111,6 +111,77 @@ export const stateStoreMigrations = [
 			);
 		`,
 	},
+	{
+		id: "0003_runs_runner",
+		sql: `
+			ALTER TABLE runs
+				ADD COLUMN runner TEXT;
+
+			UPDATE runs
+				SET runner = 'sandbox-codex'
+				WHERE runner IS NULL;
+
+			CREATE TABLE runs_new (
+				id TEXT PRIMARY KEY,
+				work_item_id TEXT NOT NULL,
+				claim_token TEXT NOT NULL,
+				runner TEXT NOT NULL CHECK (
+					runner IN ('fake', 'sandbox-fake', 'codex-local', 'sandbox-codex')
+				),
+				status TEXT NOT NULL CHECK (
+					status IN ('pending', 'running', 'completed', 'failed', 'canceled', 'timed_out', 'stale')
+				),
+				work_item_title TEXT NOT NULL,
+				work_item_url TEXT,
+				work_item_status TEXT,
+				work_item_snapshot_json TEXT NOT NULL,
+				created_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL,
+				started_at INTEGER,
+				finished_at INTEGER
+			);
+
+			INSERT INTO runs_new (
+				id,
+				work_item_id,
+				claim_token,
+				runner,
+				status,
+				work_item_title,
+				work_item_url,
+				work_item_status,
+				work_item_snapshot_json,
+				created_at,
+				updated_at,
+				started_at,
+				finished_at
+			)
+			SELECT
+				id,
+				work_item_id,
+				claim_token,
+				runner,
+				status,
+				work_item_title,
+				work_item_url,
+				work_item_status,
+				work_item_snapshot_json,
+				created_at,
+				updated_at,
+				started_at,
+				finished_at
+			FROM runs;
+
+			DROP TABLE runs;
+			ALTER TABLE runs_new RENAME TO runs;
+
+			CREATE INDEX runs_work_item_id_idx
+				ON runs (work_item_id);
+
+			CREATE INDEX runs_status_updated_at_idx
+				ON runs (status, updated_at);
+		`,
+	},
 ] as const satisfies readonly StateStoreMigration[];
 
 export async function migrateStateStore(
