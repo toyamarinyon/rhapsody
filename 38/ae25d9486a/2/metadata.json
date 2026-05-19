@@ -1,0 +1,178 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "38ae25d9486a",
+  "session_id": "019e3e46-9957-7342-a418-e02f6057532b",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-19T13:23:52.404039Z",
+  "branch": "main",
+  "checkpoints_count": 17,
+  "files_touched": [
+    ".env.example",
+    "app/api/internal/codex-chatgpt-proxy/[...path]/route.ts",
+    "app/api/v1/admin/codex-chatgpt-credentials/seed-from-env/route.ts",
+    "app/api/v1/admin/sandbox-snapshots/codex-base/route.ts",
+    "app/api/v1/admin/sandbox-snapshots/codex-base/smoke/route.ts",
+    "app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-codex-runner/route.ts",
+    "app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-fake-runner/route.ts",
+    "lib/codex/auth.ts",
+    "lib/codex/credentials.ts",
+    "lib/config.ts",
+    "lib/sandbox/vercel.ts",
+    "lib/state/migrations.ts",
+    "lib/vercel/oidc.ts",
+    "package.json",
+    "pnpm-lock.yaml"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "9c3d575a043f",
+  "token_usage": {
+    "input_tokens": 792101,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 20129536,
+    "output_tokens": 101632,
+    "api_call_count": 328
+  },
+  "session_metrics": {
+    "turn_count": 17
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-19T13:23:52.317412Z",
+    "agent_lines": 1422,
+    "agent_removed": 45,
+    "human_added": 18,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1440,
+    "total_lines_changed": 1485,
+    "agent_percentage": 98.7878787878788,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 372,
+      "agent_lines_removed": 3
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 444,
+      "agent_lines_removed": 28
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 496,
+      "agent_lines_removed": 28
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 760,
+      "agent_lines_removed": 28
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 814,
+      "agent_lines_removed": 28
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 817,
+      "agent_lines_removed": 27
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 826,
+      "agent_lines_removed": 39
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 853,
+      "agent_lines_removed": 44
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 10,
+      "user_lines_removed": 0,
+      "agent_lines_added": 859,
+      "agent_lines_removed": 44,
+      "user_added_per_file": {
+        "app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-codex-runner/route.ts": 10
+      }
+    },
+    {
+      "checkpoint_number": 11,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 869,
+      "agent_lines_removed": 44
+    },
+    {
+      "checkpoint_number": 12,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 841,
+      "agent_lines_removed": 40
+    },
+    {
+      "checkpoint_number": 13,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 922,
+      "agent_lines_removed": 40
+    },
+    {
+      "checkpoint_number": 14,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1045,
+      "agent_lines_removed": 40
+    },
+    {
+      "checkpoint_number": 15,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1113,
+      "agent_lines_removed": 45
+    },
+    {
+      "checkpoint_number": 16,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1139,
+      "agent_lines_removed": 45
+    },
+    {
+      "checkpoint_number": 17,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1298,
+      "agent_lines_removed": 45,
+      "user_added_per_file": {
+        "pnpm-lock.yaml": 8
+      }
+    }
+  ]
+}

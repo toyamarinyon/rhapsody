@@ -1,0 +1,288 @@
+You are @builder for Rhapsody. Implement the next small slice: minimal Codex ChatGPT auth mediation for sandbox-codex-runner.
+
+Repo: /Users/toyamarinyon/Documents/rhapsody
+
+Background:
+- Research spike at `/Users/toyamarinyon/Documents/Codex x Vercel Sandbox` concluded FEASIBLE_WITH_PROXY.
+- Codex execution sandbox should receive dummy `auth.json` only. No real ChatGPT access/refresh tokens in sandbox env/files.
+- Sandbox network policy should forward Codex ChatGPT/OAuth traffic to trusted Rhapsody Function endpoints.
+
+Implement minimal, smoke-test-oriented support:
+
+1. Add optional env support in `lib/config.ts` and `.env.example` for:
+   - `CHATGPT_ACCESS_TOKEN`
+   - `CHATGPT_ACCOUNT_ID`
+   - `CHATGPT_REFRESH_TOKEN`
+   These are trusted host env values. Do not require them globally.
+
+2. Add a helper for dummy Codex auth JSON, likely `lib/codex/auth.ts`:
+   - Build structurally valid dummy ChatGPT `auth.json` with `auth_mode: "chatgpt"`, dummy JWT-shaped id/access tokens, dummy refresh token, account id from `CHATGPT_ACCOUNT_ID` if present or `acct_dummy` fallback, and last_refresh.
+   - Include enough claims per the prototype (`https://api.openai.com/auth.chatgpt_plan_type`, `chatgpt_user_id`, `chatgpt_account_id`, `chatgpt_account_is_fedramp`).
+   - No real tokens.
+
+3. Add internal trusted mediator endpoint, suggested route:
+   - `app/api/internal/codex-chatgpt-proxy/[...path]/route.ts`
+   - This endpoint is called only by Sandbox networkPolicy forwardURL, not by admin clients.
+   - Authenticate with existing `x-rhapsody-mediator-secret` header using `MEDIATOR_SECRET`.
+   - Use forwarded metadata headers from Vercel Sandbox. Inspect docs/types if needed, but prototype uses `vercel-forwarded-host`.
+   - For forwarded host `auth.openai.com` and path ending `/oauth/token`:
+     - require `CHATGPT_REFRESH_TOKEN`
+     - POST to `https://auth.openai.com/oauth/token` with real refresh body.
+     - If upstream succeeds, return dummy token response only (`id_token`, `access_token`, `refresh_token: dummy-refresh-token`) so Codex never stores real tokens.
+   - For forwarded host `chatgpt.com` and path containing `/backend-api/`:
+     - require `CHATGPT_ACCESS_TOKEN` and `CHATGPT_ACCOUNT_ID`
+     - forward to `https://chatgpt.com/<original path/query>` with real `Authorization` and `ChatGPT-Account-ID` headers.
+     - Strip hop-by-hop headers. Do not log or return secrets.
+   - If websocket upgrade hits the Function and is not supported, return 426 or a clear JSON error. Keep it simple.
+   - For now, no support for arbitrary hosts.
+
+4. Update `lib/sandbox/vercel.ts` with a helper to build a Codex ChatGPT auth network policy or extend existing callback policy composition.
+   - Keep callback credential brokering intact.
+   - Add forward rules for:
+     - `chatgpt.com` `/backend-api/` -> Rhapsody proxy URL
+     - `auth.openai.com` `/oauth/token` POST -> Rhapsody proxy URL
+   - Inject `x-rhapsody-mediator-secret` to proxy requests via transform, not sandbox env.
+   - Consider also allowing/proxying `api.openai.com` only if needed by current observed runner, but do not pass secrets directly into sandbox env.
+
+5. Update `sandbox-codex-runner`:
+   - Write dummy auth to a sandbox CODEX_HOME, e.g. `/vercel/sandbox/.codex/auth.json`.
+   - Run Codex with `CODEX_HOME=/vercel/sandbox/.codex` env.
+   - Use network policy with callback + codex proxy forwarding.
+   - No real ChatGPT secrets in env/files/metadata/responses.
+
+6. Keep scope tight:
+   - No DB migration, no UI, no app-server/exec-server path yet.
+   - This is for smoke test.
+
+7. Run:
+   - `pnpm exec tsc --noEmit`
+   - `pnpm lint`
+   - `git diff --check`
+
+Do not commit. Report changed files and verification.
+
+Important: you are not alone in the codebase. Do not revert unrelated edits. Use existing style.
+
+---
+
+Review feedback on your patch: please fix the dummy auth shape to match the verified spike exactly. In lib/codex/auth.ts, AuthDotJson should be `{ auth_mode: "chatgpt", OPENAI_API_KEY: null, tokens: { id_token, access_token, refresh_token, account_id }, last_refresh: <ISO string> }`. The id_token should contain nested claim `"https://api.openai.com/auth": { chatgpt_plan_type, chatgpt_user_id, chatgpt_account_id, chatgpt_account_is_fedramp }`; access token should include a future exp and dummy scope. Current implementation puts token fields and claims at top level and `last_refresh` as number, which conflicts with the spike report. Please patch only this, rerun `pnpm exec tsc --noEmit`, `pnpm lint`, and `git diff --check`, and report changed files. Do not commit.
+
+---
+
+Follow-up from Preview smoke: sandbox-codex-runner now starts Codex from snapshot and reaches ChatGPT backend through mediator, but fails with 401 on `/backend-api/codex/models` and then `Your access token could not be refreshed`. The likely missing piece is host-side token state: on OAuth refresh, the mediator calls auth.openai.com and currently discards the real upstream JSON, so subsequent backend calls still use stale `CHATGPT_ACCESS_TOKEN` from env. Please patch only `app/api/internal/codex-chatgpt-proxy/[...path]/route.ts` so it keeps a module-level in-memory credential state initialized from env, updates it from successful OAuth refresh upstream response (`access_token`, maybe `id_token`, maybe `refresh_token` if present), and uses the current in-memory access token/account id for ChatGPT backend proxy calls. Continue returning dummy tokens to the sandbox; never return or log real tokens. If upstream refresh returns non-OK, include only status and safe text in response. Rerun `pnpm exec tsc --noEmit`, `pnpm lint`, `git diff --check`; do not commit.
+
+---
+
+We decided not to use Redis; use existing Turso/libSQL for mediator-side ChatGPT credential state. Please implement a minimal durable encrypted credential store for the Codex ChatGPT proxy. Scope:
+
+1. Inspect existing DB migration/state patterns first.
+2. Add a migration for a singleton credential table, e.g. `codex_chatgpt_credentials` with id/key, encrypted access token, encrypted refresh token, account id, updatedAt. Avoid storing plaintext tokens.
+3. Add crypto helper using existing AUTH_SECRET or a new optional/sensible env only if necessary. Prefer AUTH_SECRET if adequate. Use Node crypto AES-GCM with random IV and auth tag.
+4. Add lib functions to load credential state: first row from DB if present, otherwise seed from env; and save refreshed credentials after OAuth refresh. Keep all real tokens server-side only.
+5. Update `app/api/internal/codex-chatgpt-proxy/[...path]/route.ts` to use Turso credential state instead of only module-level memory. It may keep memory cache as best-effort, but DB is source of truth across function instances.
+6. Preserve dummy token response to sandbox. Do not log or return real tokens. Keep patch focused. Rerun `pnpm exec tsc --noEmit`, `pnpm lint`, `git diff --check`; do not commit.
+
+Important: we currently have uncommitted changes from the previous patch and @vercel/sandbox beta update; work with them, do not revert.
+
+---
+
+Follow-up smoke after Turso migration still fails with ChatGPT 401 and `Your access token could not be refreshed`. We need safe observability to distinguish whether the forwardURL mediator is being called and whether OAuth refresh upstream is failing. Please patch only `app/api/internal/codex-chatgpt-proxy/[...path]/route.ts` to add non-secret diagnostic logging using `console.info`/`console.warn` with only: forwardedHost, normalizedPath category (not full query/body), method, branch (`oauth_refresh`, `chatgpt_backend`, `unsupported`, `websocket`), upstream status/statusText for OAuth and ChatGPT backend, and whether credential state was sourced/present (booleans only). Do not log headers, body, tokens, account id, or full URLs with query. Also if OAuth upstream non-OK, return safe JSON including status/statusText only (already mostly does this). Rerun `pnpm exec tsc --noEmit`, `pnpm lint`, `git diff --check`; do not commit.
+
+---
+
+Proxy diagnostics did not appear in Vercel request logs and Codex still seems to hit ChatGPT with invalid/dummy auth. Please patch `lib/sandbox/vercel.ts` to build the Codex network policy using the legacy/custom API shape explicitly instead of V2 `allow: { domain: [{ forwardURL, transform }] }`.
+
+Desired shape cast as `NetworkPolicy` if needed:
+```
+{
+  mode: "custom",
+  allowedDomains: [callbackHost, "chatgpt.com", "auth.openai.com", ...],
+  injectionRules: [
+    { domain: callbackHost, headers: callback/protection headers },
+    { domain: "chatgpt.com", match: { path: { startsWith: "/backend-api/" } }, headers: mediator/protection headers },
+    { domain: "auth.openai.com", match: { path: { startsWith: "/oauth/token" }, method: ["POST"] }, headers: mediator/protection headers },
+  ],
+  forwardRules: [
+    { domain: "chatgpt.com", match: { path: { startsWith: "/backend-api/" } }, forwardURL: codexProxyUrl },
+    { domain: "auth.openai.com", match: { path: { startsWith: "/oauth/token" }, method: ["POST"] }, forwardURL: codexProxyUrl },
+  ]
+}
+```
+Keep callback-only policy working, but Codex policy can use this explicit legacy object. Include `api.openai.com` only when `proxyChatGPTAccountApi` is true. Rerun `pnpm exec tsc --noEmit`, `pnpm lint`, `git diff --check`; do not commit.
+
+---
+
+Legacy/custom policy caused Sandbox create 400. Please revert `buildVercelSandboxCodexNetworkPolicy` back to the V2 `allow` record shape, but patch sandbox creation flow to match the successful spike: create/resume the sandbox with `networkPolicy: "allow-all"` first when a networkPolicy is provided, then call `sandbox.updateNetworkPolicy(input.networkPolicy)` after create. Keep callback-only policy behavior acceptable. Scope:
+
+- In `lib/sandbox/vercel.ts`, make `buildVercelSandboxCodexNetworkPolicy` return V2 allow shape again.
+- In `createVercelSandbox`, avoid passing custom networkPolicy directly to `Sandbox.create`; create with `allow-all` (or omit if no custom policy), then apply `await sandbox.updateNetworkPolicy(input.networkPolicy)` if provided. This is the key spike alignment.
+- Preserve snapshot source behavior and runtime omission for snapshot source.
+- Rerun `pnpm exec tsc --noEmit`, `pnpm lint`, `git diff --check`; do not commit.
+
+---
+
+New direction from smoke: ChatGPT backend traffic should use Vercel credential brokering header injection directly, not forwardURL proxy. Keep OAuth refresh forwarded to mediator. Use Turso state as the source of the injected token at sandbox creation.
+
+Please patch:
+1. `lib/sandbox/vercel.ts`: update `buildVercelSandboxCodexNetworkPolicy` args to accept optional `chatGPTAccessToken` and `chatGPTAccountId`. For `chatgpt.com` `/backend-api/`, remove `forwardURL` and inject headers:
+   - `authorization: Bearer <chatGPTAccessToken>`
+   - `ChatGPT-Account-ID: <chatGPTAccountId>`
+   plus no mediator secret needed for chatgpt.com.
+   If those args are missing, fall back to current mediator forward behavior or leave the route as forward, but runner should pass them.
+   Keep `auth.openai.com` `/oauth/token` forwarded to `codexProxyUrl` with mediator/protection headers.
+   Keep callback host injection.
+2. `app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-codex-runner/route.ts`: load mediator credential state before creating the sandbox and pass current access token/account id into the network policy builder. This is host-side credential brokering; do not write these values into files/env/responses/events.
+3. Export/import the needed credential loader from `lib/codex/credentials.ts` if not already accessible.
+
+Security: do not log/return real tokens. Verification: `pnpm exec tsc --noEmit`, `pnpm lint`, `git diff --check`. Do not commit.
+
+---
+
+Smoke now fails before sandbox creation with `RhapsodyConfigError: VERCEL_TOKEN is required / VERCEL_TEAM_ID is required` from credential loading. Cause: `lib/codex/credentials.ts` uses `loadRhapsodyServerEnv()` just to get `AUTH_SECRET`, but Preview intentionally does not set VERCEL_TOKEN/TEAM_ID and sandbox SDK can use ambient project env.
+
+Please patch narrowly:
+- In `lib/config.ts`, add a small `RhapsodyAuthSecretEnv` type + `loadRhapsodyAuthSecretEnv(env = process.env)` that requires only `AUTH_SECRET` using existing helpers/patterns.
+- In `lib/codex/credentials.ts`, use `loadRhapsodyAuthSecretEnv()` for encryption key instead of `loadRhapsodyServerEnv()`.
+- Do not make VERCEL_TOKEN required for this path.
+- Rerun `pnpm exec tsc --noEmit`, `pnpm lint`, `git diff --check`; do not commit.
+
+---
+
+We got the Sandbox API 400 detail: `Invalid injection rule: header value for "authorization" is invalid.` Please patch `lib/sandbox/vercel.ts` so injected ChatGPT backend header uses the canonical key `Authorization` (capital A) instead of lowercase `authorization`, matching Vercel docs. Keep value `Bearer <token>`. Do not log tokens. Rerun `pnpm exec tsc --noEmit`, `pnpm lint`, `git diff --check`; do not commit.
+
+---
+
+The direct Authorization injection is rejected by Vercel Sandbox API: `Invalid injection rule: header value for "Authorization" is invalid.` Likely token value is too long/unsupported. Please patch back to mediator forwarding for `chatgpt.com` too, but keep the important create-then-updateNetworkPolicy flow.
+
+Scope:
+- In `lib/sandbox/vercel.ts`, make `buildVercelSandboxCodexNetworkPolicy` always use `forwardURL` for `chatgpt.com` `/backend-api/` with only short mediator/protection headers injected (`x-rhapsody-mediator-secret`, optional bypass). Do not inject real `Authorization`/`ChatGPT-Account-ID` in the network policy.
+- Remove/ignore `chatGPTAccessToken` and `chatGPTAccountId` args if now unused.
+- In `sandbox-codex-runner` route, stop loading/passing mediator credential state solely for network policy injection. The proxy route itself should still load Turso credentials for upstream calls.
+- Keep create-then-updateNetworkPolicy in `createVercelSandbox`.
+- Rerun `pnpm exec tsc --noEmit`, `pnpm lint`, `git diff --check`; do not commit.
+
+---
+
+Please pick up a small implementation task in the Rhapsody repo. The sandbox Codex smoke still fails after updating Vercel env tokens because `loadMediatorCredentialState()` prefers the existing Turso `codex_chatgpt_credentials` row over newly updated env vars. Implement a minimal admin-only endpoint to overwrite the stored ChatGPT mediator credentials from current environment variables, without logging secrets.
+
+Constraints:
+- You are not alone in the codebase; do not revert or overwrite unrelated changes.
+- Keep changes tightly scoped.
+- Use existing admin auth patterns (`requireAdminAuth`) and existing JSON helpers if useful.
+- Reuse existing credential helpers where appropriate. If helper visibility needs a small export, do that cleanly.
+- Endpoint suggestion: `POST /api/v1/admin/codex-chatgpt-credentials/seed-from-env` or similarly clear.
+- It should require `CHATGPT_ACCESS_TOKEN` and `CHATGPT_REFRESH_TOKEN` env vars, use `CHATGPT_ACCOUNT_ID` if present or existing fallback behavior if already available, save via encrypted credential store, and return only safe metadata such as `{ seeded: true, accountIdPresent: boolean, updatedAt: ... }` or similar. Do not return token lengths or token previews.
+- Add/update `.env.example` only if needed and avoid docs unless clearly necessary for this tiny operator endpoint.
+- Run focused verification (`pnpm exec tsc --noEmit`, `pnpm lint` if reasonable).
+
+Please edit files directly and report changed paths and verification results.
+
+---
+
+Please implement the next diagnostic step in Rhapsody. We need to distinguish whether Vercel Sandbox network policy `forwardURL` is applied before Codex runs.
+
+Task:
+- In `app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-codex-runner/route.ts`, after the sandbox is created and files are written (or before files if easier), but before running the Codex wrapper, run a small probe command inside the same sandbox.
+- Probe should request a URL that should match the same network policy as Codex backend API, e.g. `https://chatgpt.com/backend-api/codex/models?client_version=0.130.0` or a lightweight `/backend-api/...` path.
+- Record a `sandbox_codex_runner.network_probe` event via `createEvent` with safe metadata only: exit code, stdout/stderr preview/length, maybe commandId/cwd, and whether the response looks like it came from Rhapsody proxy if detectable. Do not log or persist tokens or full response bodies. Keep previews small.
+- The probe should not decide success/failure of the attempt yet; it is diagnostic and Codex should still run afterward.
+- Prefer a simple command available in the sandbox (`node -e` with fetch is good because runtime is node24). Avoid relying on curl unless already guaranteed.
+- Keep changes tightly scoped. Do not revert unrelated changes.
+- Run `pnpm exec tsc --noEmit`, `pnpm lint`, and `git diff --check` if reasonable.
+
+Please edit files directly and report changed paths and verification results.
+
+---
+
+Please implement a small diagnostic switch for sandbox Codex network policy variants so we can test differences from the separate prototype.
+
+Context:
+- Current Rhapsody sandbox Codex runner does not appear to forward `chatgpt.com/backend-api/*` to `/api/internal/codex-chatgpt-proxy`; Vercel logs show no proxy requests.
+- The separate prototype works with `match.path.startsWith`, but differs in a few ways: forwardURL has a path suffix, rule has forwardURL only (no transform), and no snapshot.
+
+Task:
+- Add a small request/env controlled variant to `app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-codex-runner/route.ts` / `lib/sandbox/vercel.ts` so we can test these variants without repeatedly editing code:
+  1. default: current behavior.
+  2. `no-transform`: omit `transform` from the `chatgpt.com` and `auth.openai.com` forward rules if possible, while still allowing callback auth. If mediator auth would be missing, explain with code shape or add a separate callback-only transform and rely on proxy not requiring mediator for test? Prefer not weakening proxy auth globally. If impossible, make only chatgpt rule no-transform and keep auth/callback as needed.
+  3. `path-prefix`: use `codexProxyUrl` with a suffix like `/codex/chatgpt` for chatgpt and `/codex/oauth/token` for auth, matching the prototype style. The existing proxy route should still route by `vercel-forwarded-host` and path suffix, so it can tolerate appended original path.
+  4. `no-snapshot`: skip `RHAPSODY_CODEX_BASE_SNAPSHOT_ID` for this run.
+- The selector can come from optional JSON body, e.g. `{ "networkPolicyVariant": "path-prefix", "useSnapshot": false }`, plus safe event data showing the selected variant.
+- Keep defaults identical to current behavior.
+- Do not log or persist secrets.
+- Keep changes tightly scoped; do not revert unrelated changes.
+- Run `pnpm exec tsc --noEmit`, `pnpm lint`, `git diff --check`.
+
+Please edit files directly and report changed paths and verification results.
+
+---
+
+Please implement the next diagnostic/fix: use Vercel Deployment Protection bypass as a query parameter on `forwardURL`, not as a transformed header, because we found `forwardURL` works only when no transform is on the chatgpt rule.
+
+Context:
+- `no-transform` variant proved `forwardURL` reaches the Vercel deployment but fails with Vercel Authentication Required HTML.
+- Vercel docs support `?x-vercel-protection-bypass=<secret>` for automation bypass.
+- We need to keep forward rules free of `transform`, at least for chatgpt/backend forwarding.
+
+Task:
+- In `lib/sandbox/vercel.ts`, add a helper to append `x-vercel-protection-bypass` query param to proxy forward URLs when `vercelProtectionBypassSecret` is present.
+- For `chatgpt.com` forward rule, remove transform from the rule in the variant we will use. You can add a new variant like `query-bypass` or adjust `no-transform` to append the bypass query. Keep `default` unchanged for comparison.
+- For `auth.openai.com`, prefer the same query-bypass/no-transform shape if feasible. Callback host still needs transform for mediator secret, that is fine because callback is not forwardURL.
+- Make sure path-prefix variant can combine with query bypass if useful, or add a clear `networkPolicyVariant: "query-bypass"` option.
+- Update request parsing in sandbox-codex-runner if adding a new variant.
+- Do not log or persist secrets. Prompt/event data may include the variant name but not URLs with secrets.
+- Run `pnpm exec tsc --noEmit`, `pnpm lint`, `git diff --check`.
+
+Please edit files directly and report changed paths and verification results.
+
+---
+
+Implement Vercel Sandbox OIDC-based auth for the Codex ChatGPT mediator proxy, replacing reliance on injected x-rhapsody-mediator-secret for forwarded ChatGPT/auth traffic.
+
+Context:
+- We proved `forwardURL` works only when no transform is on the forwarded rule.
+- With Deployment Protection disabled and no-transform, requests reach `/api/internal/codex-chatgpt-proxy` but fail with `{error:"Unauthorized."}` because the proxy requires `x-rhapsody-mediator-secret`.
+- Vercel Sandbox forward requests include `vercel-sandbox-oidc-token` (observed earlier). We want to verify this token server-side instead.
+
+Implementation goals:
+1. Add a Vercel OIDC verification helper, likely in `lib/vercel/oidc.ts` or `lib/sandbox/oidc.ts`.
+   - Use `jose` if already installed; if not, add it.
+   - Verify signature using remote JWKS from Vercel OIDC docs.
+   - Expected issuer/audience should be derived from env/config where possible. Search existing env config first. We have `.vercel/project.json` with orgId/team id but team slug may need env. Add optional envs if necessary, e.g. `VERCEL_OIDC_ISSUER` and `VERCEL_OIDC_AUDIENCE`, or `VERCEL_TEAM_SLUG` to construct `https://oidc.vercel.com/<slug>` and `https://vercel.com/<slug>`.
+   - Keep failures safe: do not log tokens.
+2. Update `app/api/internal/codex-chatgpt-proxy/[...path]/route.ts` auth:
+   - Keep `x-rhapsody-mediator-secret` support for callback/admin/manual internal cases if useful.
+   - Also allow verified `vercel-sandbox-oidc-token` for forwarded sandbox traffic.
+   - Initially validate issuer/audience/expiry/signature. If sandbox/session claim names are unknown, return safe diagnostics in logs: claim keys and non-sensitive claim values for `iss`, `aud`, `sub`, `owner`, `owner_id`, `project`, `project_id`, `environment`, and any sandbox/session/id-looking claims. Do not log full token.
+   - Ensure `vercel-forwarded-host` and normalized path restrictions still apply as existing route branches do.
+3. Update network policy variants:
+   - Add or adjust a variant for actual testing: `oidc` or make `no-transform` sufficient. It should use forwardURL without transform for chatgpt/auth rules. Callback host can still use transform.
+   - Keep default behavior unchanged for comparison for now.
+4. Add `.env.example` entries for new OIDC config if needed, without secrets.
+5. Verification: `pnpm exec tsc --noEmit`, `pnpm lint`, `git diff --check`.
+
+Please edit files directly and report changed paths and verification results. Do not revert unrelated changes; the workspace has many in-progress sandbox/Codex changes.
+
+---
+
+New task in /Users/toyamarinyon/Documents/rhapsody. Please implement a small hardening pass for the Vercel Sandbox OIDC Codex ChatGPT proxy.
+
+Context:
+- The proxy is app/api/internal/codex-chatgpt-proxy/[...path]/route.ts.
+- OIDC helper is lib/vercel/oidc.ts.
+- Current OIDC smoke proved Vercel Sandbox forwards requests with `vercel-sandbox-oidc-token`; claims include team_id, project_id, sandbox_id, iss, aud, sub.
+- Current auth accepts any token verified by JWKS/options, but env issuer/audience are optional and run-state validation is not present.
+
+Goal for this task (keep it scoped):
+1. Add stricter OIDC verification that validates:
+   - token signature/expiry via Vercel JWKS.
+   - `project_id` equals configured `VERCEL_PROJECT_ID`.
+   - `owner_id` or `team_id` equals configured `VERCEL_TEAM_ID` when present.
+   - audience matches the current proxy base derived from the incoming request URL, e.g. `${origin}/api/internal/codex-chatgpt-proxy`, instead of requiring a deployment-specific env var.
+   - issuer matches `https://oidc.vercel.com/${VERCEL_TEAM_ID}` when team id is configured.
+2. Preserve the existing mediator-secret path for callback/internal endpoints.
+3. Keep logs safe: no raw token or credentials.
+4. Keep current route behavior otherwise unchanged.
+5. Update .env.example/config types only if needed.
+6. Run `pnpm exec tsc --noEmit` and report results.
+
+Please edit files directly and list changed files in your final response. Do not revert unrelated changes; the worktree is intentionally dirty.
