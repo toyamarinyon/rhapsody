@@ -1,0 +1,35 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "82f653c31aba",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "app/api/v1/runs/[runId]/attempts/[attemptId]/codex-local/route.ts",
+    "app/api/v1/runs/[runId]/attempts/[attemptId]/fake-runner/route.ts",
+    "app/api/v1/runs/[runId]/attempts/[attemptId]/run/route.ts",
+    "app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-codex-runner/route.ts",
+    "app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-fake-runner/route.ts",
+    "lib/runners/codex-local.ts",
+    "lib/runners/fake.ts",
+    "lib/runners/registry.ts",
+    "lib/runners/sandbox-codex.ts",
+    "lib/runners/sandbox-fake.ts",
+    "lib/runners/types.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/82/f653c31aba/0/metadata.json",
+      "transcript": "/82/f653c31aba/0/full.jsonl",
+      "content_hash": "/82/f653c31aba/0/content_hash.txt",
+      "prompt": "/82/f653c31aba/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 7086684,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 215075328,
+    "output_tokens": 352147,
+    "api_call_count": 2717
+  }
+}
