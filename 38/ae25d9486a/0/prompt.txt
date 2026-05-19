@@ -505,3 +505,7 @@ https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-prote
 
 これは今はやらなくて良さそうですね。production環境であれば問題ないし、ここをなんとかするために何か無理をするとVercel環境の良さをreduceすることになりそうなので、preview環境が必要なときはProtectionを一時的に外す運用でいいかと思います。
 その旨、proxyのところにコメントしておくと次からスムーズかもしれないですね。
+
+---
+
+では一度コミットをしておきましょう。次は、runnerの抽象化をするのがいいですかね？どう思います？
