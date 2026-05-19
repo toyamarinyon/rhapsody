@@ -95,6 +95,22 @@ export const stateStoreMigrations = [
 				ON events (attempt_id, created_at);
 		`,
 	},
+	{
+		id: "0002_codex_chatgpt_credentials",
+		sql: `
+			CREATE TABLE codex_chatgpt_credentials (
+				id TEXT PRIMARY KEY,
+				encrypted_access_token TEXT NOT NULL,
+				access_token_iv TEXT NOT NULL,
+				access_token_tag TEXT NOT NULL,
+				encrypted_refresh_token TEXT NOT NULL,
+				refresh_token_iv TEXT NOT NULL,
+				refresh_token_tag TEXT NOT NULL,
+				account_id TEXT NOT NULL,
+				updated_at INTEGER NOT NULL
+			);
+		`,
+	},
 ] as const satisfies readonly StateStoreMigration[];
 
 export async function migrateStateStore(

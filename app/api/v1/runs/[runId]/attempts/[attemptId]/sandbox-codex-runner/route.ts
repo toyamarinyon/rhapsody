@@ -1,6 +1,8 @@
 import { buildCodexExecCommand } from "@/lib/codex/cli";
+import { buildCodexChatGPTDummyAuthFile } from "@/lib/codex/auth";
 import {
 	loadRhapsodyCodexBaseSnapshotEnv,
+	loadRhapsodyCodexChatGPTEnv,
 	loadRhapsodyConfig,
 	loadRhapsodyMediatorEnv,
 	loadRhapsodyProtectionBypassEnv,
@@ -13,7 +15,8 @@ import {
 } from "@/lib/instructions";
 import {
 	createVercelSandbox,
-	buildVercelSandboxCallbackNetworkPolicy,
+	buildVercelSandboxCodexNetworkPolicy,
+	getVercelSandboxId,
 	runVercelSandboxCommand,
 	stopVercelSandbox,
 	writeVercelSandboxFiles,
@@ -32,6 +35,7 @@ import {
 export const runtime = "nodejs";
 
 const SANDBOX_WORKDIR = "/vercel/sandbox";
+const CODEX_HOME_PATH = "/vercel/sandbox/.codex";
 const COMMAND = "sandbox-codex-runner";
 const WRAPPER_PATH = "wrapper.js";
 const PROMPT_PATH = "prompt.txt";
@@ -40,6 +44,9 @@ const PROMPT_PREVIEW_LENGTH = 500;
 const OUTPUT_PREVIEW_LENGTH = 1000;
 const TIMEOUT_MS = 60_000;
 const SMOKE_PROMPT_SUFFIX = `\n\nYou are running in smoke-test mode for Rhapsody.\n- Keep your response concise.\n- Do not edit files.\n`;
+const NETWORK_PROBE_URL =
+	"https://chatgpt.com/backend-api/codex/models?client_version=0.130.0";
+const NETWORK_PROBE_STDOUT_PREVIEW_LENGTH = 240;
 
 export async function POST(
 	request: Request,
@@ -111,14 +118,30 @@ export async function POST(
 		const mediatorEnv = loadRhapsodyMediatorEnv();
 		const protectionBypassEnv = loadRhapsodyProtectionBypassEnv();
 		const codexBaseSnapshotEnv = loadRhapsodyCodexBaseSnapshotEnv();
-		const sourceSnapshotId = codexBaseSnapshotEnv.RHAPSODY_CODEX_BASE_SNAPSHOT_ID ?? null;
+		const codexChatGPTEnv = loadRhapsodyCodexChatGPTEnv();
+		const sourceSnapshotId = parsedBody.value.useSnapshot === false
+			? null
+			: codexBaseSnapshotEnv.RHAPSODY_CODEX_BASE_SNAPSHOT_ID ?? null;
+		const networkPolicyVariant = parsedBody.value.networkPolicyVariant ?? "default";
 		const claimToken = detail.run.claimToken;
+		// Vercel Sandbox forwardURL requests must reach this mediator before OIDC can
+		// authorize them. Preview Deployment Protection intercepts those requests, so
+		// preview smoke tests temporarily disable Protection; production does not need
+		// a workaround.
+		const codexProxyUrl = new URL(
+			`/api/internal/codex-chatgpt-proxy/runs/${runId}/attempts/${attemptId}`,
+			callbackBaseUrl,
+		).toString();
+		const authPayload = buildCodexChatGPTDummyAuthFile(codexChatGPTEnv.CHATGPT_ACCOUNT_ID);
 
 		sandbox = await createVercelSandbox({
-			networkPolicy: buildVercelSandboxCallbackNetworkPolicy({
+			networkPolicy: buildVercelSandboxCodexNetworkPolicy({
 				callbackUrl,
 				mediatorSecret: mediatorEnv.MEDIATOR_SECRET,
+				codexProxyUrl,
 				vercelProtectionBypassSecret: protectionBypassEnv.VERCEL_PROTECTION_BYPASS_SECRET,
+				proxyChatGPTAccountApi: false,
+				networkPolicyVariant,
 			}),
 			...(sourceSnapshotId
 				? {
@@ -148,7 +171,7 @@ export async function POST(
 						{
 							run_id: runId,
 							attempt_id: attemptId,
-							sandbox_id: sandbox.sandboxId,
+							sandbox_id: getVercelSandboxId(sandbox),
 							command: {
 								command: codexCommand.command,
 								argv: codexCommand.argv,
@@ -163,13 +186,18 @@ export async function POST(
 				),
 				mode: 0o600,
 			},
+			{
+				path: `${CODEX_HOME_PATH}/auth.json`,
+				content: Buffer.from(JSON.stringify(authPayload, null, 2), "utf8"),
+				mode: 0o600,
+			},
 		]);
 
 		const startResult = await markAttemptStarted(client, {
 			runId,
 			attemptId,
 			claimToken,
-			sandboxId: sandbox.sandboxId,
+			sandboxId: getVercelSandboxId(sandbox),
 			command: COMMAND,
 		});
 
@@ -178,12 +206,24 @@ export async function POST(
 				{
 					error: "Attempt could not be started.",
 					prompt: promptSummary,
-					sandboxId: sandbox.sandboxId,
+					sandboxId: getVercelSandboxId(sandbox),
 					startResult,
 				},
 				{ status: 409 },
 			);
 		}
+
+		const networkProbeSummary = await runNetworkPolicyProbe(sandbox);
+		await createEvent(client, {
+			runId,
+			attemptId,
+			level: "info",
+			type: "sandbox_codex_runner.network_probe",
+			message: "Ran network policy probe for chatgpt backend path.",
+			data: {
+				...networkProbeSummary,
+			},
+		});
 
 		const promptEvent = await createEvent(client, {
 			runId,
@@ -195,8 +235,10 @@ export async function POST(
 				command: COMMAND,
 				promptLength: executionPrompt.length,
 				previewLength: promptSummary.preview.length,
-				sandboxId: sandbox.sandboxId,
+				sandboxId: getVercelSandboxId(sandbox),
 				sourceSnapshotId,
+				networkPolicyVariant,
+				useSnapshot: sourceSnapshotId !== null,
 			},
 		});
 
@@ -209,8 +251,9 @@ export async function POST(
 				RHAPSODY_RUN_ID: runId,
 				RHAPSODY_ATTEMPT_ID: attemptId,
 				RHAPSODY_CLAIM_TOKEN: claimToken,
-				RHAPSODY_SANDBOX_ID: sandbox.sandboxId,
+				RHAPSODY_SANDBOX_ID: getVercelSandboxId(sandbox),
 				RHAPSODY_COMMAND_ID: COMMAND,
+				CODEX_HOME: CODEX_HOME_PATH,
 			},
 		});
 
@@ -224,7 +267,7 @@ export async function POST(
 					claimToken,
 					executionStatus: wrapperCallback?.codex_timed_out ? "timed_out" : command.exitCode === 0 ? "completed" : "failed",
 					exitCode: command.exitCode,
-					sandboxId: sandbox.sandboxId,
+					sandboxId: getVercelSandboxId(sandbox),
 					command: COMMAND,
 					error: buildFallbackError(command, wrapperCallback),
 				});
@@ -232,7 +275,7 @@ export async function POST(
 		const refreshedDetail = await getRunDetail(client, runId);
 
 		return Response.json({
-			sandboxId: sandbox.sandboxId,
+			sandboxId: getVercelSandboxId(sandbox),
 			command: summarizeCommand(command),
 			sourceSnapshotId,
 			prompt: {
@@ -272,7 +315,10 @@ export async function POST(
 
 async function readOptionalRequest(
 	request: Request,
-): Promise<{ ok: true; value: { callbackBaseUrl?: string } } | { ok: false; error: string }> {
+): Promise<
+	| { ok: true; value: { callbackBaseUrl?: string; networkPolicyVariant?: "default" | "no-transform" | "path-prefix" | "query-bypass" | "oidc"; useSnapshot?: boolean } }
+	| { ok: false; error: string }
+> {
 	const text = await request.text();
 
 	if (!text.trim()) {
@@ -292,7 +338,7 @@ async function readOptionalRequest(
 	}
 
 	if (value.callbackBaseUrl === undefined) {
-		return { ok: true, value: {} };
+		return parseNetworkPolicyOptions(value);
 	}
 
 	if (typeof value.callbackBaseUrl !== "string" || !value.callbackBaseUrl.trim()) {
@@ -305,11 +351,57 @@ async function readOptionalRequest(
 		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
 			return { ok: false, error: "callbackBaseUrl must use http or https." };
 		}
-
-		return { ok: true, value: { callbackBaseUrl: parsed.origin } };
+		return parseNetworkPolicyOptions({ ...value, callbackBaseUrl: parsed.origin });
 	} catch {
 		return { ok: false, error: "callbackBaseUrl must be a valid URL." };
 	}
+}
+
+function parseNetworkPolicyOptions(value: Record<string, unknown>): {
+	ok: true;
+	value: {
+		callbackBaseUrl?: string;
+		networkPolicyVariant?: "default" | "no-transform" | "path-prefix" | "query-bypass" | "oidc";
+		useSnapshot?: boolean;
+	};
+} | { ok: false; error: string } {
+	const result: {
+		callbackBaseUrl?: string;
+		networkPolicyVariant?: "default" | "no-transform" | "path-prefix" | "query-bypass" | "oidc";
+		useSnapshot?: boolean;
+	} = {};
+
+	if (value.callbackBaseUrl !== undefined) {
+		result.callbackBaseUrl = value.callbackBaseUrl as string;
+	}
+
+	if (value.networkPolicyVariant !== undefined) {
+		if (
+			value.networkPolicyVariant !== "default" &&
+				value.networkPolicyVariant !== "no-transform" &&
+				value.networkPolicyVariant !== "path-prefix" &&
+				value.networkPolicyVariant !== "query-bypass" &&
+				value.networkPolicyVariant !== "oidc"
+			) {
+			return {
+				ok: false,
+				error:
+					"networkPolicyVariant must be one of: default, no-transform, path-prefix, query-bypass, oidc.",
+			};
+		}
+
+		result.networkPolicyVariant = value.networkPolicyVariant;
+	}
+
+	if (value.useSnapshot !== undefined) {
+		if (typeof value.useSnapshot !== "boolean") {
+			return { ok: false, error: "useSnapshot must be a boolean when provided." };
+		}
+
+		result.useSnapshot = value.useSnapshot;
+	}
+
+	return { ok: true, value: result };
 }
 
 function buildWrapperSource() {
@@ -482,6 +574,110 @@ function parseWrapperStdout(stdout: string) {
 	}
 }
 
+async function runNetworkPolicyProbe(sandbox: RhapsodyVercelSandbox) {
+	const command = await runVercelSandboxCommand(sandbox, {
+		cmd: "node",
+		args: ["-e", buildNetworkProbeScript()],
+		cwd: SANDBOX_WORKDIR,
+	});
+
+	const probeOutput = parseProbeOutput(command.stdout);
+	const responseSourceHint = probeOutput?.looksLikeRhapsodyProxy ?? null;
+	const bodyPreview = probeOutput?.bodyPreview ?? null;
+	const bodyLength = probeOutput?.bodyLength ?? null;
+	const commandId = command.commandId;
+	const cwd = command.cwd;
+
+	return {
+		exitCode: command.exitCode,
+		commandId,
+		cwd,
+		startedAt: command.startedAt,
+		probeStatus: probeOutput?.status ?? null,
+		probeStatusText: probeOutput?.statusText ?? null,
+		contentType: probeOutput?.contentType ?? null,
+		bodyLength,
+		bodyPreview,
+		stdoutLength: command.stdout.length,
+		stderrLength: command.stderr.length,
+		stdoutPreview: command.stdout.slice(0, OUTPUT_PREVIEW_LENGTH),
+		stderrPreview: command.stderr.slice(0, OUTPUT_PREVIEW_LENGTH),
+		responseLooksLikeProxy: responseSourceHint,
+	};
+}
+
+function buildNetworkProbeScript() {
+	return `
+const url = "${NETWORK_PROBE_URL}";
+
+(async () => {
+	try {
+		const response = await fetch(url, { method: "GET" });
+		const body = await response.text();
+		const bodyPreview = body.slice(0, ${NETWORK_PROBE_STDOUT_PREVIEW_LENGTH});
+		const contentType = response.headers.get("content-type");
+		const looksLikeRhapsodyProxy = response.headers.get("x-rhapsody-proxy") === "codex-chatgpt";
+
+		console.log(
+			JSON.stringify({
+				status: response.status,
+				statusText: response.statusText,
+				contentType,
+				bodyLength: body.length,
+				bodyPreview,
+				looksLikeRhapsodyProxy,
+			}),
+		);
+	} catch (error) {
+		console.log(
+			JSON.stringify({
+				error: error instanceof Error ? error.message : String(error),
+				status: null,
+			}),
+		);
+	}
+})();
+`;
+}
+
+function parseProbeOutput(stdout: string) {
+	const line = stdout
+		.trim()
+		.split("\\n")
+		.findLast((candidate) => candidate.trim().startsWith("{"));
+
+	if (!line) {
+		return null;
+	}
+
+	try {
+		const parsed = JSON.parse(line) as {
+			status: number | null;
+			statusText?: string | null;
+			contentType?: string | null;
+			bodyLength?: number | null;
+			bodyPreview?: string | null;
+			looksLikeRhapsodyProxy?: boolean;
+			error?: string;
+		};
+
+		if (typeof parsed.error === "string") {
+			return { status: null, error: parsed.error };
+		}
+
+		return {
+			status: parsed.status ?? null,
+			statusText: parsed.statusText ?? null,
+			contentType: parsed.contentType ?? null,
+			bodyLength: parsed.bodyLength ?? null,
+			bodyPreview: typeof parsed.bodyPreview === "string" ? parsed.bodyPreview : null,
+			looksLikeRhapsodyProxy: Boolean(parsed.looksLikeRhapsodyProxy),
+		};
+	} catch {
+		return null;
+	}
+}
+
 function buildFallbackError(
 	command: Awaited<ReturnType<typeof runVercelSandboxCommand>>,
 	wrapperCallback: ReturnType<typeof parseWrapperStdout>,
@@ -499,9 +695,19 @@ function buildFallbackError(
 
 function serializeError(error: unknown) {
 	if (error instanceof Error) {
+		const maybeApiError = error as Error & {
+			response?: { status?: number; statusText?: string };
+			text?: string;
+			json?: unknown;
+		};
+
 		return {
 			name: error.name,
 			message: error.message,
+			responseStatus: maybeApiError.response?.status,
+			responseStatusText: maybeApiError.response?.statusText,
+			text: maybeApiError.text,
+			json: maybeApiError.json,
 		};
 	}
 

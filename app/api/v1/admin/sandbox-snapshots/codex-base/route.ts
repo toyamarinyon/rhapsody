@@ -1,6 +1,7 @@
 import {
 	createVercelSandbox,
 	createVercelSandboxSnapshot,
+	getVercelSandboxId,
 	runVercelSandboxCommand,
 	stopVercelSandbox,
 	type RhapsodyVercelSandbox,
@@ -85,7 +86,7 @@ export async function POST(request: Request) {
 		const snapshot = await createVercelSandboxSnapshot(sandbox);
 
 		return Response.json({
-			sandboxId: sandbox.sandboxId,
+			sandboxId: getVercelSandboxId(sandbox),
 			snapshotId: snapshot.snapshotId,
 			codexVersion: {
 				exitCode: codexVersionExitCode,

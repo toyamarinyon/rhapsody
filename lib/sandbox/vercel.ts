@@ -1,4 +1,4 @@
-import { Sandbox, type NetworkPolicy } from "@vercel/sandbox";
+import { Sandbox, type NetworkPolicy, type NetworkPolicyRule } from "@vercel/sandbox";
 
 import { loadRhapsodySandboxEnv } from "@/lib/config";
 
@@ -51,6 +51,10 @@ export type WithVercelSandboxOptions = CreateVercelSandboxInput & {
 };
 
 const DEFAULT_SANDBOX_RUNTIME = "node24";
+// updateNetworkPolicy resolves when the API accepts the policy, but local probes
+// showed the sandbox dataplane can take a few seconds before forwardURL rules
+// are actually applied to commands running inside the sandbox.
+const NETWORK_POLICY_PROPAGATION_DELAY_MS = 8_000;
 
 export function buildVercelSandboxCallbackNetworkPolicy(args: {
 	callbackUrl: string;
@@ -58,7 +62,6 @@ export function buildVercelSandboxCallbackNetworkPolicy(args: {
 	vercelProtectionBypassSecret?: string;
 }): NetworkPolicy {
 	const callbackHost = new URL(args.callbackUrl).hostname;
-
 	const headers = {
 		"x-rhapsody-mediator-secret": args.mediatorSecret,
 		...(args.vercelProtectionBypassSecret
@@ -81,6 +84,95 @@ export function buildVercelSandboxCallbackNetworkPolicy(args: {
 	};
 }
 
+export function buildVercelSandboxCodexNetworkPolicy(args: {
+	callbackUrl: string;
+	codexProxyUrl: string;
+	mediatorSecret: string;
+	vercelProtectionBypassSecret?: string;
+	proxyChatGPTAccountApi?: boolean;
+	networkPolicyVariant?: "default" | "no-transform" | "path-prefix" | "query-bypass" | "oidc";
+}): NetworkPolicy {
+	const callbackHost = new URL(args.callbackUrl).hostname;
+	const mediatorHeaders = {
+		"x-rhapsody-mediator-secret": args.mediatorSecret,
+		...(args.vercelProtectionBypassSecret
+			? { "x-vercel-protection-bypass": args.vercelProtectionBypassSecret }
+			: {}),
+	};
+	const variant = args.networkPolicyVariant ?? "default";
+	const useQueryBypass = variant === "query-bypass";
+	const chatgptProxyUrl =
+		variant === "path-prefix"
+			? `${args.codexProxyUrl.replace(/\/$/, "")}/codex/chatgpt`
+			: args.codexProxyUrl;
+	const authProxyUrl =
+		variant === "path-prefix"
+			? `${args.codexProxyUrl.replace(/\/$/, "")}/codex/oauth/token`
+			: args.codexProxyUrl;
+	const chatgptRuleTransform =
+		variant === "default"
+			? [{ headers: mediatorHeaders }]
+			: undefined;
+	const authRuleTransform =
+		variant === "default" || variant === "path-prefix"
+			? [{ headers: mediatorHeaders }]
+			: undefined;
+	const chatgptForwardUrl = useQueryBypass
+		? buildProxyUrlWithProtectionBypass(chatgptProxyUrl, args.vercelProtectionBypassSecret)
+		: chatgptProxyUrl;
+	const authForwardUrl = useQueryBypass
+		? buildProxyUrlWithProtectionBypass(authProxyUrl, args.vercelProtectionBypassSecret)
+		: authProxyUrl;
+	const allow: Record<string, NetworkPolicyRule[]> = {
+		[callbackHost]: [
+			{
+				transform: [{ headers: mediatorHeaders }],
+			},
+		],
+		"chatgpt.com": [
+			{
+				forwardURL: chatgptForwardUrl,
+				match: { path: { startsWith: "/backend-api/" } },
+				...(chatgptRuleTransform ? { transform: chatgptRuleTransform } : {}),
+			},
+		],
+		"auth.openai.com": [
+			{
+				forwardURL: authForwardUrl,
+				match: {
+					path: { startsWith: "/oauth/token" },
+					method: ["POST"],
+				},
+				...(authRuleTransform ? { transform: authRuleTransform } : {}),
+			},
+		],
+	};
+
+	if (args.proxyChatGPTAccountApi) {
+		allow["api.openai.com"] = [
+			{
+				forwardURL: args.codexProxyUrl,
+				match: { path: { startsWith: "/" } },
+				transform: [{ headers: mediatorHeaders }],
+			},
+		];
+	}
+
+	return {
+		allow,
+	};
+}
+
+function buildProxyUrlWithProtectionBypass(url: string, byPassSecret?: string) {
+	if (!byPassSecret?.trim()) {
+		return url;
+	}
+
+	const parsed = new URL(url);
+	parsed.searchParams.set("x-vercel-protection-bypass", byPassSecret);
+	return parsed.toString();
+}
+
 export async function createVercelSandbox(input: CreateVercelSandboxInput = {}) {
 	const env = loadRhapsodySandboxEnv();
 	const credentials = env
@@ -91,21 +183,23 @@ export async function createVercelSandbox(input: CreateVercelSandboxInput = {}) 
 			}
 		: {};
 
-	if (input.source) {
-		return Sandbox.create({
-			...credentials,
-			source: input.source,
-			env: input.env,
-			networkPolicy: input.networkPolicy,
-		});
+	const sandbox = await Sandbox.create({
+		...credentials,
+		...(input.source ? { source: input.source } : { runtime: input.runtime ?? DEFAULT_SANDBOX_RUNTIME }),
+		env: input.env,
+		networkPolicy: input.networkPolicy ? "allow-all" : undefined,
+	});
+
+	if (input.networkPolicy) {
+		await sandbox.updateNetworkPolicy(input.networkPolicy);
+		await delay(NETWORK_POLICY_PROPAGATION_DELAY_MS);
 	}
 
-	return Sandbox.create({
-		...credentials,
-		runtime: input.runtime ?? DEFAULT_SANDBOX_RUNTIME,
-		env: input.env,
-		networkPolicy: input.networkPolicy,
-	});
+	return sandbox;
+}
+
+function delay(ms: number) {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function writeVercelSandboxFiles(sandbox: RhapsodyVercelSandbox, files: VercelSandboxFile[]) {
@@ -134,12 +228,16 @@ export async function runVercelSandboxCommand(
 	};
 }
 
+export function getVercelSandboxId(sandbox: RhapsodyVercelSandbox) {
+	return sandbox.name;
+}
+
 export async function createVercelSandboxSnapshot(sandbox: RhapsodyVercelSandbox) {
 	const snapshot = await sandbox.snapshot();
 
 	return {
 		snapshotId: snapshot.snapshotId,
-		sourceSandboxId: snapshot.sourceSandboxId,
+		sourceSandboxId: snapshot.sourceSessionId,
 		status: snapshot.status,
 		sizeBytes: snapshot.sizeBytes,
 		createdAt: snapshot.createdAt.getTime(),
@@ -148,7 +246,7 @@ export async function createVercelSandboxSnapshot(sandbox: RhapsodyVercelSandbox
 }
 
 export async function stopVercelSandbox(sandbox: RhapsodyVercelSandbox) {
-	await sandbox.stop({ blocking: true });
+	await sandbox.stop();
 }
 
 export async function withVercelSandbox<TResult>(

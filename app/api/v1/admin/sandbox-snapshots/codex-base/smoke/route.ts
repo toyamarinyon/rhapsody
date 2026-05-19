@@ -1,5 +1,6 @@
 import {
 	createVercelSandbox,
+	getVercelSandboxId,
 	runVercelSandboxCommand,
 	stopVercelSandbox,
 	type RhapsodyVercelSandbox,
@@ -62,7 +63,7 @@ export async function POST(request: Request) {
 		commandSummaries.push({ command: BASE_COMMAND, summary: codexVersion });
 
 		return Response.json({
-			sandboxId: sandbox.sandboxId,
+			sandboxId: getVercelSandboxId(sandbox),
 			snapshotId: parsed.value.snapshotId,
 			command: {
 				exitCode: codexVersion.exitCode,

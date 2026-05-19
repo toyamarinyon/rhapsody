@@ -13,6 +13,7 @@ import {
 import {
 	createVercelSandbox,
 	buildVercelSandboxCallbackNetworkPolicy,
+	getVercelSandboxId,
 	runVercelSandboxCommand,
 	stopVercelSandbox,
 	writeVercelSandboxFiles,
@@ -138,7 +139,7 @@ export async function POST(
 						{
 							run_id: runId,
 							attempt_id: attemptId,
-							sandbox_id: sandbox.sandboxId,
+							sandbox_id: getVercelSandboxId(sandbox),
 							command: SANDBOX_FAKE_RUNNER_COMMAND,
 							prompt_path: PROMPT_PATH,
 							callback_url: callbackUrl,
@@ -157,7 +158,7 @@ export async function POST(
 			runId,
 			attemptId,
 			claimToken,
-			sandboxId: sandbox.sandboxId,
+			sandboxId: getVercelSandboxId(sandbox),
 			command: SANDBOX_FAKE_RUNNER_COMMAND,
 		});
 
@@ -166,7 +167,7 @@ export async function POST(
 				{
 					error: "Attempt could not be started.",
 					prompt: promptSummary,
-					sandboxId: sandbox.sandboxId,
+					sandboxId: getVercelSandboxId(sandbox),
 					startResult,
 				},
 				{ status: 409 },
@@ -183,7 +184,7 @@ export async function POST(
 				instructionPath: instructions.instructionPath,
 				promptLength: prompt.length,
 				previewLength: promptSummary.preview.length,
-				sandboxId: sandbox.sandboxId,
+				sandboxId: getVercelSandboxId(sandbox),
 				sourceSnapshotId,
 			},
 		});
@@ -196,7 +197,7 @@ export async function POST(
 				RHAPSODY_RUN_ID: runId,
 				RHAPSODY_ATTEMPT_ID: attemptId,
 				RHAPSODY_CLAIM_TOKEN: claimToken,
-				RHAPSODY_SANDBOX_ID: sandbox.sandboxId,
+				RHAPSODY_SANDBOX_ID: getVercelSandboxId(sandbox),
 				RHAPSODY_COMMAND_ID: SANDBOX_FAKE_RUNNER_COMMAND,
 			},
 		});
@@ -210,7 +211,7 @@ export async function POST(
 						claimToken,
 						executionStatus: "failed",
 						exitCode: command.exitCode,
-						sandboxId: sandbox.sandboxId,
+						sandboxId: getVercelSandboxId(sandbox),
 						command: SANDBOX_FAKE_RUNNER_COMMAND,
 						error:
 							wrapperCallback?.callback_ok === false
@@ -220,7 +221,7 @@ export async function POST(
 		const refreshedDetail = await getRunDetail(client, runId);
 
 		return Response.json({
-			sandboxId: sandbox.sandboxId,
+			sandboxId: getVercelSandboxId(sandbox),
 			command: summarizeCommand(command),
 			sourceSnapshotId,
 			prompt: {

@@ -40,18 +40,39 @@ export type RhapsodyServerEnv = {
 	VERCEL_TOKEN: string;
 	VERCEL_TEAM_ID: string;
 	VERCEL_PROJECT_ID: string;
+	RHAPSODY_VERCEL_TEAM_ID?: string;
+	RHAPSODY_VERCEL_PROJECT_ID?: string;
 	VERCEL_PROTECTION_BYPASS_SECRET?: string;
 	RHAPSODY_CODEX_BASE_SNAPSHOT_ID?: string;
+	CHATGPT_ACCESS_TOKEN?: string;
+	CHATGPT_ACCOUNT_ID?: string;
+	CHATGPT_REFRESH_TOKEN?: string;
+	VERCEL_OIDC_ISSUER?: string;
+	VERCEL_OIDC_AUDIENCE?: string;
+	VERCEL_TEAM_SLUG?: string;
 };
 
 export type RhapsodyStateStoreEnv = Pick<RhapsodyServerEnv, "TURSO_DATABASE_URL" | "TURSO_AUTH_TOKEN">;
 export type RhapsodyGitHubEnv = Pick<RhapsodyServerEnv, "GITHUB_TOKEN">;
 export type RhapsodyMediatorEnv = Pick<RhapsodyServerEnv, "MEDIATOR_SECRET">;
+export type RhapsodyAuthSecretEnv = Pick<RhapsodyServerEnv, "AUTH_SECRET">;
+export type RhapsodyVercelOidcEnv = Pick<
+	RhapsodyServerEnv,
+	| "VERCEL_OIDC_ISSUER"
+	| "VERCEL_OIDC_AUDIENCE"
+	| "VERCEL_TEAM_SLUG"
+	| "RHAPSODY_VERCEL_TEAM_ID"
+	| "RHAPSODY_VERCEL_PROJECT_ID"
+>;
 export type RhapsodyProtectionBypassEnv = Pick<RhapsodyServerEnv, "VERCEL_PROTECTION_BYPASS_SECRET">;
 export type RhapsodySandboxEnv = Pick<RhapsodyServerEnv, "VERCEL_TOKEN" | "VERCEL_TEAM_ID" | "VERCEL_PROJECT_ID">;
 export type RhapsodyCodexBaseSnapshotEnv = Pick<
 	RhapsodyServerEnv,
 	"RHAPSODY_CODEX_BASE_SNAPSHOT_ID"
+>;
+export type RhapsodyCodexChatGPTEnv = Pick<
+	RhapsodyServerEnv,
+	"CHATGPT_ACCESS_TOKEN" | "CHATGPT_ACCOUNT_ID" | "CHATGPT_REFRESH_TOKEN"
 >;
 
 const REQUIRED_ENV_KEYS = [
@@ -75,6 +96,14 @@ const REQUIRED_GITHUB_ENV_KEYS = ["GITHUB_TOKEN"] as const satisfies readonly (k
 const REQUIRED_MEDIATOR_ENV_KEYS = [
 	"MEDIATOR_SECRET",
 ] as const satisfies readonly (keyof RhapsodyMediatorEnv)[];
+const REQUIRED_AUTH_SECRET_ENV_KEYS = ["AUTH_SECRET"] as const satisfies readonly (keyof RhapsodyAuthSecretEnv)[];
+const OPTIONAL_VERCEL_OIDC_ENV_KEYS = [
+	"VERCEL_OIDC_ISSUER",
+	"VERCEL_OIDC_AUDIENCE",
+	"VERCEL_TEAM_SLUG",
+	"RHAPSODY_VERCEL_TEAM_ID",
+	"RHAPSODY_VERCEL_PROJECT_ID",
+] as const satisfies readonly (keyof RhapsodyVercelOidcEnv)[];
 const SANDBOX_ENV_KEYS = [
 	"VERCEL_TOKEN",
 	"VERCEL_TEAM_ID",
@@ -109,12 +138,28 @@ export function loadRhapsodyMediatorEnv(env = process.env): RhapsodyMediatorEnv 
 	return loadRequiredEnv(env, REQUIRED_MEDIATOR_ENV_KEYS);
 }
 
+export function loadRhapsodyAuthSecretEnv(env = process.env): RhapsodyAuthSecretEnv {
+	return loadRequiredEnv(env, REQUIRED_AUTH_SECRET_ENV_KEYS);
+}
+
+export function loadRhapsodyVercelOidcEnv(env = process.env): RhapsodyVercelOidcEnv {
+	return loadOptionalEnv(env, OPTIONAL_VERCEL_OIDC_ENV_KEYS);
+}
+
 export function loadRhapsodyProtectionBypassEnv(env = process.env): RhapsodyProtectionBypassEnv {
 	return loadOptionalEnv(env, ["VERCEL_PROTECTION_BYPASS_SECRET"] as const);
 }
 
 export function loadRhapsodyCodexBaseSnapshotEnv(env = process.env): RhapsodyCodexBaseSnapshotEnv {
 	return loadOptionalEnv(env, ["RHAPSODY_CODEX_BASE_SNAPSHOT_ID"] as const);
+}
+
+export function loadRhapsodyCodexChatGPTEnv(env = process.env): RhapsodyCodexChatGPTEnv {
+	return loadOptionalEnv(env, [
+		"CHATGPT_ACCESS_TOKEN",
+		"CHATGPT_ACCOUNT_ID",
+		"CHATGPT_REFRESH_TOKEN",
+	] as const);
 }
 
 export function loadRhapsodySandboxEnv(env = process.env): RhapsodySandboxEnv | null {
