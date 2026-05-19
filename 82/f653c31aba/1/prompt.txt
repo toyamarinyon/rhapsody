@@ -1,0 +1,26 @@
+New implementation task in /Users/toyamarinyon/Documents/rhapsody. Please implement runner routing abstraction.
+
+Context:
+- We just committed run.runner persistence (`runner` values: fake, sandbox-fake, codex-local, sandbox-codex).
+- Existing runner implementations live inside route files:
+  - app/api/v1/runs/[runId]/attempts/[attemptId]/fake-runner/route.ts
+  - app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-fake-runner/route.ts
+  - app/api/v1/runs/[runId]/attempts/[attemptId]/codex-local/route.ts
+  - app/api/v1/runs/[runId]/attempts/[attemptId]/sandbox-codex-runner/route.ts
+- Goal: introduce a single route that reads `run.runner` and dispatches to a runner adapter, while preserving existing individual routes as compatibility wrappers for now.
+
+Requested implementation:
+1. Create a lib runner abstraction, e.g. `lib/runners/types.ts`, `lib/runners/registry.ts`, and per-runner modules as appropriate.
+2. Add a single route: `app/api/v1/runs/[runId]/attempts/[attemptId]/run/route.ts`.
+   - It should require admin auth.
+   - It should load run detail, read `detail.run.runner`, find the matching runner, and invoke it.
+   - It should accept the same body options currently needed by runner implementations where relevant (`callbackBaseUrl`, `networkPolicyVariant`, `useSnapshot`, etc.).
+3. Refactor existing individual route files into compatibility wrappers that call the same runner implementation directly, without duplicating core execution logic.
+4. Keep behavior and response shapes as stable as practical.
+5. Keep changes scoped. Do not delete existing route files yet.
+6. Run `pnpm exec tsc --noEmit` and `pnpm lint`; report results and changed files.
+
+Important:
+- Do not revert unrelated changes.
+- This repo uses Next.js 16; follow existing route patterns.
+- Prefer minimal abstraction. The goal is removing route-level duplication and enabling single dispatch by run.runner, not a large framework.
