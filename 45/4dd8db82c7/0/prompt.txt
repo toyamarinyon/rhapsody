@@ -1,0 +1,57 @@
+# Diff comments:
+
+## Comment 1
+File: AGENTS.md
+Side: R
+Lines: 4
+Diff hunk:
+```diff
+@@ -1,4 +1,43 @@
++# AGENTS.md
+ 
++Rhapsody is a Next.js application for a Vercel-native agent scheduler/runner. It is derived from
++Symphony, but the target architecture is GitHub Projects + Workflow SDK + Vercel Sandbox rather
++than a long-running local daemon.
++
++## Project Direction
++
++- Treat [docs/SPEC.md](docs/SPEC.md) as the working product/engineering specification.
++- Treat [docs/ORIGINAL_SPEC.md](docs/ORIGINAL_SPEC.md) as the unmodified Symphony reference spec.
++- Prefer Vercel-native primitives:
++  - Workflow SDK for durable scheduler/runner workflows.
++  - Vercel Sandbox for isolated agent execution.
++  - Vercel Cron and GitHub webhooks for triggers.
++  - A durable store for claims, runs, attempts, events, and dashboard projections.
++- Use GitHub Projects v2 as the first issue tracker, not Linear.
++- Keep the initial target narrow: GitHub Issues in a configured ProjectV2 board. Add PRs, draft
++  issues, and other trackers later.
++
++## Near-Term Work
++
++1. Define the config shape for GitHub Project, scheduler, sandbox, and agent settings.
++2. Add a GitHub Project tracker client that can resolve project/field IDs and normalize ProjectV2
++   items into Rhapsody work items.
++3. Add durable claim/run/attempt/event persistence.
++4. Add a Workflow SDK scheduler workflow that polls GitHub Projects and starts runner workflows.
++5. Add a runner workflow skeleton that creates a Vercel Sandbox and runs a simple command.
++6. Add dashboard/API endpoints for state, item detail, run detail, and manual refresh.
++
++## Engineering Notes
++
++- Do not rely on in-memory state for scheduler correctness; Vercel Functions are not daemon
++  processes.
++- Agent commands must run inside a Vercel Sandbox workspace, not directly in the Vercel Function
++  environment.
++- Secrets should be passed through documented environment or brokered access patterns and must not
++  be logged.
++- Project status, claims, and retries must be idempotent because Cron, webhooks, and manual refresh
++  can overlap.
++- Keep docs updated as implementation decisions become concrete.
+ 
+ <!-- eslint-plugin-raula-start -->
+ <!-- Managed by `eslint-plugin-raula install` -->
+```
+Comment:
+Symphonyのリンクをつけておきましょう https://openai.com/index/open-source-codex-orchestration-symphony/
+
+## My request for Codex:
