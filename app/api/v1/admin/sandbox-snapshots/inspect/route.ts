@@ -15,7 +15,8 @@ const SANDBOX_WORKDIR = "/";
 const REPOSITORY_PATH = "/vercel/sandbox/repository";
 const OUTPUT_PATH = "/vercel/sandbox/rhapsody-output";
 const PR_SPEC_PATH = "/vercel/sandbox/rhapsody-output/pr.json";
-const METADATA_PATH = "/vercel/sandbox/rhapsody-metadata.json";
+const METADATA_PATH = "/vercel/sandbox/metadata.json";
+const PROMPT_PATH = "/vercel/sandbox/prompt.txt";
 
 type InspectRequest = {
 	snapshotId: string;
@@ -67,6 +68,7 @@ export async function POST(request: Request) {
 				output: OUTPUT_PATH,
 				prSpec: PR_SPEC_PATH,
 				metadata: METADATA_PATH,
+				prompt: PROMPT_PATH,
 			},
 			commands,
 			timing: buildTiming(startedAt),
@@ -117,6 +119,11 @@ async function runInspectionCommands(
 			sandbox,
 			"pr_spec",
 			["-lc", `if [ -f ${shellQuote(PR_SPEC_PATH)} ]; then cat ${shellQuote(PR_SPEC_PATH)}; fi`],
+		),
+		runInspectionCommand(
+			sandbox,
+			"prompt",
+			["-lc", `if [ -f ${shellQuote(PROMPT_PATH)} ]; then cat ${shellQuote(PROMPT_PATH)}; fi`],
 		),
 		runInspectionCommand(
 			sandbox,
