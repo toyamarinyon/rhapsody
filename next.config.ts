@@ -1,3 +1,4 @@
+import { withWorkflow } from "workflow/next";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
@@ -8,4 +9,4 @@ const nextConfig: NextConfig = {
 	reactCompiler: true,
 };
 
-export default nextConfig;
+export default withWorkflow(nextConfig);
