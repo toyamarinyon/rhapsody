@@ -22,7 +22,7 @@ let cachedJwks: ReturnType<typeof createRemoteJWKSet> | null = null;
 
 type OidcAudienceSource = {
 	projectId: string;
-	teamId: string;
+	teamId?: string;
 	audience: string;
 };
 
@@ -67,17 +67,19 @@ export async function verifyVercelSandboxOidcToken(
 			return null;
 		}
 
-		if (
-			payload.owner_id !== undefined &&
-			String(payload.owner_id).trim() !== audienceSource.teamId
-		) {
+			if (
+				audienceSource.teamId &&
+				payload.owner_id !== undefined &&
+				String(payload.owner_id).trim() !== audienceSource.teamId
+			) {
 			return null;
 		}
 
-		if (
-			payload.team_id !== undefined &&
-			String(payload.team_id).trim() !== audienceSource.teamId
-		) {
+			if (
+				audienceSource.teamId &&
+				payload.team_id !== undefined &&
+				String(payload.team_id).trim() !== audienceSource.teamId
+			) {
 			return null;
 		}
 
@@ -97,7 +99,7 @@ function getJwksFetcher() {
 
 function resolveIssuer(
 	env: ReturnType<typeof loadRhapsodyVercelOidcEnv>,
-	teamId: string,
+	teamId?: string,
 ) {
 	if (env.VERCEL_OIDC_ISSUER?.trim()) {
 		return env.VERCEL_OIDC_ISSUER.trim();

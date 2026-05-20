@@ -4,7 +4,7 @@ import {
 	loadMediatorCredentialState,
 	updateMediatorCredentialsFromOAuthResponse,
 } from "@/lib/codex/credentials";
-import { loadRhapsodyMediatorEnv, loadRhapsodyVercelOidcEnv } from "@/lib/config";
+import { loadRhapsodyMediatorEnv } from "@/lib/config";
 import {
 	extractSafeOidcClaimSnapshot,
 	verifyVercelSandboxOidcToken,
@@ -229,18 +229,17 @@ async function requireMediatorAuth(
 	runContext: ProxyRunContext | null,
 ): Promise<{ ok: true } | { ok: false; response: Response }> {
 	const env = loadRhapsodyMediatorEnv();
-	const oidcEnv = loadRhapsodyVercelOidcEnv();
 	const requestUrl = new URL(request.url);
-	const expectedProjectId = oidcEnv.RHAPSODY_VERCEL_PROJECT_ID ?? process.env.VERCEL_PROJECT_ID;
-	const expectedTeamId = oidcEnv.RHAPSODY_VERCEL_TEAM_ID ?? process.env.VERCEL_TEAM_ID;
+	const expectedProjectId = process.env.VERCEL_PROJECT_ID;
+	const expectedTeamId = process.env.VERCEL_TEAM_ID;
 
 	if (request.headers.get("x-rhapsody-mediator-secret") !== env.MEDIATOR_SECRET) {
 		const oidcToken = request.headers.get("vercel-sandbox-oidc-token");
 
-		if (oidcToken) {
-			if (!expectedProjectId || !expectedTeamId) {
-				return unauthorized("missing_vercel_context");
-			}
+			if (oidcToken) {
+				if (!expectedProjectId) {
+					return unauthorized("missing_vercel_context");
+				}
 
 			const audience = buildExpectedOidcAudience(requestUrl.origin, runContext);
 			const decodedClaims = decodeSafeOidcClaims(oidcToken);
