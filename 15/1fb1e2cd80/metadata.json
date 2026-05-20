@@ -1,0 +1,27 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "151fb1e2cd80",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "docs/SPEC.md",
+    "docs/adr/0012-define-post-run-verification-policy.md",
+    "docs/adr/0013-define-post-run-decision-and-review-policy.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/15/1fb1e2cd80/0/metadata.json",
+      "transcript": "/15/1fb1e2cd80/0/full.jsonl",
+      "content_hash": "/15/1fb1e2cd80/0/content_hash.txt",
+      "prompt": "/15/1fb1e2cd80/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10536796,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 379781760,
+    "output_tokens": 589251,
+    "api_call_count": 4238
+  }
+}
