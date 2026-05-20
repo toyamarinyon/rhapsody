@@ -19,6 +19,10 @@ ADR 0011 separates wrapper execution status from final run evaluation. Successfu
 and `codex exec` completion are necessary signals, but they are not enough to prove that the work was
 handed to the correct repository, branch, base, issue, project item, or pull request.
 
+ADR 0013 defines the next phase after this verification: post-run decision and review policy.
+Verification success is an input to that decision. It is not by itself a decision to merge, move an
+item to `Human Review`, or mark the work done.
+
 ## Decision
 
 Use tiered post-run verification before finalizing a successful run.
@@ -133,9 +137,10 @@ The normal successful sequence is:
 3. Verify GitHub handoff state.
 4. Run secret hygiene checks for any configured sandbox export or snapshot.
 5. Persist final attempt and run outcome.
-6. Update GitHub Project status according to workflow policy.
-7. Clean up, export, or snapshot the sandbox according to policy.
-8. Release the claim.
+6. Evaluate post-run decision and review policy according to ADR 0013.
+7. Update GitHub Project status according to workflow policy.
+8. Clean up, export, or snapshot the sandbox according to policy.
+9. Release the claim.
 
 If verification fails, the runner must persist the failure reason before releasing or extending the
 claim. Reconciliation must be able to distinguish a runner that has not verified yet from a runner

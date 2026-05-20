@@ -496,10 +496,12 @@ Required steps:
     requests, from Rhapsody-owned code.
 15. Record logs/events and any configured git diff, commits, pull request metadata, sandbox export,
     or snapshot.
-16. Verify GitHub handoff and post-run policy.
-17. Evaluate final attempt and run status separately from wrapper execution status.
-18. Update GitHub Project status according to workflow policy.
-19. Release claim.
+16. Verify GitHub handoff according to post-run verification policy.
+17. Evaluate post-run decision and review policy, optionally running reviewer Codex for structured
+    review evidence.
+18. Apply trusted GitHub actions such as commenting, status movement, or narrowly configured merge.
+19. Evaluate final attempt and run status separately from wrapper execution status.
+20. Release claim.
 
 The runner MUST NOT depend on local Vercel Function filesystem state for correctness.
 The runner MUST NOT poll the sandbox for the full agent runtime inside one Vercel Function
@@ -669,7 +671,7 @@ Important notes:
 Rhapsody MAY update GitHub state directly for scheduler-owned lifecycle transitions, for example:
 
 - mark item as `In Progress` after claim
-- mark item as `Human Review` after PR creation
+- mark item as `Human Review` when post-run decision concludes human review is needed
 - mark item as `Failed` if a configured failure status exists
 
 Agent-owned write intent, such as pull request titles and descriptions, MAY be generated inside the
@@ -683,6 +685,11 @@ successful. Verification checks that the visible GitHub state still matches the 
 including repository, base branch, branch prefix, work item linkage, expected ProjectV2 status, and
 mediator decision events. See
 [ADR 0012](adr/0012-define-post-run-verification-policy.md).
+
+After verification, Rhapsody MUST evaluate post-run decision policy before moving the item to
+`Human Review`, `Done`, or another workflow status. `Human Review` is reserved for work that
+Rhapsody decides needs human attention, not every pull request handoff. See
+[ADR 0013](adr/0013-define-post-run-decision-and-review-policy.md).
 
 ## 10. Observability API
 
@@ -737,6 +744,8 @@ Recommended hardening:
   [ADR 0008](adr/0008-define-mediator-endpoint-contract.md).
 - Verify GitHub handoff and run-scoped post-run policy before marking a run successful, as
   documented in [ADR 0012](adr/0012-define-post-run-verification-policy.md).
+- Evaluate post-run decision and review policy before moving work to `Human Review`, as documented
+  in [ADR 0013](adr/0013-define-post-run-decision-and-review-policy.md).
 - Keep admin endpoints authenticated.
 - Persist enough logs to audit agent actions.
 
@@ -755,7 +764,7 @@ Recommended hardening:
 - Runner workflow skeleton.
 - Sandbox Codex runner always performs write execution with branch/repo-specific instructions,
   explicit push target, Codex-generated PR handoff JSON, trusted pull request creation or reuse,
-  and post-run verification before marking the attempt completed.
+  post-run verification, and post-run decision before marking the attempt completed.
 - Brokered ChatGPT auth for Codex execution sandboxes.
 - Vercel Sandbox creation and command execution.
 - Basic logs/events table.
