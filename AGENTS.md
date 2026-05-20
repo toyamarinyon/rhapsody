@@ -9,6 +9,15 @@ daemon.
 
 - Treat [docs/SPEC.md](docs/SPEC.md) as the working product/engineering specification.
 - Treat [docs/ORIGINAL_SPEC.md](docs/ORIGINAL_SPEC.md) as the unmodified Symphony reference spec.
+- Design human-facing surfaces as extensions of familiar development practice, while optimizing the
+  machinery behind them for agents and automation. Rhapsody exists to help humans develop with
+  coding agents, so branch names, PRs, issue comments, dashboards, logs, and operator workflows
+  should remain readable and unsurprising to developers. Code is also a human-facing surface:
+  even when it implements agent-optimized data structures, protocols, mediation, sandboxing,
+  retries, and verification, its naming, module boundaries, and control flow should stay readable
+  and understandable to human maintainers. The product facade should feel familiar; the internal
+  contracts should be explicit and structured for agents; the implementation should make both
+  legible.
 - Prefer Vercel-native primitives:
   - Workflow SDK for durable scheduler/runner workflows.
   - Vercel Sandbox for isolated agent execution.
