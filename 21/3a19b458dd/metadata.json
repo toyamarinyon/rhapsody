@@ -3,7 +3,7 @@
   "checkpoint_id": "213a19b458dd",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 3,
+  "checkpoints_count": 5,
   "files_touched": [
     "app/api/internal/runs/callback/route.ts",
     "lib/runners/sandbox-codex.ts",
@@ -25,13 +25,19 @@
       "transcript": "/21/3a19b458dd/1/full.jsonl",
       "content_hash": "/21/3a19b458dd/1/content_hash.txt",
       "prompt": "/21/3a19b458dd/1/prompt.txt"
+    },
+    {
+      "metadata": "/21/3a19b458dd/2/metadata.json",
+      "transcript": "/21/3a19b458dd/2/full.jsonl",
+      "content_hash": "/21/3a19b458dd/2/content_hash.txt",
+      "prompt": "/21/3a19b458dd/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 11488882,
+    "input_tokens": 11789407,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 426595712,
-    "output_tokens": 658976,
-    "api_call_count": 4597
+    "cache_read_tokens": 436955776,
+    "output_tokens": 677112,
+    "api_call_count": 4653
   }
 }
