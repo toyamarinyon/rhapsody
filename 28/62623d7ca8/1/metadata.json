@@ -1,0 +1,133 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "2862623d7ca8",
+  "session_id": "019e4451-f2df-7eb2-9f8e-60f1575cf2f8",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-20T10:03:31.325714Z",
+  "branch": "main",
+  "checkpoints_count": 11,
+  "files_touched": [
+    ".env.example",
+    "app/api/v1/admin/codex-chatgpt-credentials/seed-from-env/route.ts",
+    "lib/codex/credentials.ts",
+    "lib/config.ts",
+    "lib/runners/registry.ts",
+    "workflows/runner.ts",
+    "workflows/scheduler.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "0a24f574bec9",
+  "token_usage": {
+    "input_tokens": 10110256,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 367293312,
+    "output_tokens": 566226,
+    "api_call_count": 4117
+  },
+  "session_metrics": {
+    "turn_count": 27
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-20T10:03:30.687681Z",
+    "agent_lines": 112,
+    "agent_removed": 27,
+    "human_added": 128,
+    "human_modified": 8,
+    "human_removed": 0,
+    "total_committed": 248,
+    "total_lines_changed": 275,
+    "agent_percentage": 50.54545454545455,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 152,
+      "user_lines_removed": 12,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "app/api/v1/admin/scheduler/tick/route.ts": 16,
+        "lib/runners/registry.ts": 31,
+        "workflows/runner.ts": 46,
+        "workflows/scheduler.ts": 59
+      },
+      "user_removed_per_file": {
+        "app/api/v1/admin/scheduler/tick/route.ts": 4,
+        "lib/runners/registry.ts": 7,
+        "workflows/scheduler.ts": 1
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 141,
+      "agent_lines_removed": 9
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 141,
+      "agent_lines_removed": 9
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 141,
+      "agent_lines_removed": 9
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 248,
+      "agent_lines_removed": 35
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 248,
+      "agent_lines_removed": 35
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 248,
+      "agent_lines_removed": 35
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 248,
+      "agent_lines_removed": 35
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 248,
+      "agent_lines_removed": 35
+    },
+    {
+      "checkpoint_number": 11,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 248,
+      "agent_lines_removed": 35
+    },
+    {
+      "checkpoint_number": 12,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 256,
+      "agent_lines_removed": 35
+    }
+  ]
+}
