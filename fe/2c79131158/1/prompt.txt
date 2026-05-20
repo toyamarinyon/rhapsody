@@ -1,0 +1,40 @@
+You are implementing in /Users/toyamarinyon/Documents/rhapsody. The user asked to build the first scheduler tick route using the newly created GitHub Project v2. Important context:
+
+- Current branch main has one uncommitted user/parent change in rhapsody.config.ts: tracker.projectNumber has been updated to 4. Do not revert it.
+- GitHub Project created: owner toyamarinyon, number 4, private, linked to toyamarinyon/rhapsody.
+- Project fields:
+  - Status options: Todo, In Progress, Human Review, Done, Canceled
+  - Priority options: P0, P1, P2, P3
+  - Runner options: sandbox-codex, sandbox-fake, fake
+  - Rhapsody Note text
+- Existing manual run API: app/api/v1/runs/route.ts accepts issueNumber and creates a claimed run.
+- Existing runner API: app/api/v1/runs/[runId]/attempts/[attemptId]/run/route.ts runs a specific attempt.
+- Existing state function: createClaimedManualRun.
+- Existing GitHub issue helper: lib/github/issues.ts.
+- Existing config has tracker/status/scheduler/runner settings.
+
+Task: implement a minimal admin scheduler tick route, with small, readable code. Prefer a route like POST /api/v1/admin/scheduler/tick. It should:
+1. Authenticate with requireAdminAuth.
+2. Fetch GitHub ProjectV2 items for configured tracker.owner/projectNumber using GraphQL and GITHUB_TOKEN.
+3. Normalize only issue-backed items in the configured repository.
+4. Filter to configured active status(es), but for MVP schedule only Todo items to avoid re-running In Progress. If this conflicts with config.activeStatuses, document/encode a clear default decision in code.
+5. Respect config.scheduler.maxConcurrentRuns by checking current state summary or runs if there is an existing helper; otherwise implement a conservative minimal check using state APIs already available. Do not invent large persistence changes unless necessary.
+6. For each eligible issue, create a claimed run using createClaimedManualRun with workItemId compatible with manual issue runs: github_issue:owner/repo#number, source snapshot matching manual route enough for prompt rendering.
+7. Optionally trigger the runner immediately after creating the run if feasible without awkward HTTP self-calls. If awkward, return created runs and leave execution to the existing run endpoint. Make this explicit in response.
+8. Return JSON summarizing scanned, eligible, created, skipped.
+
+Also add a small GitHub Project tracker helper module if useful, e.g. lib/github/project-items.ts. Keep GraphQL isolated. Do not implement project status updates yet unless trivial.
+
+Run pnpm exec tsc --noEmit and pnpm lint if feasible. Report changed files and any tradeoffs. Do not commit.
+
+---
+
+Review feedback: please patch the scheduler implementation.
+
+Issues:
+1. `lib/github/project-items.ts` queries `repository(owner,name).projectV2(number)`, but our Project #4 is a user-owned Project linked to the repo. It should fetch from the configured tracker owner (`user(login: owner).projectV2(number: projectNumber)`) for now. Keep repo filtering by item.content.repository owner/name. If you want to support org later, leave a TODO or make a small owner-kind abstraction only if easy, but do not overbuild.
+2. `fetchProjectIssueWorkItems` currently filters statuses inside the helper, so route `scanned` is not really scanned items. Prefer the helper returns all issue-backed repo items and the route filters by `SCHEDULER_STATUS_FILTER`.
+3. In `route.ts`, the second loop `for (let i = maxToCreate; ...)` can mark an item as concurrencyLimit even if it was created when earlier items were skipped due duplicate claim. Please rewrite scheduling loop so each eligible item is either created, alreadyClaimed, or concurrencyLimit exactly once. A simple remainingSlots counter is fine.
+4. Keep execution deferred for now.
+
+Please run tsc/lint after patch and report.
