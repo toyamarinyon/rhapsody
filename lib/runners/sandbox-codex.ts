@@ -47,7 +47,7 @@ const METADATA_PATH = "metadata.json";
 const REPOSITORY_PATH = "/vercel/sandbox/repository";
 const PROMPT_PREVIEW_LENGTH = 500;
 const OUTPUT_PREVIEW_LENGTH = 1000;
-const TIMEOUT_MS = 60_000;
+const TIMEOUT_MS = 300_000;
 const NETWORK_PROBE_URL =
 	"https://chatgpt.com/backend-api/codex/models?client_version=0.130.0";
 const NETWORK_PROBE_STDOUT_PREVIEW_LENGTH = 240;
@@ -131,6 +131,14 @@ export async function runSandboxCodexRunner(
 			json: true,
 			skipGitRepoCheck: true,
 			ephemeral: true,
+			dangerouslyBypassApprovalsAndSandbox: true,
+			configOverrides: {
+				model_provider: "openai-http",
+				"model_providers.openai-http.name": "OpenAI without WebSockets",
+				"model_providers.openai-http.requires_openai_auth": true,
+				"model_providers.openai-http.supports_websockets": false,
+				"model_providers.openai-http.wire_api": "responses",
+			},
 			timeoutMs: TIMEOUT_MS,
 		});
 		const mediatorEnv = loadRhapsodyMediatorEnv();
@@ -201,16 +209,17 @@ export async function runSandboxCodexRunner(
 							run_id: runId,
 							attempt_id: attemptId,
 							sandbox_id: getVercelSandboxId(sandbox),
-							command: {
-								command: codexCommand.command,
-								argv: codexCommand.argv,
-								cwd: codexCommand.cwd,
+								command: {
+									command: codexCommand.command,
+									argv: codexCommand.argv,
+									cwd: codexCommand.cwd,
+								},
+								codex_mode: codexMode,
+								target_repository: expectedRepositoryUrl,
+								target_branch: requestedBranchName,
+								repository_path: REPOSITORY_PATH,
+								source_snapshot_id: sourceSnapshotId,
 							},
-							codex_mode: codexMode,
-							target_repository: expectedRepositoryUrl,
-							target_branch: requestedBranchName,
-							source_snapshot_id: sourceSnapshotId,
-						},
 						null,
 						2,
 					),
@@ -557,7 +566,7 @@ function buildExecutionPrompt(params: {
 }) {
 	const modeInstructions =
 		params.mode === "write"
-			? `\n\nYou are running in write mode for this Rhapsody run.\n- Working repository: ${params.targetRepositoryUrl}\n- Assigned branch: ${params.targetBranchName}\n- Do not push to any branch other than the assigned branch.\n- Make focused changes only for the selected work item.\n- If you changed files, commit and push HEAD to the assigned branch (${params.targetBranchName}) when done.\n- Do not create PRs yet because the GitHub API mediator integration is not implemented in this step.\n`
+			? `\n\nYou are running in write mode for this Rhapsody run.\n- Working repository: ${params.targetRepositoryUrl}\n- Assigned branch: ${params.targetBranchName}\n- Do not push to any branch other than the assigned branch.\n- Make focused changes only for the selected work item.\n- If git commit needs an identity, set local repository config only: user.name \"Rhapsody Codex\" and user.email \"rhapsody-codex@localhost\".\n- When changes are needed, you must create a commit and run: git push origin HEAD:${params.targetBranchName}\n- After pushing, verify the remote branch exists with: git ls-remote --heads origin ${params.targetBranchName}\n- Do not create PRs yet because the GitHub API mediator integration is not implemented in this step.\n`
 			: `\n\nYou are running in smoke-test mode for Rhapsody.\n- Keep your response concise.\n- Do not edit files.\n`;
 
 	return `${params.prompt}${modeInstructions}\n- Current sandbox mode: ${params.sandboxMode}.`;
@@ -631,6 +640,130 @@ function safeJson(text) {
 	}
 }
 
+function buildCodexChildEnv() {
+	const env = { ...process.env };
+
+	for (const name of Object.keys(env)) {
+		if (name.startsWith("RHAPSODY_")) {
+			delete env[name];
+		}
+	}
+
+	env.CODEX_HOME = process.env.CODEX_HOME;
+	return env;
+}
+
+function runCommand(command, args, cwd) {
+	return new Promise((resolve) => {
+		const child = spawn(command, args, {
+			stdio: ["ignore", "pipe", "pipe"],
+			cwd,
+		});
+		let stdout = "";
+		let stderr = "";
+		let spawnError = null;
+
+		child.stdout.on("data", (chunk) => {
+			stdout += chunk.toString("utf8");
+		});
+
+		child.stderr.on("data", (chunk) => {
+			stderr += chunk.toString("utf8");
+		});
+
+		child.on("error", (error) => {
+			spawnError = error.message;
+		});
+
+		child.on("close", (code) => {
+			resolve({
+				command,
+				args,
+				exit_code: code,
+				stdout: stdout.slice(0, ${OUTPUT_PREVIEW_LENGTH}),
+				stderr: stderr.slice(0, ${OUTPUT_PREVIEW_LENGTH}),
+				error: spawnError,
+			});
+		});
+	});
+}
+
+async function runWritePostflight(metadata) {
+	if (metadata.codex_mode !== "write") {
+		return null;
+	}
+
+	const cwd = metadata.repository_path;
+	const targetBranch = metadata.target_branch;
+	const commitCountCommand = await runCommand(
+		"git",
+		["rev-list", "--count", "origin/main..HEAD"],
+		cwd,
+	);
+	const commitCount = Number.parseInt(commitCountCommand.stdout.trim(), 10);
+
+	if (commitCountCommand.exit_code !== 0 || !Number.isFinite(commitCount)) {
+		return {
+			ok: false,
+			error: "Could not determine whether Codex created a commit.",
+			commands: { commit_count: commitCountCommand },
+		};
+	}
+
+	if (commitCount < 1) {
+		return {
+			ok: false,
+			error: "Codex did not create a commit beyond origin/main.",
+			commands: { commit_count: commitCountCommand },
+		};
+	}
+
+	const pushCommand = await runCommand(
+		"git",
+		["push", "origin", "HEAD:" + targetBranch],
+		cwd,
+	);
+
+	if (pushCommand.exit_code !== 0) {
+		return {
+			ok: false,
+			error: "Could not push the assigned branch.",
+			commands: {
+				commit_count: commitCountCommand,
+				push: pushCommand,
+			},
+		};
+	}
+
+	const verifyCommand = await runCommand(
+		"git",
+		["ls-remote", "--heads", "origin", targetBranch],
+		cwd,
+	);
+
+	if (verifyCommand.exit_code !== 0 || !verifyCommand.stdout.trim()) {
+		return {
+			ok: false,
+			error: "Remote branch verification failed after push.",
+			commands: {
+				commit_count: commitCountCommand,
+				push: pushCommand,
+				verify: verifyCommand,
+			},
+		};
+	}
+
+	return {
+		ok: true,
+		error: null,
+		commands: {
+			commit_count: commitCountCommand,
+			push: pushCommand,
+			verify: verifyCommand,
+		},
+	};
+}
+
 (async () => {
 	const metadata = JSON.parse(await readFile("${METADATA_PATH}", "utf8"));
 	const prompt = await readFile("${PROMPT_PATH}", "utf8");
@@ -644,6 +777,7 @@ function safeJson(text) {
 	const child = spawn(metadata.command.command, metadata.command.argv, {
 		stdio: ["pipe", "pipe", "pipe"],
 		cwd: metadata.command.cwd,
+		env: buildCodexChildEnv(),
 	});
 
 	let stdout = "";
@@ -684,17 +818,24 @@ function safeJson(text) {
 	clearTimeout(timeout);
 
 	exitCode = wrappedExitCode;
+	const postflight =
+		!spawnError && !timedOut && exitCode === 0
+			? await runWritePostflight(metadata)
+			: null;
+	const postflightError = postflight && !postflight.ok ? postflight.error : null;
 	const callbackPayload = {
 		run_id: runId,
 		attempt_id: attemptId,
 		claim_token: claimToken,
-		execution_status: timedOut ? "timed_out" : exitCode === 0 ? "completed" : "failed",
+		execution_status:
+			timedOut ? "timed_out" : exitCode === 0 && !postflightError ? "completed" : "failed",
 		exit_code: exitCode,
 		sandbox_id: sandboxId,
 		command_id: commandId,
 		completed_at: new Date().toISOString(),
 		error:
 			spawnError ??
+			postflightError ??
 			(timedOut
 				? "Codex timed out after ${String(TIMEOUT_MS)}ms."
 				: exitCode === 0
@@ -731,6 +872,7 @@ function safeJson(text) {
 			codex_timed_out: timedOut,
 			codex_stdout: stdout.slice(0, ${OUTPUT_PREVIEW_LENGTH}),
 			codex_stderr: stderr.slice(0, ${OUTPUT_PREVIEW_LENGTH}),
+			postflight,
 			callback_status: callbackStatus,
 			callback_ok: callbackOk,
 			callback_body: callbackBody,
@@ -738,7 +880,7 @@ function safeJson(text) {
 		}),
 	);
 
-	if (spawnError || timedOut || !callbackOk || exitCode !== 0) {
+	if (spawnError || timedOut || postflightError || !callbackOk || exitCode !== 0) {
 		process.exitCode = 1;
 	}
 })();

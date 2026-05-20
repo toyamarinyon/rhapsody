@@ -14,6 +14,7 @@ export type CodexCliOptions = {
 	outputLastMessageFile?: string;
 	skipGitRepoCheck?: boolean;
 	ephemeral?: boolean;
+	dangerouslyBypassApprovalsAndSandbox?: boolean;
 	configOverrides?: Record<string, CodexCliConfigValue>;
 	timeoutMs?: number;
 };
@@ -62,7 +63,9 @@ export function buildCodexExecCommand(options: CodexCliOptions): CodexCliCommand
 		execArgv.push("--ephemeral");
 	}
 
-	if (options.sandboxMode) {
+	if (options.dangerouslyBypassApprovalsAndSandbox) {
+		execArgv.push("--dangerously-bypass-approvals-and-sandbox");
+	} else if (options.sandboxMode) {
 		execArgv.push("--sandbox", options.sandboxMode);
 	}
 

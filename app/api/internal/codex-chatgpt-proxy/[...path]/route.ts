@@ -1,4 +1,5 @@
 import { DUMMY_CHATGPT_REFRESH_TOKEN, buildCodexChatGPTDummyAuthFile } from "@/lib/codex/auth";
+import { decodeJwt } from "jose";
 import {
 	loadMediatorCredentialState,
 	updateMediatorCredentialsFromOAuthResponse,
@@ -242,6 +243,7 @@ async function requireMediatorAuth(
 			}
 
 			const audience = buildExpectedOidcAudience(requestUrl.origin, runContext);
+			const decodedClaims = decodeSafeOidcClaims(oidcToken);
 			const verified = await verifyVercelSandboxOidcToken(oidcToken, {
 				audienceSource: {
 					projectId: expectedProjectId,
@@ -251,7 +253,7 @@ async function requireMediatorAuth(
 			});
 
 			console.info("codex-chatgpt-proxy oidc verification", {
-				...extractSafeOidcClaimSnapshot(verified?.payload ?? {}),
+				...extractSafeOidcClaimSnapshot(verified?.payload ?? decodedClaims ?? {}),
 				authorized: Boolean(verified),
 				expectedAudience: audience,
 			});
@@ -280,17 +282,26 @@ function unauthorized(reason: string): { ok: false; response: Response } {
 	};
 }
 
+function decodeSafeOidcClaims(token: string) {
+	try {
+		return decodeJwt(token);
+	} catch {
+		return null;
+	}
+}
+
 function buildExpectedOidcAudience(origin: string, runContext: ProxyRunContext | null) {
 	if (!runContext) {
 		return `${origin}/api/internal/codex-chatgpt-proxy`;
 	}
 
-	return `${origin}/api/internal/codex-chatgpt-proxy/runs/${runContext.runId}/attempts/${runContext.attemptId}`;
+	return `${origin}/api/internal/codex-chatgpt-proxy/runs/${runContext.runId}/attempts/${runContext.attemptId}${runContext.audienceSuffix}`;
 }
 
 type ProxyRunContext = {
 	runId: string;
 	attemptId: string;
+	audienceSuffix: string;
 };
 
 function parseProxyPath(path: string[]): {
@@ -304,17 +315,42 @@ function parseProxyPath(path: string[]): {
 		path[1]?.trim() &&
 		path[3]?.trim()
 	) {
+		const remainingPath = path.slice(4);
+		const parsedPrefixedPath = parsePathPrefixForward(remainingPath);
+
 		return {
 			runContext: {
 				runId: path[1],
 				attemptId: path[3],
+				audienceSuffix: parsedPrefixedPath.audienceSuffix,
 			},
-			upstreamPath: `/${path.slice(4).join("/")}`,
+			upstreamPath: parsedPrefixedPath.upstreamPath,
 		};
 	}
 
 	return {
 		runContext: null,
+		upstreamPath: `/${path.join("/")}`,
+	};
+}
+
+function parsePathPrefixForward(path: string[]) {
+	if (path[0] === "codex" && path[1] === "chatgpt") {
+		return {
+			audienceSuffix: "/codex/chatgpt",
+			upstreamPath: `/${path.slice(2).join("/")}`,
+		};
+	}
+
+	if (path[0] === "codex" && path[1] === "oauth" && path[2] === "token") {
+		return {
+			audienceSuffix: "/codex/oauth/token",
+			upstreamPath: "/oauth/token",
+		};
+	}
+
+	return {
+		audienceSuffix: "",
 		upstreamPath: `/${path.join("/")}`,
 	};
 }
