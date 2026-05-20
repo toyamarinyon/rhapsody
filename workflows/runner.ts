@@ -10,6 +10,11 @@ import {
 	type AttemptTransitionResult,
 } from "@/lib/state";
 import { buildAttemptHookToken } from "@/lib/workflows/attempt-hook";
+import {
+	evaluatePostRunDecision,
+	loadPostRunDecisionConfig,
+	type PostRunDecision,
+} from "@/lib/post-run-decision";
 import { createHook } from "workflow";
 
 export type RunnerWorkflowInput = {
@@ -28,6 +33,7 @@ export type RunnerWorkflowOutput = {
 	hookToken: string;
 	callbackPayload: RunnerWorkflowCallbackPayload;
 	handoff: RunnerWorkflowHandoffResult;
+	postRunDecision: PostRunDecision;
 	finalization: AttemptTransitionResult;
 };
 
@@ -78,6 +84,12 @@ export async function runnerWorkflow(input: RunnerWorkflowInput) {
 	const callbackPayload = await hook;
 	const handoff = await completeRunnerHandoff(input, callbackPayload);
 	const finalization = await finalizeRunnerAttempt(callbackPayload, handoff);
+	const postRunDecision = await evaluatePostRunPolicy(
+		input,
+		callbackPayload,
+		handoff,
+		finalization,
+	);
 
 	return {
 		runId: input.runId,
@@ -88,6 +100,7 @@ export async function runnerWorkflow(input: RunnerWorkflowInput) {
 		hookToken: launched.hookToken,
 		callbackPayload,
 		handoff,
+		postRunDecision,
 		finalization,
 	} satisfies RunnerWorkflowOutput;
 }
@@ -114,7 +127,9 @@ async function runRunnerAttempt(input: RunnerWorkflowInput, hookToken: string) {
 	const responseBody = await response.text();
 
 	if (!response.ok) {
-		throw new Error(`Runner launch failed with HTTP ${response.status}: ${responseBody}`);
+		throw new Error(
+			`Runner launch failed with HTTP ${response.status}: ${responseBody}`,
+		);
 	}
 
 	return {
@@ -143,7 +158,9 @@ async function completeRunnerHandoff(
 
 	try {
 		const detail = await getRunDetail(client, input.runId);
-		const issueNumber = detail ? parseWorkItemIssueNumber({ workItemId: detail.run.workItemId }) : null;
+		const issueNumber = detail
+			? parseWorkItemIssueNumber({ workItemId: detail.run.workItemId })
+			: null;
 		const handoff = await createOrReuseOpenPullRequest({
 			owner: config.repository.owner,
 			repository: config.repository.name,
@@ -174,7 +191,8 @@ async function completeRunnerHandoff(
 			attemptId: input.attemptId,
 			level: "error",
 			type: "sandbox_codex_runner.pull_request_failed",
-			message: "Runner workflow could not create or reuse a pull request for handoff.",
+			message:
+				"Runner workflow could not create or reuse a pull request for handoff.",
 			data: {
 				error: message,
 				branchName: callbackPayload.branchName,
@@ -186,6 +204,104 @@ async function completeRunnerHandoff(
 	} finally {
 		client.close();
 	}
+}
+
+async function evaluatePostRunPolicy(
+	input: RunnerWorkflowInput,
+	callbackPayload: RunnerWorkflowCallbackPayload,
+	handoff: RunnerWorkflowHandoffResult,
+	finalization: AttemptTransitionResult,
+): Promise<PostRunDecision> {
+	"use step";
+
+	const client = createStateStoreClient();
+	let policyLoadResult;
+
+	try {
+		policyLoadResult = await loadPostRunDecisionConfig(process.cwd());
+	} catch (error) {
+		const message =
+			error instanceof Error
+				? error.message
+				: "Unknown error while loading post-run decision policy.";
+		policyLoadResult = {
+			config: { post_run: { auto_merge_eligible: [] } },
+			loadedFromPath: ".rhapsody/config.toml",
+			errors: [message],
+		};
+	}
+
+	const changedFiles = extractChangedFiles(callbackPayload);
+	const handoffStatus = handoff.ok && handoff.pullRequest ? "ok" : "missing_pr";
+	const runStatus = extractTransitionStatus(finalization, "runStatus");
+	const attemptStatus = extractTransitionStatus(finalization, "attemptStatus");
+
+	const decision = evaluatePostRunDecision({
+		runStatus,
+		attemptStatus,
+		handoffStatus,
+		changedFiles,
+		config: policyLoadResult.config,
+	});
+
+	try {
+		if (policyLoadResult.errors.length > 0) {
+			await createEvent(client, {
+				runId: input.runId,
+				attemptId: input.attemptId,
+				level: "warn",
+				type: "sandbox_codex_runner.post_run_policy_load_fallback",
+				message:
+					"Post-run policy file was unavailable; using conservative review-required policy.",
+				data: {
+					errors: policyLoadResult.errors,
+					loadedFromPath: policyLoadResult.loadedFromPath,
+					configuredRules:
+						policyLoadResult.config.post_run.auto_merge_eligible.length,
+				},
+			});
+		}
+
+		await createEvent(client, {
+			runId: input.runId,
+			attemptId: input.attemptId,
+			level: "info",
+			type: "sandbox_codex_runner.post_run_decision",
+			message: "Runner workflow evaluated post-run decision policy.",
+			data: {
+				decision,
+				handoffStatus,
+				runStatus,
+				attemptStatus,
+				changedFileCount: changedFiles?.length ?? null,
+				postflightSummary: callbackPayload.postflight,
+				loadedFromPath: policyLoadResult.loadedFromPath,
+			},
+		});
+
+		return decision;
+	} finally {
+		client.close();
+	}
+}
+
+function extractTransitionStatus(
+	transition: AttemptTransitionResult,
+	key: "runStatus" | "attemptStatus",
+) {
+	if (
+		typeof transition === "object" &&
+		transition !== null &&
+		key in transition
+	) {
+		const value = transition[key];
+
+		if (typeof value === "string") {
+			return value;
+		}
+	}
+
+	return "failed";
 }
 
 async function finalizeRunnerAttempt(
@@ -229,7 +345,10 @@ function evaluateFinalError(
 	callbackPayload: RunnerWorkflowCallbackPayload,
 	handoff: RunnerWorkflowHandoffResult,
 ) {
-	if (callbackPayload.executionStatus === "completed" && (!handoff.ok || !handoff.pullRequest)) {
+	if (
+		callbackPayload.executionStatus === "completed" &&
+		(!handoff.ok || !handoff.pullRequest)
+	) {
 		if (!callbackPayload.branchName) {
 			return "Runner completed execution, but callback did not include a branch name for PR handoff.";
 		}
@@ -267,11 +386,33 @@ function appendIssueReference(body: string, issueNumber: number | null) {
 	}
 
 	const reference = `Refs #${issueNumber}`;
-	const issuePattern = new RegExp(`(?:refs|closes|fixes|resolves)\\s+#${issueNumber}(?!\\d)`, "iu");
+	const issuePattern = new RegExp(
+		`(?:refs|closes|fixes|resolves)\\s+#${issueNumber}(?!\\d)`,
+		"iu",
+	);
 
 	if (issuePattern.test(body)) {
 		return body;
 	}
 
 	return `${body.trimEnd()}\n\n${reference}`;
+}
+
+type RunnerPostflight = {
+	changed_files?: unknown;
+};
+
+function extractChangedFiles(
+	payload: RunnerWorkflowCallbackPayload,
+): string[] | null {
+	if (!payload.postflight || typeof payload.postflight !== "object") {
+		return null;
+	}
+
+	const postflight = payload.postflight as RunnerPostflight;
+	if (!Array.isArray(postflight.changed_files)) {
+		return null;
+	}
+
+	return postflight.changed_files.filter((path) => typeof path === "string");
 }

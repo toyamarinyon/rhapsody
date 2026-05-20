@@ -83,6 +83,8 @@ Important boundary:
    - Exposes typed getters for project, tracker, workflow, sandbox, agent, and GitHub settings.
    - Applies defaults and environment variable indirection.
    - Validates dispatch-critical settings before workflows start work.
+   - Loads post-run decision policy from `.rhapsody/config.toml` and defaults to review-required
+     behavior when no matching policy exists.
    - The MVP config boundary is documented in
      [ADR 0007](adr/0007-define-mvp-config-boundaries.md).
 
@@ -690,6 +692,8 @@ After verification, Rhapsody MUST evaluate post-run decision policy before movin
 `Human Review`, `Done`, or another workflow status. `Human Review` is reserved for work that
 Rhapsody decides needs human attention, not every pull request handoff. See
 [ADR 0013](adr/0013-define-post-run-decision-and-review-policy.md).
+Policy decisions are sourced from `.rhapsody/config.toml` with conservative defaults when policy data
+is missing or invalid.
 
 ## 10. Observability API
 

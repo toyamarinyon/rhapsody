@@ -1,0 +1,5 @@
+[post_run]
+
+[[post_run.auto_merge_eligible]]
+paths = ["docs/**", "!docs/adr/**"]
+description = "Documentation-only changes with ADR documentation excluded from auto-merge."

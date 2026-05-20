@@ -37,6 +37,30 @@ The decision phase evaluates the verified run outcome and chooses the next actio
 
 `Human Review` is a decision outcome, not the default post-PR status.
 
+## Configuration
+
+Rhapsody reads this policy from `.rhapsody/config.toml`:
+
+```toml
+[post_run]
+
+[[post_run.auto_merge_eligible]]
+paths = ["docs/**", "!docs/adr/**"]
+description = "Documentation-only changes, excluding ADR updates."
+```
+
+Decision semantics:
+
+- `auto_merge_eligible` is an array-of-tables and rule evaluation is OR between each table.
+- Within each rule, `paths` is the only primary matcher. `paths` supports `!`-prefixed negation entries
+  for the same rule.
+- A changed file matches a rule when it matches at least one positive pattern in `paths` and no negative
+  `!` entry in the same list.
+- The rule itself matches when every changed file matches the rule.
+- `!` entries in `paths` take precedence over positive matches for that file.
+- If no rule matches, default remains human review.
+- Unknown/missing changed file signals are conservative (not eligible).
+
 ## Workflow Shape
 
 The successful runner flow becomes:

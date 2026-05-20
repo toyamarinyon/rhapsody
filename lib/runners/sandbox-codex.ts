@@ -27,11 +27,7 @@ import {
 	type RhapsodyVercelSandbox,
 } from "@/lib/sandbox/vercel";
 import { isRecord } from "@/lib/server/json";
-import {
-	createEvent,
-	getRunDetail,
-	markAttemptStarted,
-} from "@/lib/state";
+import { createEvent, getRunDetail, markAttemptStarted } from "@/lib/state";
 import {
 	buildAttemptBranchName,
 	parseWorkItemIssueNumber,
@@ -828,7 +824,26 @@ async function runWritePostflight(metadata) {
 			verify: verifyCommand,
 		},
 		pr_spec: prSpecResult.value,
+		changed_files: await changedFilesFromGit(metadata.command.cwd, baseBranch),
 	};
+}
+
+async function changedFilesFromGit(workdir: string, baseBranch: string): Promise<string[]> {
+	const changedFilesCommand = await runCommand(
+		"git",
+		["diff", "--name-only", "origin/" + baseBranch + "..HEAD"],
+		workdir,
+	);
+
+	if (changedFilesCommand.exit_code !== 0) {
+		return [];
+	}
+
+	return changedFilesCommand.stdout
+		.trim()
+		.split("\n")
+		.map((path) => path.trim())
+		.filter((path) => path.length > 0);
 }
 
 (async () => {
