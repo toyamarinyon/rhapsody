@@ -5,7 +5,7 @@ export default {
 		kind: "github_project",
 		owner: "toyamarinyon",
 		repository: "rhapsody",
-		projectNumber: 1,
+		projectNumber: 4,
 		statusField: "Status",
 		activeStatuses: ["Todo", "In Progress"],
 		terminalStatuses: ["Done", "Canceled", "Cancelled", "Duplicate"],
