@@ -1,0 +1,58 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "31d1e6954b39",
+  "session_id": "019e45dd-0cb4-7911-8135-473abe1c8942",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-20T16:17:00.699291Z",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "files_touched": [
+    ".rhapsody/config.toml",
+    "docs/SPEC.md",
+    "docs/adr/0013-define-post-run-decision-and-review-policy.md",
+    "lib/post-run-decision.test.ts",
+    "lib/post-run-decision.ts",
+    "workflows/runner.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.4",
+  "turn_id": "7d2a35f05058",
+  "token_usage": {
+    "input_tokens": 284096,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6853760,
+    "output_tokens": 32812,
+    "api_call_count": 115
+  },
+  "session_metrics": {
+    "turn_count": 23
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-20T16:17:00.609805Z",
+    "agent_lines": 165,
+    "agent_removed": 34,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 165,
+    "total_lines_changed": 199,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 165,
+      "agent_lines_removed": 34
+    }
+  ]
+}
