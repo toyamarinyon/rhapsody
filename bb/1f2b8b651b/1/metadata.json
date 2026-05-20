@@ -1,0 +1,48 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "bb1f2b8b651b",
+  "session_id": "019e4222-426a-7670-98cb-32e30f795cef",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-20T01:10:18.897211Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "app/api/internal/sandbox-git-operations-smoke/route.ts",
+    "docs/adr/0005-use-run-scoped-github-mediation-for-agent-writes.md",
+    "lib/sandbox/vercel.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "d0c29ec49957",
+  "token_usage": {
+    "input_tokens": 72291,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1608320,
+    "output_tokens": 12413,
+    "api_call_count": 32
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-20T01:10:18.883463Z",
+    "agent_lines": 540,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 540,
+    "total_lines_changed": 540,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
