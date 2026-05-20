@@ -57,7 +57,7 @@ MVP environment variables include:
 | `MEDIATOR_SECRET` | yes | yes | Sandbox-to-mediator authentication secret |
 | `CRON_SECRET` | if Cron enabled | yes | Vercel Cron endpoint auth |
 | `GITHUB_WEBHOOK_SECRET` | if webhooks enabled | yes | GitHub webhook signature verification |
-| `CHATGPT_ACCESS_TOKEN` and token state vars | if brokered Codex auth enabled | yes | Trusted ChatGPT/Codex credential state |
+| `INITIAL_CHATGPT_AUTH_JSON` and token state vars | if `sandbox-codex` enabled | yes | Initial ChatGPT/Codex credential seed and encrypted state |
 | `VERCEL_TOKEN` | if SDK/runtime requires it | yes | Vercel API/Sandbox management |
 | `VERCEL_TEAM_ID` | if SDK/runtime requires it | mixed | Vercel team scope |
 | `VERCEL_PROJECT_ID` | if SDK/runtime requires it | no | Vercel project scope |

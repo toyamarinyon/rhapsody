@@ -21,7 +21,7 @@ export async function POST(request: Request) {
 	} catch (error) {
 		if (error instanceof Error && error.message.includes("required")) {
 			return Response.json(
-				{ error: "Missing INITIAL_CHATGPT_AUTH_JSON or CHATGPT_ACCESS_TOKEN and CHATGPT_REFRESH_TOKEN in environment." },
+				{ error: "Missing INITIAL_CHATGPT_AUTH_JSON in environment." },
 				{ status: 400 },
 			);
 		}

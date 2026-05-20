@@ -4,7 +4,6 @@ import {
 	loadMediatorCredentialState,
 	updateMediatorCredentialsFromOAuthResponse,
 } from "@/lib/codex/credentials";
-import { loadRhapsodyMediatorEnv } from "@/lib/config";
 import {
 	extractSafeOidcClaimSnapshot,
 	verifyVercelSandboxOidcToken,
@@ -115,7 +114,7 @@ async function handleAuthTokenExchange(
 	});
 
 	if (!state?.refreshToken) {
-		return Response.json({ error: "Missing CHATGPT_REFRESH_TOKEN." }, { status: 500 });
+		return Response.json({ error: "Missing ChatGPT refresh token in mediator state." }, { status: 500 });
 	}
 
 	if (method !== "POST") {
@@ -228,47 +227,41 @@ async function requireMediatorAuth(
 	request: Request,
 	runContext: ProxyRunContext | null,
 ): Promise<{ ok: true } | { ok: false; response: Response }> {
-	const env = loadRhapsodyMediatorEnv();
 	const requestUrl = new URL(request.url);
 	const expectedProjectId = process.env.VERCEL_PROJECT_ID;
 	const expectedTeamId = process.env.VERCEL_TEAM_ID;
+	const oidcToken = request.headers.get("vercel-sandbox-oidc-token");
 
-	if (request.headers.get("x-rhapsody-mediator-secret") !== env.MEDIATOR_SECRET) {
-		const oidcToken = request.headers.get("vercel-sandbox-oidc-token");
+	if (!oidcToken) {
+		return unauthorized("missing_oidc_token");
+	}
 
-			if (oidcToken) {
-				if (!expectedProjectId) {
-					return unauthorized("missing_vercel_context");
-				}
+	if (!expectedProjectId) {
+		return unauthorized("missing_vercel_context");
+	}
 
-			const audience = buildExpectedOidcAudience(requestUrl.origin, runContext);
-			const decodedClaims = decodeSafeOidcClaims(oidcToken);
-			const verified = await verifyVercelSandboxOidcToken(oidcToken, {
-				audienceSource: {
-					projectId: expectedProjectId,
-					teamId: expectedTeamId,
-					audience,
-				},
-			});
+	const audience = buildExpectedOidcAudience(requestUrl.origin, runContext);
+	const decodedClaims = decodeSafeOidcClaims(oidcToken);
+	const verified = await verifyVercelSandboxOidcToken(oidcToken, {
+		audienceSource: {
+			projectId: expectedProjectId,
+			teamId: expectedTeamId,
+			audience,
+		},
+	});
 
-			console.info("codex-chatgpt-proxy oidc verification", {
-				...extractSafeOidcClaimSnapshot(verified?.payload ?? decodedClaims ?? {}),
-				authorized: Boolean(verified),
-				expectedAudience: audience,
-			});
+	console.info("codex-chatgpt-proxy oidc verification", {
+		...extractSafeOidcClaimSnapshot(verified?.payload ?? decodedClaims ?? {}),
+		authorized: Boolean(verified),
+		expectedAudience: audience,
+	});
 
-			if (!verified) {
-				return unauthorized("oidc_verification_failed");
-			}
+	if (!verified) {
+		return unauthorized("oidc_verification_failed");
+	}
 
-			if (!await isProxyRunContextActive(runContext)) {
-				return unauthorized("run_context_inactive");
-			}
-
-			return { ok: true };
-		}
-
-		return unauthorized("missing_auth");
+	if (!await isProxyRunContextActive(runContext)) {
+		return unauthorized("run_context_inactive");
 	}
 
 	return { ok: true };

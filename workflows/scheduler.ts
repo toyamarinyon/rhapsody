@@ -44,7 +44,6 @@ async function runSchedulerTickStep() {
 						runId: createdRun.runId,
 						attemptId: createdRun.attemptId,
 						startedBy: "scheduler",
-						networkPolicyVariant: "oidc",
 					},
 				]);
 				const schedulerStartedRun: SchedulerStartedRun = {

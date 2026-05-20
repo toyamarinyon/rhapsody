@@ -46,9 +46,6 @@ export type RhapsodyServerEnv = {
 	VERCEL_PROJECT_ID: string;
 	VERCEL_PROTECTION_BYPASS_SECRET?: string;
 	RHAPSODY_CODEX_BASE_SNAPSHOT_ID?: string;
-	CHATGPT_ACCESS_TOKEN?: string;
-	CHATGPT_ACCOUNT_ID?: string;
-	CHATGPT_REFRESH_TOKEN?: string;
 	INITIAL_CHATGPT_AUTH_JSON?: string;
 	VERCEL_OIDC_ISSUER?: string;
 	VERCEL_OIDC_AUDIENCE?: string;
@@ -71,10 +68,7 @@ export type RhapsodyCodexBaseSnapshotEnv = Pick<
 >;
 export type RhapsodyCodexChatGPTEnv = Pick<
 	RhapsodyServerEnv,
-	| "CHATGPT_ACCESS_TOKEN"
-	| "CHATGPT_ACCOUNT_ID"
-	| "CHATGPT_REFRESH_TOKEN"
-	| "INITIAL_CHATGPT_AUTH_JSON"
+	"INITIAL_CHATGPT_AUTH_JSON"
 >;
 
 const REQUIRED_ENV_KEYS = [
@@ -161,12 +155,7 @@ export function loadRhapsodyCodexBaseSnapshotEnv(env = process.env): RhapsodyCod
 }
 
 export function loadRhapsodyCodexChatGPTEnv(env = process.env): RhapsodyCodexChatGPTEnv {
-	return loadOptionalEnv(env, [
-		"CHATGPT_ACCESS_TOKEN",
-		"CHATGPT_ACCOUNT_ID",
-		"CHATGPT_REFRESH_TOKEN",
-		"INITIAL_CHATGPT_AUTH_JSON",
-	] as const);
+	return loadOptionalEnv(env, ["INITIAL_CHATGPT_AUTH_JSON"] as const);
 }
 
 export function loadRhapsodySandboxEnv(env = process.env): RhapsodySandboxEnv | null {

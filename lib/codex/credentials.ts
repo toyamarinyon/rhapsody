@@ -152,27 +152,11 @@ async function seedMediatorCredentialsFromEnv(client: Client): Promise<MediatorC
 function readMediatorCredentialStateFromEnv(
 	env: ReturnType<typeof loadRhapsodyCodexChatGPTEnv>,
 ): MediatorCredentialState {
-	const fromAuthJson = env.INITIAL_CHATGPT_AUTH_JSON?.trim()
-		? readMediatorCredentialStateFromAuthJson(env.INITIAL_CHATGPT_AUTH_JSON)
-		: null;
-
-	if (fromAuthJson) {
-		return fromAuthJson;
+	if (!env.INITIAL_CHATGPT_AUTH_JSON?.trim()) {
+		throw new Error("INITIAL_CHATGPT_AUTH_JSON is required.");
 	}
 
-	const accountId = env.CHATGPT_ACCOUNT_ID?.trim() ?? CREDENTIAL_ACCOUNT_ID_FALLBACK;
-	const accessToken = env.CHATGPT_ACCESS_TOKEN?.trim();
-	const refreshToken = env.CHATGPT_REFRESH_TOKEN?.trim();
-
-	if (!accessToken || !refreshToken) {
-		throw new Error("INITIAL_CHATGPT_AUTH_JSON or CHATGPT_ACCESS_TOKEN and CHATGPT_REFRESH_TOKEN are required.");
-	}
-
-	return {
-		accessToken,
-		refreshToken,
-		accountId,
-	};
+	return readMediatorCredentialStateFromAuthJson(env.INITIAL_CHATGPT_AUTH_JSON);
 }
 
 function readMediatorCredentialStateFromAuthJson(rawAuthJson: string): MediatorCredentialState {

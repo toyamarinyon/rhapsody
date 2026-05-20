@@ -160,7 +160,6 @@ export function buildVercelSandboxCodexNetworkPolicy(args: {
 	mediatorSecret: string;
 	vercelProtectionBypassSecret?: string;
 	proxyChatGPTAccountApi?: boolean;
-	networkPolicyVariant?: "default" | "no-transform" | "path-prefix" | "query-bypass" | "oidc";
 }): NetworkPolicy {
 	const callbackHost = new URL(args.callbackUrl).hostname;
 	const mediatorHeaders = {
@@ -169,30 +168,6 @@ export function buildVercelSandboxCodexNetworkPolicy(args: {
 			? { "x-vercel-protection-bypass": args.vercelProtectionBypassSecret }
 			: {}),
 	};
-	const variant = args.networkPolicyVariant ?? "default";
-	const useQueryBypass = variant === "query-bypass";
-	const chatgptProxyUrl =
-		variant === "path-prefix"
-			? `${args.codexProxyUrl.replace(/\/$/, "")}/codex/chatgpt`
-			: args.codexProxyUrl;
-	const authProxyUrl =
-		variant === "path-prefix"
-			? `${args.codexProxyUrl.replace(/\/$/, "")}/codex/oauth/token`
-			: args.codexProxyUrl;
-	const chatgptRuleTransform =
-		variant === "default"
-			? [{ headers: mediatorHeaders }]
-			: undefined;
-	const authRuleTransform =
-		variant === "default" || variant === "path-prefix"
-			? [{ headers: mediatorHeaders }]
-			: undefined;
-	const chatgptForwardUrl = useQueryBypass
-		? buildProxyUrlWithProtectionBypass(chatgptProxyUrl, args.vercelProtectionBypassSecret)
-		: chatgptProxyUrl;
-	const authForwardUrl = useQueryBypass
-		? buildProxyUrlWithProtectionBypass(authProxyUrl, args.vercelProtectionBypassSecret)
-		: authProxyUrl;
 	const allow: Record<string, NetworkPolicyRule[]> = {
 		[callbackHost]: [
 			{
@@ -201,19 +176,17 @@ export function buildVercelSandboxCodexNetworkPolicy(args: {
 		],
 		"chatgpt.com": [
 			{
-				forwardURL: chatgptForwardUrl,
+				forwardURL: args.codexProxyUrl,
 				match: { path: { startsWith: "/backend-api/" } },
-				...(chatgptRuleTransform ? { transform: chatgptRuleTransform } : {}),
 			},
 		],
 		"auth.openai.com": [
 			{
-				forwardURL: authForwardUrl,
+				forwardURL: args.codexProxyUrl,
 				match: {
 					path: { startsWith: "/oauth/token" },
 					method: ["POST"],
 				},
-				...(authRuleTransform ? { transform: authRuleTransform } : {}),
 			},
 		],
 	};
@@ -223,7 +196,6 @@ export function buildVercelSandboxCodexNetworkPolicy(args: {
 			{
 				forwardURL: args.codexProxyUrl,
 				match: { path: { startsWith: "/" } },
-				transform: [{ headers: mediatorHeaders }],
 			},
 		];
 	}
@@ -231,16 +203,6 @@ export function buildVercelSandboxCodexNetworkPolicy(args: {
 	return {
 		allow,
 	};
-}
-
-function buildProxyUrlWithProtectionBypass(url: string, byPassSecret?: string) {
-	if (!byPassSecret?.trim()) {
-		return url;
-	}
-
-	const parsed = new URL(url);
-	parsed.searchParams.set("x-vercel-protection-bypass", byPassSecret);
-	return parsed.toString();
 }
 
 export async function createVercelSandbox(input: CreateVercelSandboxInput = {}) {

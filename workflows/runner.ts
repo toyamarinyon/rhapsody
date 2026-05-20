@@ -5,7 +5,6 @@ export type RunnerWorkflowInput = {
 	attemptId: string;
 	startedBy?: string;
 	callbackBaseUrl?: string;
-	networkPolicyVariant?: "oidc";
 };
 
 export type RunnerWorkflowOutput = {
@@ -32,7 +31,6 @@ async function runRunnerAttempt(input: RunnerWorkflowInput) {
 		method: "POST",
 		body: JSON.stringify({
 			callbackBaseUrl,
-			networkPolicyVariant: input.networkPolicyVariant ?? "oidc",
 		}),
 	});
 	const response = await runAttemptExecution({

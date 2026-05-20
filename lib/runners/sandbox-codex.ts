@@ -1,8 +1,8 @@
 import { buildCodexExecCommand } from "@/lib/codex/cli";
 import { buildCodexChatGPTDummyAuthFile } from "@/lib/codex/auth";
+import { loadMediatorCredentialState } from "@/lib/codex/credentials";
 import {
 	loadRhapsodyCodexBaseSnapshotEnv,
-	loadRhapsodyCodexChatGPTEnv,
 	loadRhapsodyConfig,
 	loadRhapsodyGitHubEnv,
 	loadRhapsodyMediatorEnv,
@@ -54,6 +54,7 @@ const NETWORK_PROBE_URL =
 	"https://chatgpt.com/backend-api/codex/models?client_version=0.130.0";
 const NETWORK_PROBE_STDOUT_PREVIEW_LENGTH = 240;
 const CODEX_MODE = "write";
+const DUMMY_CHATGPT_ACCOUNT_ID = "acct_dummy";
 
 type SourcePreparationSummary = {
 	success: boolean;
@@ -155,14 +156,12 @@ export async function runSandboxCodexRunner(
 		const mediatorEnv = loadRhapsodyMediatorEnv();
 		const protectionBypassEnv = loadRhapsodyProtectionBypassEnv();
 		const codexBaseSnapshotEnv = loadRhapsodyCodexBaseSnapshotEnv();
-		const codexChatGPTEnv = loadRhapsodyCodexChatGPTEnv();
 		const githubEnv = loadRhapsodyGitHubEnv();
+		const mediatorCredentialState = await loadMediatorCredentialState();
 		const sourceSnapshotId =
 			parsedBody.value.useSnapshot === false
 				? null
 				: (codexBaseSnapshotEnv.RHAPSODY_CODEX_BASE_SNAPSHOT_ID ?? null);
-		const networkPolicyVariant =
-			parsedBody.value.networkPolicyVariant ?? "default";
 		const claimToken = detail.run.claimToken;
 		// Vercel Sandbox forwardURL requests must reach this mediator before OIDC can
 		// authorize them. Preview Deployment Protection intercepts those requests, so
@@ -173,7 +172,7 @@ export async function runSandboxCodexRunner(
 			callbackBaseUrl,
 		).toString();
 		const authPayload = buildCodexChatGPTDummyAuthFile(
-			codexChatGPTEnv.CHATGPT_ACCOUNT_ID,
+			mediatorCredentialState?.accountId ?? DUMMY_CHATGPT_ACCOUNT_ID,
 		);
 		sandbox = await createVercelSandbox({
 			networkPolicy: mergeNetworkPolicies(
@@ -184,7 +183,6 @@ export async function runSandboxCodexRunner(
 					vercelProtectionBypassSecret:
 						protectionBypassEnv.VERCEL_PROTECTION_BYPASS_SECRET,
 					proxyChatGPTAccountApi: false,
-					networkPolicyVariant,
 				}),
 				buildVercelSandboxGitHubNetworkPolicy({
 					githubToken: githubEnv.GITHUB_TOKEN,
@@ -348,7 +346,6 @@ export async function runSandboxCodexRunner(
 				codexMode: CODEX_MODE,
 				targetBranchName: branchName,
 				targetRepositoryUrl: expectedRepositoryUrl,
-				networkPolicyVariant,
 				useSnapshot: sourceSnapshotId !== null,
 			},
 		});
@@ -485,12 +482,6 @@ async function readOptionalRequest(request: Request): Promise<
 			ok: true;
 			value: {
 				callbackBaseUrl?: string;
-				networkPolicyVariant?:
-					| "default"
-					| "no-transform"
-					| "path-prefix"
-					| "query-bypass"
-					| "oidc";
 				useSnapshot?: boolean;
 			};
 	  }
@@ -551,47 +542,17 @@ function parseSandboxCodexRequestOptions(value: Record<string, unknown>):
 			ok: true;
 			value: {
 				callbackBaseUrl?: string;
-				networkPolicyVariant?:
-					| "default"
-					| "no-transform"
-					| "path-prefix"
-					| "query-bypass"
-					| "oidc";
 				useSnapshot?: boolean;
 			};
 	  }
 	| { ok: false; error: string } {
 	const result: {
 		callbackBaseUrl?: string;
-		networkPolicyVariant?:
-			| "default"
-			| "no-transform"
-			| "path-prefix"
-			| "query-bypass"
-			| "oidc";
 		useSnapshot?: boolean;
 	} = {};
 
 	if (value.callbackBaseUrl !== undefined) {
 		result.callbackBaseUrl = value.callbackBaseUrl as string;
-	}
-
-	if (value.networkPolicyVariant !== undefined) {
-		if (
-			value.networkPolicyVariant !== "default" &&
-			value.networkPolicyVariant !== "no-transform" &&
-			value.networkPolicyVariant !== "path-prefix" &&
-			value.networkPolicyVariant !== "query-bypass" &&
-			value.networkPolicyVariant !== "oidc"
-		) {
-			return {
-				ok: false,
-				error:
-					"networkPolicyVariant must be one of: default, no-transform, path-prefix, query-bypass, oidc.",
-			};
-		}
-
-		result.networkPolicyVariant = value.networkPolicyVariant;
 	}
 
 	if (value.useSnapshot !== undefined) {
