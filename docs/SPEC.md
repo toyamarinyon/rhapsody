@@ -514,7 +514,9 @@ attempt and run status after GitHub handoff verification and policy checks. See
 The MVP prepares source code with Vercel Sandbox Git source initialization. The runner resolves and
 records the exact base commit SHA before sandbox creation, passes the Git source descriptor and
 source credential through the Sandbox API, and validates the prepared workspace before starting the
-agent wrapper. See
+agent wrapper. For sandbox-codex runs, this includes cloning the configured repository in sandbox and
+checking out the persisted `attempt.gitBranchName` branch before starting `codex exec`.
+See
 [ADR 0009](adr/0009-use-vercel-sandbox-git-source-initialization-for-source-preparation.md).
 
 ### 7.1 Agent Completion Callback

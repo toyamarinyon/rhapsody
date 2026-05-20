@@ -4,6 +4,7 @@ import {
 	loadRhapsodyCodexBaseSnapshotEnv,
 	loadRhapsodyCodexChatGPTEnv,
 	loadRhapsodyConfig,
+	loadRhapsodyGitHubEnv,
 	loadRhapsodyMediatorEnv,
 	loadRhapsodyProtectionBypassEnv,
 } from "@/lib/config";
@@ -16,6 +17,8 @@ import {
 import {
 	createVercelSandbox,
 	buildVercelSandboxCodexNetworkPolicy,
+	buildVercelSandboxGitHubNetworkPolicy,
+	mergeNetworkPolicies,
 	getVercelSandboxId,
 	runVercelSandboxCommand,
 	stopVercelSandbox,
@@ -38,6 +41,7 @@ const COMMAND = "sandbox-codex-runner";
 const WRAPPER_PATH = "wrapper.js";
 const PROMPT_PATH = "prompt.txt";
 const METADATA_PATH = "metadata.json";
+const REPOSITORY_PATH = "/vercel/sandbox/repository";
 const PROMPT_PREVIEW_LENGTH = 500;
 const OUTPUT_PREVIEW_LENGTH = 1000;
 const TIMEOUT_MS = 60_000;
@@ -45,6 +49,12 @@ const SMOKE_PROMPT_SUFFIX = `\n\nYou are running in smoke-test mode for Rhapsody
 const NETWORK_PROBE_URL =
 	"https://chatgpt.com/backend-api/codex/models?client_version=0.130.0";
 const NETWORK_PROBE_STDOUT_PREVIEW_LENGTH = 240;
+
+type SourcePreparationSummary = {
+	success: boolean;
+	cloneCommand: Awaited<ReturnType<typeof runVercelSandboxCommand>>;
+	checkoutCommand: Awaited<ReturnType<typeof runVercelSandboxCommand>> | null;
+};
 
 export async function runSandboxCodexRunner(context: RunnerRouteContext): Promise<Response> {
 	const { client, request, runId, attemptId, detail, attempt } = context;
@@ -71,6 +81,7 @@ export async function runSandboxCodexRunner(context: RunnerRouteContext): Promis
 			length: executionPrompt.length,
 			preview: executionPrompt.slice(0, PROMPT_PREVIEW_LENGTH),
 		};
+		const expectedRepositoryUrl = `https://github.com/${config.repository.owner}/${config.repository.name}.git`;
 
 		if (isTerminalRunStatus(detail.run.status) || isTerminalAttemptStatus(attempt.status)) {
 			return Response.json({
@@ -82,7 +93,7 @@ export async function runSandboxCodexRunner(context: RunnerRouteContext): Promis
 		}
 
 		const codexCommand = buildCodexExecCommand({
-			cwd: SANDBOX_WORKDIR,
+			cwd: REPOSITORY_PATH,
 			prompt: executionPrompt,
 			approvalPolicy: "never",
 			sandboxMode: "read-only",
@@ -95,6 +106,7 @@ export async function runSandboxCodexRunner(context: RunnerRouteContext): Promis
 		const protectionBypassEnv = loadRhapsodyProtectionBypassEnv();
 		const codexBaseSnapshotEnv = loadRhapsodyCodexBaseSnapshotEnv();
 		const codexChatGPTEnv = loadRhapsodyCodexChatGPTEnv();
+		const githubEnv = loadRhapsodyGitHubEnv();
 		const sourceSnapshotId = parsedBody.value.useSnapshot === false
 			? null
 			: codexBaseSnapshotEnv.RHAPSODY_CODEX_BASE_SNAPSHOT_ID ?? null;
@@ -109,23 +121,35 @@ export async function runSandboxCodexRunner(context: RunnerRouteContext): Promis
 			callbackBaseUrl,
 		).toString();
 		const authPayload = buildCodexChatGPTDummyAuthFile(codexChatGPTEnv.CHATGPT_ACCOUNT_ID);
+		const fallbackBranchName = buildAttemptBranchName({
+			branchPrefix: config.repository.branchPrefix,
+			issueNumber: parseWorkItemIssueNumber({ workItemId: detail.run.workItemId }),
+			attemptNumber: attempt.attemptNumber,
+		});
+		const requestedBranchName = attempt.gitBranchName ?? fallbackBranchName;
 
 		sandbox = await createVercelSandbox({
-			networkPolicy: buildVercelSandboxCodexNetworkPolicy({
-				callbackUrl,
-				mediatorSecret: mediatorEnv.MEDIATOR_SECRET,
-				codexProxyUrl,
-				vercelProtectionBypassSecret: protectionBypassEnv.VERCEL_PROTECTION_BYPASS_SECRET,
-				proxyChatGPTAccountApi: false,
-				networkPolicyVariant,
-			}),
+			networkPolicy: mergeNetworkPolicies(
+				buildVercelSandboxCodexNetworkPolicy({
+					callbackUrl,
+					mediatorSecret: mediatorEnv.MEDIATOR_SECRET,
+					codexProxyUrl,
+					vercelProtectionBypassSecret: protectionBypassEnv.VERCEL_PROTECTION_BYPASS_SECRET,
+					proxyChatGPTAccountApi: false,
+					networkPolicyVariant,
+				}),
+				buildVercelSandboxGitHubNetworkPolicy({
+					githubToken: githubEnv.GITHUB_TOKEN,
+					authorizationHeaderPrefix: "basic",
+				}),
+			),
 			...(sourceSnapshotId
 				? {
-					source: {
-						type: "snapshot",
-						snapshotId: sourceSnapshotId,
-					},
-				}
+						source: {
+							type: "snapshot",
+							snapshotId: sourceSnapshotId,
+						},
+					}
 				: {}),
 		});
 
@@ -172,15 +196,18 @@ export async function runSandboxCodexRunner(context: RunnerRouteContext): Promis
 		const startResult = await markAttemptStarted(client, {
 			runId,
 			attemptId,
-			gitBranchName: buildAttemptBranchName({
-				branchPrefix: config.repository.branchPrefix,
-				issueNumber: parseWorkItemIssueNumber({ workItemId: detail.run.workItemId }),
-				attemptNumber: attempt.attemptNumber,
-			}),
+			gitBranchName: requestedBranchName,
 			claimToken,
 			sandboxId: getVercelSandboxId(sandbox),
 			command: COMMAND,
 		});
+
+		const refreshedAttempt = (
+			await getRunDetail(client, runId)
+		)?.attempts.find((candidate) => candidate.id === attemptId);
+		const branchName = (refreshedAttempt?.gitBranchName
+			|| attempt.gitBranchName
+			|| requestedBranchName);
 
 		if (!startResult.applied) {
 			return Response.json(
@@ -191,6 +218,51 @@ export async function runSandboxCodexRunner(context: RunnerRouteContext): Promis
 					startResult,
 				},
 				{ status: 409 },
+			);
+		}
+
+		if (!branchName) {
+			return Response.json(
+				{
+					error:
+						"Attempt branch name is required for source preparation. Retry start flow to seed a deterministic branch name.",
+				},
+				{ status: 409 },
+			);
+		}
+
+		const sourcePreparationSummary = await prepareSourceInSandbox({
+			sandbox,
+			repositoryUrl: expectedRepositoryUrl,
+			branchName,
+		});
+		await createEvent(client, {
+			runId,
+			attemptId,
+			level: sourcePreparationSummary.success ? "info" : "error",
+			type: "sandbox_codex_runner.source_preparation",
+			message: "Prepared repository source for the attempt.",
+			data: {
+				repositoryUrl: expectedRepositoryUrl,
+				branchName,
+				commands: {
+					clone: summarizeCommand(sourcePreparationSummary.cloneCommand),
+					checkout: sourcePreparationSummary.checkoutCommand
+						? summarizeCommand(sourcePreparationSummary.checkoutCommand)
+						: null,
+				},
+				success: sourcePreparationSummary.success,
+			},
+		});
+
+		if (!sourcePreparationSummary.success) {
+			return Response.json(
+				{
+					error: "Source preparation failed.",
+					repositoryUrl: expectedRepositoryUrl,
+					branchName,
+				},
+				{ status: 500 },
 			);
 		}
 
@@ -381,6 +453,48 @@ function parseNetworkPolicyOptions(value: Record<string, unknown>): {
 	}
 
 	return { ok: true, value: result };
+}
+
+async function prepareSourceInSandbox({
+	sandbox,
+	repositoryUrl,
+	branchName,
+}: {
+	sandbox: RhapsodyVercelSandbox;
+	repositoryUrl: string;
+	branchName: string;
+}): Promise<SourcePreparationSummary> {
+	await runVercelSandboxCommand(sandbox, {
+		cmd: "rm",
+		args: ["-rf", REPOSITORY_PATH],
+		cwd: SANDBOX_WORKDIR,
+	});
+
+	const cloneCommand = await runVercelSandboxCommand(sandbox, {
+		cmd: "git",
+		args: ["clone", "--depth", "1", repositoryUrl, REPOSITORY_PATH],
+		cwd: SANDBOX_WORKDIR,
+	});
+
+	if (cloneCommand.exitCode !== 0) {
+		return {
+			success: false,
+			cloneCommand,
+			checkoutCommand: null,
+		};
+	}
+
+	const checkoutCommand = await runVercelSandboxCommand(sandbox, {
+		cmd: "git",
+		args: ["-C", REPOSITORY_PATH, "checkout", "-B", branchName],
+		cwd: SANDBOX_WORKDIR,
+	});
+
+	return {
+		success: checkoutCommand.exitCode === 0,
+		cloneCommand,
+		checkoutCommand,
+	};
 }
 
 function buildWrapperSource() {

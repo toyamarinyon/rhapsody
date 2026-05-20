@@ -56,6 +56,32 @@ const DEFAULT_SANDBOX_RUNTIME = "node24";
 // are actually applied to commands running inside the sandbox.
 const NETWORK_POLICY_PROPAGATION_DELAY_MS = 8_000;
 
+export function mergeNetworkPolicies(...policies: NetworkPolicy[]): NetworkPolicy {
+	if (policies.some((policy) => policy === "allow-all")) {
+		return "allow-all";
+	}
+
+	const allowedPolicy = policies.filter(isAllowNetworkPolicy);
+	const allow = allowedPolicy.reduce(
+		(acc, policy) => {
+			for (const [host, rules] of Object.entries(policy.allow)) {
+				acc[host] = [...(acc[host] ?? []), ...rules];
+			}
+
+			return acc;
+		},
+		{} as Record<string, NetworkPolicyRule[]>,
+	);
+
+	return { allow };
+}
+
+function isAllowNetworkPolicy(
+	policy: NetworkPolicy,
+): policy is { allow: Record<string, NetworkPolicyRule[]> } {
+	return typeof policy === "object";
+}
+
 export function buildVercelSandboxCallbackNetworkPolicy(args: {
 	callbackUrl: string;
 	mediatorSecret: string;
