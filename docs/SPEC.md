@@ -503,6 +503,9 @@ Required steps:
 19. Evaluate final attempt and run status separately from wrapper execution status.
 20. Release claim.
 
+The sandbox runner uses the terminal callback to resume the paused workflow before trusted
+Rhapsody-owned code creates or reuses the pull request handoff.
+
 The runner MUST NOT depend on local Vercel Function filesystem state for correctness.
 The runner MUST NOT poll the sandbox for the full agent runtime inside one Vercel Function
 invocation. Agent execution completion is callback-driven, with watchdog reconciliation as a
