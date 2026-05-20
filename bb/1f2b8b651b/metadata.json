@@ -3,7 +3,7 @@
   "checkpoint_id": "bb1f2b8b651b",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 13,
+  "checkpoints_count": 14,
   "files_touched": [
     "app/api/internal/sandbox-git-operations-smoke/route.ts",
     "docs/adr/0005-use-run-scoped-github-mediation-for-agent-writes.md",
@@ -27,13 +27,19 @@
       "transcript": "/bb/1f2b8b651b/2/full.jsonl",
       "content_hash": "/bb/1f2b8b651b/2/content_hash.txt",
       "prompt": "/bb/1f2b8b651b/2/prompt.txt"
+    },
+    {
+      "metadata": "/bb/1f2b8b651b/3/metadata.json",
+      "transcript": "/bb/1f2b8b651b/3/full.jsonl",
+      "content_hash": "/bb/1f2b8b651b/3/content_hash.txt",
+      "prompt": "/bb/1f2b8b651b/3/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 7681816,
+    "input_tokens": 7795981,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 230010624,
-    "output_tokens": 410457,
-    "api_call_count": 2913
+    "cache_read_tokens": 235221888,
+    "output_tokens": 432149,
+    "api_call_count": 2975
   }
 }
