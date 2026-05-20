@@ -1,0 +1,11 @@
+In /Users/toyamarinyon/Documents/rhapsody, continue the GitHub git-operation brokering smoke test. You are not alone in the codebase; do not revert edits made by others. Build on the current uncommitted changes: lib/sandbox/vercel.ts has buildVercelSandboxGitHubNetworkPolicy, and app/api/internal/sandbox-git-operations-smoke/route.ts runs git ls-remote.
+
+Goal: extend the admin-only smoke endpoint so we can safely test stages: ls-remote (default), clone, and push to an explicit test branch only. Keep it narrow. Requirements:
+- Request body supports `operation`: "ls-remote" | "clone" | "push". Default remains "ls-remote".
+- Default auth header prefix should probably become "basic" because we verified token/bearer fail and basic succeeds. Still allow overriding to token/bearer for diagnostics.
+- For clone: create a temp workdir inside sandbox, run `git clone --depth 1 <repositoryUrl> repo`, then maybe `git status --short` in cloned repo. Return summaries.
+- For push: require an explicit `branchName` that starts with `rhapsody-smoke/`; refuse otherwise. In sandbox, clone repo, create/switch to branch, create a harmless file under a smoke-test path (e.g. `.rhapsody-smoke/<timestamp>.txt`), commit, and push to `HEAD:<branchName>`. Use git config user name/email locally. Do not push by default.
+- Avoid leaking token in responses/logs. Never include Authorization value.
+- Update ADR 0005 smoke note with clone/push test capability but make clear push is explicit and experimental.
+- Run tsc/lint if feasible.
+Final response should list changed files and commands to exercise ls-remote/clone/push.
