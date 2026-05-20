@@ -19,7 +19,7 @@ export default {
 	scheduler: {
 		maxConcurrentRuns: 3,
 		maxConcurrentRunsByStatus: {},
-		claimTtlMs: 900000,
+		claimTtlMs: 18 * 60 * 1000,
 		maxRetryBackoffMs: 300000,
 		runningAttemptTimeoutMs: 16 * 60 * 1000,
 	},

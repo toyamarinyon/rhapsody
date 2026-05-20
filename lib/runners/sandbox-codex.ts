@@ -50,6 +50,7 @@ const REPOSITORY_PATH = "/vercel/sandbox/repository";
 const PROMPT_PREVIEW_LENGTH = 500;
 const OUTPUT_PREVIEW_LENGTH = 1000;
 const CODEX_TIMEOUT_MS = 10 * 60 * 1000;
+const RUNNER_COMMAND_TIMEOUT_MS = CODEX_TIMEOUT_MS + 60_000;
 const SANDBOX_SETUP_BUFFER_MS = 5 * 60 * 1000;
 const SANDBOX_TIMEOUT_MS = CODEX_TIMEOUT_MS + SANDBOX_SETUP_BUFFER_MS;
 const NETWORK_PROBE_URL =
@@ -360,6 +361,7 @@ export async function runSandboxCodexRunner(
 			env: {
 				CODEX_HOME: CODEX_HOME_PATH,
 			},
+			timeoutMs: RUNNER_COMMAND_TIMEOUT_MS,
 		});
 
 		const wrapperCallback = parseWrapperStdout(command.stdout);

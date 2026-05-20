@@ -13,6 +13,7 @@ export type VercelSandboxRunCommandInput = {
 	args?: string[];
 	cwd?: string;
 	env?: Record<string, string>;
+	timeoutMs?: number;
 };
 
 export type VercelSandboxCommandSummary = {
@@ -22,6 +23,8 @@ export type VercelSandboxCommandSummary = {
 	exitCode: number;
 	stdout: string;
 	stderr: string;
+	timedOut?: boolean;
+	error?: string;
 };
 
 export type VercelSandboxSnapshot = {
@@ -244,22 +247,53 @@ export async function runVercelSandboxCommand(
 	sandbox: RhapsodyVercelSandbox,
 	input: VercelSandboxRunCommandInput,
 ): Promise<VercelSandboxCommandSummary> {
-	const command = await sandbox.runCommand({
-		cmd: input.cmd,
-		args: input.args,
-		cwd: input.cwd,
-		env: input.env,
-	});
-	const [stdout, stderr] = await Promise.all([command.stdout(), command.stderr()]);
+	const abortController = input.timeoutMs ? new AbortController() : null;
+	let timedOut = false;
+	const timeout = input.timeoutMs
+		? setTimeout(() => {
+				timedOut = true;
+				abortController?.abort();
+			}, input.timeoutMs)
+		: null;
 
-	return {
-		commandId: command.cmdId,
-		cwd: command.cwd,
-		startedAt: command.startedAt,
-		exitCode: command.exitCode,
-		stdout,
-		stderr,
-	};
+	try {
+		const command = await sandbox.runCommand({
+			cmd: input.cmd,
+			args: input.args,
+			cwd: input.cwd,
+			env: input.env,
+			signal: abortController?.signal,
+		});
+		const [stdout, stderr] = await Promise.all([command.stdout(), command.stderr()]);
+
+		return {
+			commandId: command.cmdId,
+			cwd: command.cwd,
+			startedAt: command.startedAt,
+			exitCode: command.exitCode,
+			stdout,
+			stderr,
+		};
+	} catch (error) {
+		if (!timedOut) {
+			throw error;
+		}
+
+		return {
+			commandId: "unknown",
+			cwd: input.cwd ?? "",
+			startedAt: Date.now(),
+			exitCode: 124,
+			stdout: "",
+			stderr: `Command timed out after ${input.timeoutMs}ms.`,
+			timedOut: true,
+			error: error instanceof Error ? error.message : String(error),
+		};
+	} finally {
+		if (timeout) {
+			clearTimeout(timeout);
+		}
+	}
 }
 
 export function getVercelSandboxId(sandbox: RhapsodyVercelSandbox) {
