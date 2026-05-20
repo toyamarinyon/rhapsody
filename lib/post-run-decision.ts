@@ -5,6 +5,8 @@ const RHAPSODY_POST_RUN_CONFIG_PATH = ".rhapsody/config.toml";
 
 export type PostRunDecisionPolicy = {
 	auto_merge_eligible: PostRunAutoMergeRule[];
+	auto_merge_success_status: string;
+	human_review_status: string;
 };
 
 export type PostRunAutoMergeRule = {
@@ -28,6 +30,11 @@ export type PostRunDecisionInput = {
 	handoffStatus: "ok" | "not_applicable" | "missing_pr" | "failed";
 	changedFiles: string[] | null;
 	config: PostRunDecisionConfig;
+};
+
+export type PostRunDecisionStatusConfig = {
+	autoMergeSuccessStatus: string;
+	humanReviewStatus: string;
 };
 
 export type MatchedPathsSummary = {
@@ -56,6 +63,14 @@ export class PostRunPolicyError extends Error {
 	}
 }
 
+const DEFAULT_POST_RUN_DECISION_STATUS = {
+	auto_merge_success_status: "Done",
+	human_review_status: "Human Review",
+} satisfies Pick<
+	PostRunDecisionPolicy,
+	"auto_merge_success_status" | "human_review_status"
+>;
+
 export async function loadPostRunDecisionConfig(
 	projectRoot = process.cwd(),
 ): Promise<PostRunPolicyLoadResult> {
@@ -77,7 +92,12 @@ export async function loadPostRunDecisionConfig(
 			(error as NodeJS.ErrnoException).code === "ENOENT"
 		) {
 			return {
-				config: { post_run: { auto_merge_eligible: [] } },
+				config: {
+					post_run: {
+						auto_merge_eligible: [],
+						...DEFAULT_POST_RUN_DECISION_STATUS,
+					},
+				},
 				loadedFromPath: configPath,
 				errors: [
 					"Post-run decision config file is missing; defaulting to conservative review-required policy.",
@@ -94,7 +114,10 @@ export function parsePostRunDecisionConfig(
 ): PostRunDecisionConfig {
 	const lines = content.split(/\r?\n/);
 	const config: PostRunDecisionConfig = {
-		post_run: { auto_merge_eligible: [] },
+		post_run: {
+			auto_merge_eligible: [],
+			...DEFAULT_POST_RUN_DECISION_STATUS,
+		},
 	};
 
 	let inPostRunSection = false;
@@ -131,14 +154,29 @@ export function parsePostRunDecisionConfig(
 			continue;
 		}
 
-		if (!inAutoMergeRuleSection) {
-			continue;
-		}
-
 		const assignResult = parseKeyValue(trimmed);
 
 		if (!assignResult.ok) {
 			throw new PostRunPolicyError([assignResult.error]);
+		}
+
+		if (!inAutoMergeRuleSection) {
+			switch (assignResult.key) {
+				case "auto_merge_success_status":
+					config.post_run.auto_merge_success_status = parseTomlString(
+						assignResult.value,
+					);
+					continue;
+				case "human_review_status":
+					config.post_run.human_review_status = parseTomlString(
+						assignResult.value,
+					);
+					continue;
+				default:
+					throw new PostRunPolicyError([
+						`Unknown field '${assignResult.key}' in [post_run].`,
+					]);
+			}
 		}
 
 		const rule =
@@ -300,6 +338,20 @@ function validatePostRunDecisionConfig(config: PostRunDecisionConfig) {
 		issues.push("post_run.auto_merge_eligible must be an array.");
 	}
 
+	if (
+		typeof config.post_run.auto_merge_success_status !== "string" ||
+		!config.post_run.auto_merge_success_status.trim()
+	) {
+		issues.push("post_run.auto_merge_success_status must be a non-empty string.");
+	}
+
+	if (
+		typeof config.post_run.human_review_status !== "string" ||
+		!config.post_run.human_review_status.trim()
+	) {
+		issues.push("post_run.human_review_status must be a non-empty string.");
+	}
+
 	for (const [index, rule] of config.post_run.auto_merge_eligible.entries()) {
 		if (!Array.isArray(rule.paths) || rule.paths.length === 0) {
 			issues.push(
@@ -322,6 +374,15 @@ function validatePostRunDecisionConfig(config: PostRunDecisionConfig) {
 	if (issues.length > 0) {
 		throw new PostRunPolicyError(issues);
 	}
+}
+
+export function getPostRunStatusConfig(
+	config: PostRunDecisionConfig,
+): PostRunDecisionStatusConfig {
+	return {
+		autoMergeSuccessStatus: config.post_run.auto_merge_success_status,
+		humanReviewStatus: config.post_run.human_review_status,
+	};
 }
 
 export function evaluatePostRunDecision(

@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+	getPostRunStatusConfig,
+	parsePostRunDecisionConfig,
 	evaluatePostRunDecision,
 	type PostRunDecisionConfig,
 } from "./post-run-decision";
 
 const baseDecisionConfig: PostRunDecisionConfig = {
 	post_run: {
+		auto_merge_success_status: "Done",
+		human_review_status: "Human Review",
 		auto_merge_eligible: [
 			{
 				paths: ["docs/**", "!docs/adr/**"],
@@ -55,6 +59,8 @@ test("does not require every positive include pattern to match", () => {
 		...baseDecisionInput,
 		config: {
 			post_run: {
+				auto_merge_success_status: "Done",
+				human_review_status: "Human Review",
 				auto_merge_eligible: [
 					{
 						paths: ["docs/**", "src/**"],
@@ -67,4 +73,37 @@ test("does not require every positive include pattern to match", () => {
 
 	assert.equal(decision.action, "auto_merge_candidate");
 	assert.deepEqual(decision.changedPathsSummary.unmatched, []);
+});
+
+test("supports config-driven post-run destination statuses", () => {
+	const parsed = parsePostRunDecisionConfig(`
+[post_run]
+auto_merge_success_status = "Deployed"
+human_review_status = "Needs Human Review"
+
+[[post_run.auto_merge_eligible]]
+paths = ["docs/**"]
+`);
+
+	const statusConfig = getPostRunStatusConfig(parsed);
+
+	assert.deepEqual(statusConfig, {
+		autoMergeSuccessStatus: "Deployed",
+		humanReviewStatus: "Needs Human Review",
+	});
+});
+
+test("defaults destination status values when omitted", () => {
+	const parsed = parsePostRunDecisionConfig(`
+[post_run]
+[[post_run.auto_merge_eligible]]
+paths = ["docs/**"]
+`);
+
+	const statusConfig = getPostRunStatusConfig(parsed);
+
+	assert.deepEqual(statusConfig, {
+		autoMergeSuccessStatus: "Done",
+		humanReviewStatus: "Human Review",
+	});
 });

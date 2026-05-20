@@ -18,6 +18,8 @@ import { buildAttemptHookToken } from "@/lib/workflows/attempt-hook";
 import {
 	evaluatePostRunDecision,
 	loadPostRunDecisionConfig,
+	getPostRunStatusConfig,
+	type PostRunDecisionStatusConfig,
 	type PostRunDecision,
 } from "@/lib/post-run-decision";
 import { createHook } from "workflow";
@@ -98,6 +100,11 @@ export type RunnerWorkflowPostRunActionResult = {
 		| { attempted: true; updated: false; targetStatus: string; error: string };
 };
 
+type PostRunPolicyEvaluation = {
+	decision: PostRunDecision;
+	statusConfig: PostRunDecisionStatusConfig;
+};
+
 export async function runnerWorkflow(input: RunnerWorkflowInput) {
 	"use workflow";
 
@@ -109,16 +116,18 @@ export async function runnerWorkflow(input: RunnerWorkflowInput) {
 	const callbackPayload = await hook;
 	const handoff = await completeRunnerHandoff(input, callbackPayload);
 	const finalization = await finalizeRunnerAttempt(callbackPayload, handoff);
-	const postRunDecision = await evaluatePostRunPolicy(
+	const postRunPolicy = await evaluatePostRunPolicy(
 		input,
 		callbackPayload,
 		handoff,
 		finalization,
 	);
+	const postRunDecision = postRunPolicy.decision;
 	const postRunAction = await applyPostRunDecisionAction(
 		input,
 		handoff,
 		postRunDecision,
+		postRunPolicy.statusConfig,
 	);
 
 	return {
@@ -242,7 +251,7 @@ async function evaluatePostRunPolicy(
 	callbackPayload: RunnerWorkflowCallbackPayload,
 	handoff: RunnerWorkflowHandoffResult,
 	finalization: AttemptTransitionResult,
-): Promise<PostRunDecision> {
+): Promise<PostRunPolicyEvaluation> {
 	"use step";
 
 	const client = createStateStoreClient();
@@ -256,7 +265,13 @@ async function evaluatePostRunPolicy(
 				? error.message
 				: "Unknown error while loading post-run decision policy.";
 		policyLoadResult = {
-			config: { post_run: { auto_merge_eligible: [] } },
+			config: {
+				post_run: {
+					auto_merge_eligible: [],
+					auto_merge_success_status: "Done",
+					human_review_status: "Human Review",
+				},
+			},
 			loadedFromPath: ".rhapsody/config.toml",
 			errors: [message],
 		};
@@ -310,7 +325,10 @@ async function evaluatePostRunPolicy(
 			},
 		});
 
-		return decision;
+		return {
+			decision,
+			statusConfig: getPostRunStatusConfig(policyLoadResult.config),
+		};
 	} finally {
 		client.close();
 	}
@@ -365,6 +383,7 @@ async function applyPostRunDecisionAction(
 	input: RunnerWorkflowInput,
 	handoff: RunnerWorkflowHandoffResult,
 	decision: PostRunDecision,
+	statusConfig: PostRunDecisionStatusConfig,
 ): Promise<RunnerWorkflowPostRunActionResult> {
 	"use step";
 
@@ -426,6 +445,7 @@ async function applyPostRunDecisionAction(
 				input,
 				handoff: handoff.pullRequest,
 				issueNumber,
+				status: statusConfig.autoMergeSuccessStatus,
 			});
 		}
 
@@ -436,6 +456,7 @@ async function applyPostRunDecisionAction(
 			handoff: handoff.pullRequest,
 			issueNumber,
 			decision,
+			status: statusConfig.humanReviewStatus,
 		});
 	} finally {
 		client.close();
@@ -448,6 +469,7 @@ async function mergePullRequestAndMarkDone(input: {
 	input: RunnerWorkflowInput;
 	handoff: RunnerWorkflowHandoff;
 	issueNumber: number;
+	status: string;
 }): Promise<RunnerWorkflowPostRunActionResult> {
 	try {
 		const mergeResult = await mergePullRequest({
@@ -476,7 +498,7 @@ async function mergePullRequestAndMarkDone(input: {
 				projectNumber: input.config.tracker.projectNumber,
 				statusField: input.config.tracker.statusField,
 				issueNumber: input.issueNumber,
-				status: "Done",
+				status: input.status,
 			});
 
 			await createEvent(input.client, {
@@ -484,10 +506,10 @@ async function mergePullRequestAndMarkDone(input: {
 				attemptId: input.input.attemptId,
 				level: "info",
 				type: "sandbox_codex_runner.project_status_updated",
-				message: "Runner workflow moved the Project item to Done.",
+				message: `Runner workflow moved the Project item to ${input.status}.`,
 				data: {
 					issueNumber: input.issueNumber,
-					toStatus: "Done",
+					toStatus: input.status,
 					projectItemId: statusResult.itemId,
 					fieldId: statusResult.fieldId,
 					optionId: statusResult.optionId,
@@ -501,7 +523,7 @@ async function mergePullRequestAndMarkDone(input: {
 				projectStatusUpdate: {
 					attempted: true,
 					updated: true,
-					targetStatus: "Done",
+					targetStatus: input.status,
 					itemId: statusResult.itemId,
 					fieldId: statusResult.fieldId,
 					optionId: statusResult.optionId,
@@ -515,11 +537,10 @@ async function mergePullRequestAndMarkDone(input: {
 				attemptId: input.input.attemptId,
 				level: "warn",
 				type: "sandbox_codex_runner.project_status_update_failed",
-				message:
-					"Runner workflow merged the pull request, but could not move the Project item to Done.",
+				message: `Runner workflow merged the pull request, but could not move the Project item to ${input.status}.`,
 				data: {
 					issueNumber: input.issueNumber,
-					toStatus: "Done",
+					toStatus: input.status,
 					error: message,
 					pullRequestNumber: input.handoff.number,
 				},
@@ -531,7 +552,7 @@ async function mergePullRequestAndMarkDone(input: {
 				projectStatusUpdate: {
 					attempted: true,
 					updated: false,
-					targetStatus: "Done",
+					targetStatus: input.status,
 					error: message,
 				},
 			};
@@ -566,6 +587,7 @@ async function moveProjectItemToHumanReview(input: {
 	handoff: RunnerWorkflowHandoff;
 	issueNumber: number;
 	decision: PostRunDecision;
+	status: string;
 }): Promise<RunnerWorkflowPostRunActionResult> {
 	try {
 		const statusResult = await updateProjectIssueStatus({
@@ -574,7 +596,7 @@ async function moveProjectItemToHumanReview(input: {
 			projectNumber: input.config.tracker.projectNumber,
 			statusField: input.config.tracker.statusField,
 			issueNumber: input.issueNumber,
-			status: "Human Review",
+			status: input.status,
 		});
 
 		await createEvent(input.client, {
@@ -582,10 +604,10 @@ async function moveProjectItemToHumanReview(input: {
 			attemptId: input.input.attemptId,
 			level: "info",
 			type: "sandbox_codex_runner.project_status_updated",
-			message: "Runner workflow moved the Project item to Human Review.",
+			message: `Runner workflow moved the Project item to ${input.status}.`,
 			data: {
 				issueNumber: input.issueNumber,
-				toStatus: "Human Review",
+				toStatus: input.status,
 				projectItemId: statusResult.itemId,
 				fieldId: statusResult.fieldId,
 				optionId: statusResult.optionId,
@@ -600,7 +622,7 @@ async function moveProjectItemToHumanReview(input: {
 			projectStatusUpdate: {
 				attempted: true,
 				updated: true,
-				targetStatus: "Human Review",
+				targetStatus: input.status,
 				itemId: statusResult.itemId,
 				fieldId: statusResult.fieldId,
 				optionId: statusResult.optionId,
@@ -613,14 +635,14 @@ async function moveProjectItemToHumanReview(input: {
 			runId: input.input.runId,
 			attemptId: input.input.attemptId,
 			level: "warn",
-			type: "sandbox_codex_runner.project_status_update_failed",
-			message: "Runner workflow could not move the Project item to Human Review.",
-			data: {
-				issueNumber: input.issueNumber,
-				toStatus: "Human Review",
-				error: message,
-				pullRequestNumber: input.handoff.number,
-				reason: input.decision.reason,
+				type: "sandbox_codex_runner.project_status_update_failed",
+				message: `Runner workflow could not move the Project item to ${input.status}.`,
+				data: {
+					issueNumber: input.issueNumber,
+					toStatus: input.status,
+					error: message,
+					pullRequestNumber: input.handoff.number,
+					reason: input.decision.reason,
 			},
 		});
 
@@ -630,7 +652,7 @@ async function moveProjectItemToHumanReview(input: {
 			projectStatusUpdate: {
 				attempted: true,
 				updated: false,
-				targetStatus: "Human Review",
+				targetStatus: input.status,
 				error: message,
 			},
 		};

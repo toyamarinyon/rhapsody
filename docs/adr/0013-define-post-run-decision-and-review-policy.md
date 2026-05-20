@@ -43,11 +43,18 @@ Rhapsody reads this policy from `.rhapsody/config.toml`:
 
 ```toml
 [post_run]
+auto_merge_success_status = "Done"
+human_review_status = "Human Review"
 
 [[post_run.auto_merge_eligible]]
 paths = ["docs/**", "!docs/adr/**"]
 description = "Documentation-only changes, excluding ADR updates."
 ```
+
+Status mapping semantics:
+
+- `auto_merge_success_status` controls the Project status name used when a decision resolves to `auto_merge_candidate`.
+- `human_review_status` controls the Project status name used when a decision resolves to `human_review`.
 
 Decision semantics:
 

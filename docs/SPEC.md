@@ -689,14 +689,14 @@ mediator decision events. See
 [ADR 0012](adr/0012-define-post-run-verification-policy.md).
 
 After verification, Rhapsody MUST evaluate post-run decision policy before moving the item to
-`Human Review`, `Done`, or another workflow status. `Human Review` is reserved for work that
+workflow destinations defined in `.rhapsody/config.toml`. `Human Review` is reserved for work that
 Rhapsody decides needs human attention, not every pull request handoff. See
 [ADR 0013](adr/0013-define-post-run-decision-and-review-policy.md).
 Policy decisions are sourced from `.rhapsody/config.toml` with conservative defaults when policy data
 is missing or invalid.
 For the current MVP action set, `auto_merge_candidate` causes trusted Rhapsody code to merge the
-pull request and move the Project item to `Done`, while `human_review` moves the Project item to
-`Human Review`.
+pull request and move the Project item to `post_run.auto_merge_success_status`, while `human_review`
+moves the Project item to `post_run.human_review_status`.
 
 ## 10. Observability API
 
