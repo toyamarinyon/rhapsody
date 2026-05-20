@@ -1,0 +1,28 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "3779f37ccb55",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "docs/SPEC.md",
+    "docs/adr/0013-define-post-run-decision-and-review-policy.md",
+    "lib/github/pull-requests.ts",
+    "workflows/runner.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/37/79f37ccb55/0/metadata.json",
+      "transcript": "/37/79f37ccb55/0/full.jsonl",
+      "content_hash": "/37/79f37ccb55/0/content_hash.txt",
+      "prompt": "/37/79f37ccb55/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 266581,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5702016,
+    "output_tokens": 30616,
+    "api_call_count": 104
+  }
+}

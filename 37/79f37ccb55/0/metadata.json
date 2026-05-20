@@ -1,0 +1,70 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "3779f37ccb55",
+  "session_id": "019e45dd-0cb4-7911-8135-473abe1c8942",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-20T16:12:27.258185Z",
+  "branch": "main",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "docs/SPEC.md",
+    "docs/adr/0013-define-post-run-decision-and-review-policy.md",
+    "lib/github/pull-requests.ts",
+    "workflows/runner.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.4",
+  "turn_id": "a8fd9efccf99",
+  "token_usage": {
+    "input_tokens": 266581,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5702016,
+    "output_tokens": 30616,
+    "api_call_count": 104
+  },
+  "session_metrics": {
+    "turn_count": 22
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-20T16:12:27.150313Z",
+    "agent_lines": 403,
+    "agent_removed": 3,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 403,
+    "total_lines_changed": 406,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 403,
+      "agent_lines_removed": 3
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 403,
+      "agent_lines_removed": 3
+    }
+  ]
+}
