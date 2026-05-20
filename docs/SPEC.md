@@ -691,6 +691,11 @@ After verification, Rhapsody MUST evaluate post-run decision policy before movin
 Rhapsody decides needs human attention, not every pull request handoff. See
 [ADR 0013](adr/0013-define-post-run-decision-and-review-policy.md).
 
+The MVP post-run decision policy is deterministic and conservative: a completed run with a verified
+pull request handoff is classified as requiring human review, and trusted Rhapsody workflow code
+moves the GitHub Project item to `Human Review`. Reviewer Codex evidence and auto-merge remain
+future extension points.
+
 ## 10. Observability API
 
 Rhapsody SHOULD expose a dashboard and JSON API.

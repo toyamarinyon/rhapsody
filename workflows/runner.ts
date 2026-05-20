@@ -1,10 +1,17 @@
 import { runAttemptExecution } from "@/lib/runners/registry";
 import { loadRhapsodyConfig } from "@/lib/config";
 import { createOrReuseOpenPullRequest } from "@/lib/github/pull-requests";
+import { updateProjectIssueStatus } from "@/lib/github/project-items";
+import { parseWorkItemIssueNumber } from "@/lib/attempt-branch";
+import {
+	decidePostRunAction,
+	type PostRunDecision,
+} from "@/lib/post-run-decision";
 import {
 	applyAttemptTerminalCallback,
 	createEvent,
 	createStateStoreClient,
+	getRunDetail,
 	type AttemptTransitionResult,
 } from "@/lib/state";
 import { buildAttemptHookToken } from "@/lib/workflows/attempt-hook";
@@ -27,6 +34,7 @@ export type RunnerWorkflowOutput = {
 	callbackPayload: RunnerWorkflowCallbackPayload;
 	handoff: RunnerWorkflowHandoffResult;
 	finalization: AttemptTransitionResult;
+	postRunDecision: RunnerWorkflowPostRunDecisionResult;
 };
 
 export type RunnerWorkflowCallbackPayload = {
@@ -65,6 +73,29 @@ export type RunnerWorkflowHandoffResult =
 			error: string;
 	  };
 
+export type RunnerWorkflowPostRunDecisionResult =
+	| {
+			ok: true;
+			decision: PostRunDecision;
+			projectStatusUpdate:
+				| {
+						applied: true;
+						targetStatus: string;
+						projectItemId: string;
+						fieldId: string;
+						optionId: string;
+				  }
+				| {
+						applied: false;
+						reason: "no_action";
+				  };
+	  }
+	| {
+			ok: false;
+			decision: PostRunDecision;
+			error: string;
+	  };
+
 export async function runnerWorkflow(input: RunnerWorkflowInput) {
 	"use workflow";
 
@@ -76,6 +107,7 @@ export async function runnerWorkflow(input: RunnerWorkflowInput) {
 	const callbackPayload = await hook;
 	const handoff = await completeRunnerHandoff(input, callbackPayload);
 	const finalization = await finalizeRunnerAttempt(callbackPayload, handoff);
+	const postRunDecision = await runPostRunDecision(input, handoff, finalization);
 
 	return {
 		runId: input.runId,
@@ -87,6 +119,7 @@ export async function runnerWorkflow(input: RunnerWorkflowInput) {
 		callbackPayload,
 		handoff,
 		finalization,
+		postRunDecision,
 	} satisfies RunnerWorkflowOutput;
 }
 
@@ -205,6 +238,146 @@ async function finalizeRunnerAttempt(
 			command: callbackPayload.commandId,
 			error: evaluateFinalError(callbackPayload, handoff),
 		});
+	} finally {
+		client.close();
+	}
+}
+
+async function runPostRunDecision(
+	input: RunnerWorkflowInput,
+	handoff: RunnerWorkflowHandoffResult,
+	finalization: AttemptTransitionResult,
+): Promise<RunnerWorkflowPostRunDecisionResult> {
+	"use step";
+
+	const decision = decidePostRunAction({
+		runStatus: finalization.applied ? finalization.runStatus : "not_applied",
+		attemptStatus: finalization.applied ? finalization.attemptStatus : "not_applied",
+		verifiedPullRequest: handoff.ok ? handoff.pullRequest : null,
+	});
+	const client = createStateStoreClient();
+
+	try {
+		await createEvent(client, {
+			runId: input.runId,
+			attemptId: input.attemptId,
+			level: decision.outcome === "requires_human_review" ? "info" : "warn",
+			type: "post_run_decision.evaluated",
+			message: "Runner workflow evaluated post-run decision policy.",
+			data: {
+				outcome: decision.outcome,
+				action: decision.action,
+				reason: decision.reason,
+				targetProjectStatus: decision.targetProjectStatus,
+				pullRequest: decision.pullRequest,
+				futureReviewEvidence: decision.futureReviewEvidence,
+				finalization,
+			},
+		});
+
+		if (decision.action === "none") {
+			await createEvent(client, {
+				runId: input.runId,
+				attemptId: input.attemptId,
+				level: "warn",
+				type: "post_run_decision.no_project_status_action",
+				message: "Post-run decision did not move the Project item.",
+				data: {
+					outcome: decision.outcome,
+					reason: decision.reason,
+					handoff,
+					finalization,
+				},
+			});
+
+			return {
+				ok: true,
+				decision,
+				projectStatusUpdate: { applied: false, reason: "no_action" },
+			};
+		}
+
+		const config = loadRhapsodyConfig();
+		const detail = await getRunDetail(client, input.runId);
+		const issueNumber = detail
+			? parseWorkItemIssueNumber({ workItemId: detail.run.workItemId })
+			: null;
+
+		if (!issueNumber) {
+			const error = "Post-run decision could not resolve the issue number for Project status movement.";
+
+			await createEvent(client, {
+				runId: input.runId,
+				attemptId: input.attemptId,
+				level: "error",
+				type: "post_run_decision.project_status_update_failed",
+				message: "Post-run decision could not move the Project item.",
+				data: {
+					outcome: decision.outcome,
+					targetProjectStatus: decision.targetProjectStatus,
+					error,
+				},
+			});
+
+			return { ok: false, decision, error };
+		}
+
+		const update = await updateProjectIssueStatus({
+			owner: config.tracker.owner,
+			repository: config.tracker.repository,
+			projectNumber: config.tracker.projectNumber,
+			statusField: config.tracker.statusField,
+			issueNumber,
+			status: decision.targetProjectStatus,
+		});
+
+		await createEvent(client, {
+			runId: input.runId,
+			attemptId: input.attemptId,
+			level: "info",
+			type: "post_run_decision.project_status_updated",
+			message: "Post-run decision moved the Project item.",
+			data: {
+				outcome: decision.outcome,
+				action: decision.action,
+				reason: decision.reason,
+				issueNumber,
+				toStatus: decision.targetProjectStatus,
+				projectItemId: update.itemId,
+				fieldId: update.fieldId,
+				optionId: update.optionId,
+				pullRequest: decision.pullRequest,
+			},
+		});
+
+		return {
+			ok: true,
+			decision,
+			projectStatusUpdate: {
+				applied: true,
+				targetStatus: update.status,
+				projectItemId: update.itemId,
+				fieldId: update.fieldId,
+				optionId: update.optionId,
+			},
+		};
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+
+		await createEvent(client, {
+			runId: input.runId,
+			attemptId: input.attemptId,
+			level: "error",
+			type: "post_run_decision.project_status_update_failed",
+			message: "Post-run decision could not move the Project item.",
+			data: {
+				outcome: decision.outcome,
+				targetProjectStatus: decision.targetProjectStatus,
+				error: message,
+			},
+		});
+
+		return { ok: false, decision, error: message };
 	} finally {
 		client.close();
 	}
