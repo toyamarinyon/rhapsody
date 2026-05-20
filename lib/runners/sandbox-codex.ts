@@ -49,8 +49,9 @@ const PR_SPEC_PATH = "/vercel/sandbox/rhapsody-output/pr.json";
 const REPOSITORY_PATH = "/vercel/sandbox/repository";
 const PROMPT_PREVIEW_LENGTH = 500;
 const OUTPUT_PREVIEW_LENGTH = 1000;
-const TIMEOUT_MS = 300_000;
-const SANDBOX_TIMEOUT_MS = TIMEOUT_MS + 120_000;
+const CODEX_TIMEOUT_MS = 10 * 60 * 1000;
+const SANDBOX_SETUP_BUFFER_MS = 5 * 60 * 1000;
+const SANDBOX_TIMEOUT_MS = CODEX_TIMEOUT_MS + SANDBOX_SETUP_BUFFER_MS;
 const NETWORK_PROBE_URL =
 	"https://chatgpt.com/backend-api/codex/models?client_version=0.130.0";
 const NETWORK_PROBE_STDOUT_PREVIEW_LENGTH = 240;
@@ -152,7 +153,7 @@ export async function runSandboxCodexRunner(
 				"model_providers.openai-http.supports_websockets": false,
 				"model_providers.openai-http.wire_api": "responses",
 			},
-			timeoutMs: TIMEOUT_MS,
+			timeoutMs: CODEX_TIMEOUT_MS,
 		});
 		const mediatorEnv = loadRhapsodyMediatorEnv();
 		const protectionBypassEnv = loadRhapsodyProtectionBypassEnv();
@@ -853,7 +854,7 @@ async function runWritePostflight(metadata) {
 				child.kill("SIGKILL");
 			}
 		}, 5_000);
-	}, ${TIMEOUT_MS});
+	}, ${CODEX_TIMEOUT_MS});
 
 	const wrappedExitCode = await new Promise((resolve) => {
 		child.on("close", (code) => {
