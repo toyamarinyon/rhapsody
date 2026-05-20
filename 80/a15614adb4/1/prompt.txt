@@ -1,0 +1,16 @@
+In /Users/toyamarinyon/Documents/rhapsody, implement the next small step after commit e96372d: let sandbox-codex run Codex against the prepared repository branch with clear branch/repo instructions, while keeping the change safe and scoped.
+
+You are not alone in the codebase; do not revert edits made by others. Work from current clean main.
+
+Goal:
+- sandbox-codex already clones configured repo and checks out attempt.gitBranchName. Now adjust Codex execution so it can operate in that prepared repo and knows the assigned branch/repo.
+- Remove or gate the current smoke suffix that says "Do not edit files". Prefer adding a request option like `mode: "smoke" | "write"` or similar if useful, but choose what fits existing patterns. If adding a mode, default should remain conservative if you think safer, but the write path must be clearly available for manual runs.
+- In write mode, Codex should run with workspace-write sandbox mode, not read-only.
+- Prompt/instructions should include: assigned branch, configured repo, do not push other branches, commit focused changes, push HEAD to assigned branch when changes are made, and do not create PR yet because GitHub API mediator is not implemented.
+- Keep git push credential brokering via existing GitHub Basic network policy; do not put GITHUB_TOKEN in sandbox env.
+- Return/report codex mode and branch in response/event metadata.
+- Do not implement PR creation or issue comments yet.
+- Update docs/SPEC with a short note if behavior changes.
+- Run tsc/lint if feasible.
+
+Final response should list changed files, validation, and how to run smoke vs write mode.
