@@ -1,0 +1,64 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "da50b0b132e8",
+  "session_id": "019e445c-3ddd-78c0-b981-5d1c1652c1bb",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-20T10:34:11.520739Z",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "files_touched": [
+    ".env.example",
+    "app/api/internal/codex-chatgpt-proxy/[...path]/route.ts",
+    "app/api/v1/admin/codex-chatgpt-credentials/seed-from-env/route.ts",
+    "docs/adr/0007-define-mvp-config-boundaries.md",
+    "lib/codex/credentials.ts",
+    "lib/config.ts",
+    "lib/runners/sandbox-codex.ts",
+    "lib/sandbox/vercel.ts",
+    "workflows/runner.ts",
+    "workflows/scheduler.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "c6f11d2f945c",
+  "checkpoint_transcript_start": 639,
+  "transcript_lines_at_start": 639,
+  "token_usage": {
+    "input_tokens": 124436,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1758976,
+    "output_tokens": 8249,
+    "api_call_count": 24
+  },
+  "session_metrics": {
+    "turn_count": 8
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-20T10:34:11.480494Z",
+    "agent_lines": 41,
+    "agent_removed": 159,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 41,
+    "total_lines_changed": 200,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 40,
+      "agent_lines_removed": 158
+    }
+  ]
+}

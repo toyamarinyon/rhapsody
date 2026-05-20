@@ -3,7 +3,7 @@
   "checkpoint_id": "da50b0b132e8",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 2,
+  "checkpoints_count": 4,
   "files_touched": [
     ".env.example",
     "app/api/internal/codex-chatgpt-proxy/[...path]/route.ts",
@@ -22,13 +22,19 @@
       "transcript": "/da/50b0b132e8/0/full.jsonl",
       "content_hash": "/da/50b0b132e8/0/content_hash.txt",
       "prompt": "/da/50b0b132e8/0/prompt.txt"
+    },
+    {
+      "metadata": "/da/50b0b132e8/1/metadata.json",
+      "transcript": "/da/50b0b132e8/1/full.jsonl",
+      "content_hash": "/da/50b0b132e8/1/content_hash.txt",
+      "prompt": "/da/50b0b132e8/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 79200,
+    "input_tokens": 203636,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 8292224,
-    "output_tokens": 8872,
-    "api_call_count": 52
+    "cache_read_tokens": 10051200,
+    "output_tokens": 17121,
+    "api_call_count": 76
   }
 }
