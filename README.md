@@ -18,6 +18,8 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
+Post-run destination statuses, including human review and auto-merge success targets, are configured in `.rhapsody/config.toml`.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
