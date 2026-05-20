@@ -1,7 +1,11 @@
 import type { Client } from "@libsql/client";
 
-import { fetchProjectIssueWorkItems, type GitHubProjectIssueWorkItem } from "@/lib/github/project-items";
-import { createClaimedManualRun, getStateSummary } from "@/lib/state";
+import {
+	fetchProjectIssueWorkItems,
+	type GitHubProjectIssueWorkItem,
+	updateProjectIssueStatus,
+} from "@/lib/github/project-items";
+import { createClaimedManualRun, createEvent, getStateSummary } from "@/lib/state";
 import { loadRhapsodyConfig } from "@/lib/config";
 
 type SchedulerTickCreatedRun = {
@@ -11,6 +15,12 @@ type SchedulerTickCreatedRun = {
 	issueNumber: number;
 	acquired: boolean;
 	claimExpiresAt: number;
+	projectStatusUpdate: {
+		attempted: boolean;
+		targetStatus: string;
+		updated: boolean;
+		error?: { name: string; message: string };
+	};
 };
 
 type SchedulerTickSkippedIssue = {
@@ -52,6 +62,7 @@ export type SchedulerTickResult =
 
 // MVP decision: only auto-schedule Todo items, even though tracker.activeStatuses may include additional values.
 const SCHEDULER_STATUS_FILTER = ["Todo"];
+const RUNNING_PROJECT_STATUS = "In Progress";
 
 export async function runSchedulerTick(client: Client): Promise<SchedulerTickResult> {
 	const config = loadRhapsodyConfig();
@@ -110,6 +121,13 @@ export async function runSchedulerTick(client: Client): Promise<SchedulerTickRes
 			});
 
 			if (result.acquired) {
+				const projectStatusUpdate = await moveProjectIssueToRunningStatus(client, {
+					config,
+					item,
+					runId: result.runId,
+					attemptId: result.attemptId,
+				});
+
 				createdRuns.push({
 					workItemId,
 					runId: result.runId,
@@ -117,6 +135,7 @@ export async function runSchedulerTick(client: Client): Promise<SchedulerTickRes
 					issueNumber: item.issueNumber,
 					acquired: true,
 					claimExpiresAt: result.claimExpiresAt,
+					projectStatusUpdate,
 				});
 				remainingSlots -= 1;
 				continue;
@@ -185,6 +204,74 @@ function buildWorkItemSnapshot(
 		},
 		projectStatus: item.projectStatus,
 	};
+}
+
+async function moveProjectIssueToRunningStatus(
+	client: Client,
+	input: {
+		config: ReturnType<typeof loadRhapsodyConfig>;
+		item: GitHubProjectIssueWorkItem;
+		runId: string;
+		attemptId: string;
+	},
+) {
+	const targetStatus = RUNNING_PROJECT_STATUS;
+
+	try {
+		const result = await updateProjectIssueStatus({
+			owner: input.config.tracker.owner,
+			repository: input.config.tracker.repository,
+			projectNumber: input.config.tracker.projectNumber,
+			statusField: input.config.tracker.statusField,
+			issueNumber: input.item.issueNumber,
+			status: targetStatus,
+		});
+
+		await createEvent(client, {
+			runId: input.runId,
+			attemptId: input.attemptId,
+			level: "info",
+			type: "scheduler.project_status_updated",
+			message: "Scheduler moved the Project item to the running status.",
+			data: {
+				issueNumber: input.item.issueNumber,
+				fromStatus: input.item.projectStatus,
+				toStatus: targetStatus,
+				projectItemId: result.itemId,
+				fieldId: result.fieldId,
+				optionId: result.optionId,
+			},
+		});
+
+		return {
+			attempted: true,
+			targetStatus,
+			updated: true,
+		};
+	} catch (error) {
+		const detail = serializeError(error);
+
+		await createEvent(client, {
+			runId: input.runId,
+			attemptId: input.attemptId,
+			level: "warn",
+			type: "scheduler.project_status_update_failed",
+			message: "Scheduler could not move the Project item to the running status.",
+			data: {
+				issueNumber: input.item.issueNumber,
+				fromStatus: input.item.projectStatus,
+				toStatus: targetStatus,
+				error: detail,
+			},
+		});
+
+		return {
+			attempted: true,
+			targetStatus,
+			updated: false,
+			error: detail,
+		};
+	}
 }
 
 function serializeError(error: unknown) {

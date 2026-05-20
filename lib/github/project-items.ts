@@ -13,11 +13,24 @@ export type GitHubProjectIssueWorkItem = {
 	};
 };
 
+export type GitHubProjectStatusUpdateResult = {
+	projectId: string;
+	itemId: string;
+	fieldId: string;
+	optionId: string;
+	status: string;
+};
+
 type GitHubProjectIssueQueryOptions = {
 	owner: string;
 	repository: string;
 	projectNumber: number;
 	statusField: string;
+};
+
+type GitHubProjectStatusUpdateOptions = GitHubProjectIssueQueryOptions & {
+	issueNumber: number;
+	status: string;
 };
 
 type GitHubProjectItemsPage = {
@@ -41,6 +54,49 @@ type GitHubProjectItemsGraphQLResponse = {
 		} | null;
 	} | null;
 	errors?: Array<{ message?: unknown }>;
+};
+
+type GitHubProjectStatusTargetGraphQLResponse = {
+	data?: {
+		user?: {
+			projectV2?: {
+				id?: unknown;
+				fields?: {
+					nodes?: GitHubProjectFieldNode[] | null;
+				} | null;
+				items?: {
+					nodes?: GitHubProjectStatusItemNode[] | null;
+				} | null;
+			} | null;
+		} | null;
+	} | null;
+	errors?: Array<{ message?: unknown }>;
+};
+
+type GitHubProjectStatusMutationResponse = {
+	data?: {
+		updateProjectV2ItemFieldValue?: {
+			projectV2Item?: {
+				id?: unknown;
+			} | null;
+		} | null;
+	} | null;
+	errors?: Array<{ message?: unknown }>;
+};
+
+type GitHubProjectFieldNode = {
+	__typename?: string;
+	id?: unknown;
+	name?: unknown;
+	options?: Array<{
+		id?: unknown;
+		name?: unknown;
+	}> | null;
+};
+
+type GitHubProjectStatusItemNode = {
+	id?: unknown;
+	content?: GitHubProjectItemContent | null;
 };
 
 type GitHubProjectItemNode = {
@@ -114,6 +170,26 @@ export async function fetchProjectIssueWorkItems(
 	return allItems;
 }
 
+export async function updateProjectIssueStatus(
+	options: GitHubProjectStatusUpdateOptions,
+	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
+): Promise<GitHubProjectStatusUpdateResult> {
+	const target = await fetchProjectIssueStatusTarget(options, env);
+
+	await updateProjectV2ItemSingleSelect({
+		env,
+		projectId: target.projectId,
+		itemId: target.itemId,
+		fieldId: target.fieldId,
+		optionId: target.optionId,
+	});
+
+	return {
+		...target,
+		status: options.status,
+	};
+}
+
 async function fetchProjectIssueWorkItemsPage(input: {
 	env: RhapsodyGitHubEnv;
 	owner: string;
@@ -166,6 +242,119 @@ async function fetchProjectIssueWorkItemsPage(input: {
 		hasNextPage: pageInfo.hasNextPage ?? false,
 		endCursor: pageInfo.endCursor ?? null,
 	};
+}
+
+async function fetchProjectIssueStatusTarget(
+	options: GitHubProjectStatusUpdateOptions,
+	env: RhapsodyGitHubEnv,
+) {
+	const response = await fetch("https://api.github.com/graphql", {
+		method: "POST",
+		headers: {
+			Accept: "application/vnd.github+json",
+			Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+			"X-GitHub-Api-Version": "2022-11-28",
+			"content-type": "application/json",
+		},
+		body: JSON.stringify({
+			query: GITHUB_PROJECT_STATUS_TARGET_QUERY,
+			variables: {
+				owner: options.owner,
+				projectNumber: options.projectNumber,
+			},
+		}),
+	});
+
+	if (!response.ok) {
+		throw new Error(`GitHub GraphQL project status target request failed with status ${response.status}.`);
+	}
+
+	const payload = (await response.json()) as GitHubProjectStatusTargetGraphQLResponse;
+
+	if (!payload || (Array.isArray(payload.errors) && payload.errors.length > 0)) {
+		throw new Error(
+			`GitHub GraphQL project status target request returned errors: ${JSON.stringify(
+				payload.errors?.map((error) => error.message),
+			)}`,
+		);
+	}
+
+	const project = payload.data?.user?.projectV2;
+	const projectId = safeString(project?.id);
+	const fields = project?.fields?.nodes;
+	const items = project?.items?.nodes;
+
+	if (!projectId || !Array.isArray(fields) || !Array.isArray(items)) {
+		throw new Error("GitHub GraphQL project status target response had unexpected shape.");
+	}
+
+	const statusField = fields.find(
+		(field) =>
+			field.__typename === "ProjectV2SingleSelectField" &&
+			safeString(field.name) === options.statusField,
+	);
+	const fieldId = safeString(statusField?.id);
+	const option = statusField?.options?.find((candidate) => safeString(candidate.name) === options.status);
+	const optionId = safeString(option?.id);
+
+	if (!fieldId || !optionId) {
+		throw new Error(`GitHub Project status option not found for ${options.statusField}=${options.status}.`);
+	}
+
+	const item = items.find((candidate) => isMatchingIssueProjectItem(candidate, options));
+	const itemId = safeString(item?.id);
+
+	if (!itemId) {
+		throw new Error(`GitHub Project item not found for ${options.owner}/${options.repository}#${options.issueNumber}.`);
+	}
+
+	return {
+		projectId,
+		itemId,
+		fieldId,
+		optionId,
+	};
+}
+
+async function updateProjectV2ItemSingleSelect(input: {
+	env: RhapsodyGitHubEnv;
+	projectId: string;
+	itemId: string;
+	fieldId: string;
+	optionId: string;
+}) {
+	const response = await fetch("https://api.github.com/graphql", {
+		method: "POST",
+		headers: {
+			Accept: "application/vnd.github+json",
+			Authorization: `Bearer ${input.env.GITHUB_TOKEN}`,
+			"X-GitHub-Api-Version": "2022-11-28",
+			"content-type": "application/json",
+		},
+		body: JSON.stringify({
+			query: UPDATE_PROJECT_ITEM_SINGLE_SELECT_MUTATION,
+			variables: {
+				projectId: input.projectId,
+				itemId: input.itemId,
+				fieldId: input.fieldId,
+				optionId: input.optionId,
+			},
+		}),
+	});
+
+	if (!response.ok) {
+		throw new Error(`GitHub GraphQL project status update failed with status ${response.status}.`);
+	}
+
+	const payload = (await response.json()) as GitHubProjectStatusMutationResponse;
+
+	if (!payload || (Array.isArray(payload.errors) && payload.errors.length > 0)) {
+		throw new Error(
+			`GitHub GraphQL project status update returned errors: ${JSON.stringify(
+				payload.errors?.map((error) => error.message),
+			)}`,
+		);
+	}
 }
 
 function normalizeProjectIssueWorkItem(
@@ -267,6 +456,28 @@ function isGitHubIssueNode(node: unknown): node is GitHubProjectItemNode & { con
 	return content.__typename === "Issue";
 }
 
+function isMatchingIssueProjectItem(
+	node: unknown,
+	options: Pick<GitHubProjectStatusUpdateOptions, "owner" | "repository" | "issueNumber">,
+) {
+	if (typeof node !== "object" || node === null) {
+		return false;
+	}
+
+	const item = node as GitHubProjectStatusItemNode;
+	const content = item.content;
+
+	if (!content || content.__typename !== "Issue") {
+		return false;
+	}
+
+	return (
+		safeNumber(content.number) === options.issueNumber &&
+		safeString(content.repository?.name) === options.repository &&
+		safeString(content.repository?.owner?.login) === options.owner
+	);
+}
+
 function safeString(value: unknown): string | null {
 	return typeof value === "string" && value.trim() ? value : null;
 }
@@ -328,6 +539,71 @@ const GITHUB_PROJECT_ITEMS_QUERY = `
 						endCursor
 					}
 				}
+			}
+		}
+	}
+`;
+
+const GITHUB_PROJECT_STATUS_TARGET_QUERY = `
+	query FetchProjectIssueStatusTarget(
+		$owner: String!,
+		$projectNumber: Int!
+	) {
+		user(login: $owner) {
+			projectV2(number: $projectNumber) {
+				id
+				fields(first: 50) {
+					nodes {
+						__typename
+						... on ProjectV2SingleSelectField {
+							id
+							name
+							options {
+								id
+								name
+							}
+						}
+					}
+				}
+				items(first: 100) {
+					nodes {
+						id
+						content {
+							__typename
+							... on Issue {
+								number
+								repository {
+									name
+									owner {
+										login
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+`;
+
+const UPDATE_PROJECT_ITEM_SINGLE_SELECT_MUTATION = `
+	mutation UpdateProjectItemSingleSelect(
+		$projectId: ID!,
+		$itemId: ID!,
+		$fieldId: ID!,
+		$optionId: String!
+	) {
+		updateProjectV2ItemFieldValue(
+			input: {
+				projectId: $projectId,
+				itemId: $itemId,
+				fieldId: $fieldId,
+				value: { singleSelectOptionId: $optionId }
+			}
+		) {
+			projectV2Item {
+				id
 			}
 		}
 	}
