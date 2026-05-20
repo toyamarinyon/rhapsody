@@ -1,0 +1,1 @@
+Seeded ChatGPT auth works through platform project OIDC proxy.
