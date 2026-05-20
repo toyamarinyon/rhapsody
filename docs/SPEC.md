@@ -747,6 +747,9 @@ Recommended hardening:
 - Durable claim table backed by Turso/libSQL.
 - Durable run, attempt, and event tables backed by Turso/libSQL.
 - Runner workflow skeleton.
+- Sandbox Codex runner uses two execution modes: `smoke` (default, read-only with concise non-editing
+  prompt) and `write` (explicit manual mode with `workspace-write`, branch/repo-specific instructions,
+  and explicit push target).
 - Brokered ChatGPT auth for Codex execution sandboxes.
 - Vercel Sandbox creation and command execution.
 - Basic logs/events table.

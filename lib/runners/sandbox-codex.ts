@@ -32,7 +32,10 @@ import {
 	getRunDetail,
 	markAttemptStarted,
 } from "@/lib/state";
-import { buildAttemptBranchName, parseWorkItemIssueNumber } from "@/lib/attempt-branch";
+import {
+	buildAttemptBranchName,
+	parseWorkItemIssueNumber,
+} from "@/lib/attempt-branch";
 import { type RunnerRouteContext } from "./types";
 
 const SANDBOX_WORKDIR = "/vercel/sandbox";
@@ -45,10 +48,12 @@ const REPOSITORY_PATH = "/vercel/sandbox/repository";
 const PROMPT_PREVIEW_LENGTH = 500;
 const OUTPUT_PREVIEW_LENGTH = 1000;
 const TIMEOUT_MS = 60_000;
-const SMOKE_PROMPT_SUFFIX = `\n\nYou are running in smoke-test mode for Rhapsody.\n- Keep your response concise.\n- Do not edit files.\n`;
 const NETWORK_PROBE_URL =
 	"https://chatgpt.com/backend-api/codex/models?client_version=0.130.0";
 const NETWORK_PROBE_STDOUT_PREVIEW_LENGTH = 240;
+const DEFAULT_SANDBOX_CODEX_MODE = "smoke" as const;
+
+type SandboxCodexMode = "smoke" | "write";
 
 type SourcePreparationSummary = {
 	success: boolean;
@@ -56,7 +61,9 @@ type SourcePreparationSummary = {
 	checkoutCommand: Awaited<ReturnType<typeof runVercelSandboxCommand>> | null;
 };
 
-export async function runSandboxCodexRunner(context: RunnerRouteContext): Promise<Response> {
+export async function runSandboxCodexRunner(
+	context: RunnerRouteContext,
+): Promise<Response> {
 	const { client, request, runId, attemptId, detail, attempt } = context;
 	const parsedBody = await readOptionalRequest(request);
 
@@ -64,26 +71,50 @@ export async function runSandboxCodexRunner(context: RunnerRouteContext): Promis
 		return Response.json({ error: parsedBody.error }, { status: 400 });
 	}
 
-	const callbackBaseUrl = parsedBody.value.callbackBaseUrl ?? new URL(request.url).origin;
-	const callbackUrl = new URL("/api/internal/runs/callback", callbackBaseUrl).toString();
+	const callbackBaseUrl =
+		parsedBody.value.callbackBaseUrl ?? new URL(request.url).origin;
+	const callbackUrl = new URL(
+		"/api/internal/runs/callback",
+		callbackBaseUrl,
+	).toString();
 	let sandbox: RhapsodyVercelSandbox | null = null;
 
 	try {
 		const config = loadRhapsodyConfig();
+		const codexMode = parsedBody.value.mode ?? DEFAULT_SANDBOX_CODEX_MODE;
+		const targetSandboxMode: "read-only" | "workspace-write" =
+			codexMode === "write" ? "workspace-write" : "read-only";
 		const instructions = await loadRepositoryInstructions();
 		const prompt = renderRepositoryInstructions({
 			template: instructions.template,
 			context: buildInstructionContext({ detail, attempt, config }),
 		});
-		const executionPrompt = `${prompt}${SMOKE_PROMPT_SUFFIX}`;
+		const expectedRepositoryUrl = `https://github.com/${config.repository.owner}/${config.repository.name}.git`;
+		const fallbackBranchName = buildAttemptBranchName({
+			branchPrefix: config.repository.branchPrefix,
+			issueNumber: parseWorkItemIssueNumber({
+				workItemId: detail.run.workItemId,
+			}),
+			attemptNumber: attempt.attemptNumber,
+		});
+		const requestedBranchName = attempt.gitBranchName ?? fallbackBranchName;
+		const executionPrompt = buildExecutionPrompt({
+			prompt,
+			mode: codexMode,
+			targetRepositoryUrl: expectedRepositoryUrl,
+			targetBranchName: requestedBranchName,
+			sandboxMode: targetSandboxMode,
+		});
 		const promptSummary = {
 			instructionPath: instructions.instructionPath,
 			length: executionPrompt.length,
 			preview: executionPrompt.slice(0, PROMPT_PREVIEW_LENGTH),
 		};
-		const expectedRepositoryUrl = `https://github.com/${config.repository.owner}/${config.repository.name}.git`;
 
-		if (isTerminalRunStatus(detail.run.status) || isTerminalAttemptStatus(attempt.status)) {
+		if (
+			isTerminalRunStatus(detail.run.status) ||
+			isTerminalAttemptStatus(attempt.status)
+		) {
 			return Response.json({
 				idempotent: true,
 				runStatus: detail.run.status,
@@ -96,7 +127,7 @@ export async function runSandboxCodexRunner(context: RunnerRouteContext): Promis
 			cwd: REPOSITORY_PATH,
 			prompt: executionPrompt,
 			approvalPolicy: "never",
-			sandboxMode: "read-only",
+			sandboxMode: targetSandboxMode,
 			json: true,
 			skipGitRepoCheck: true,
 			ephemeral: true,
@@ -107,10 +138,12 @@ export async function runSandboxCodexRunner(context: RunnerRouteContext): Promis
 		const codexBaseSnapshotEnv = loadRhapsodyCodexBaseSnapshotEnv();
 		const codexChatGPTEnv = loadRhapsodyCodexChatGPTEnv();
 		const githubEnv = loadRhapsodyGitHubEnv();
-		const sourceSnapshotId = parsedBody.value.useSnapshot === false
-			? null
-			: codexBaseSnapshotEnv.RHAPSODY_CODEX_BASE_SNAPSHOT_ID ?? null;
-		const networkPolicyVariant = parsedBody.value.networkPolicyVariant ?? "default";
+		const sourceSnapshotId =
+			parsedBody.value.useSnapshot === false
+				? null
+				: (codexBaseSnapshotEnv.RHAPSODY_CODEX_BASE_SNAPSHOT_ID ?? null);
+		const networkPolicyVariant =
+			parsedBody.value.networkPolicyVariant ?? "default";
 		const claimToken = detail.run.claimToken;
 		// Vercel Sandbox forwardURL requests must reach this mediator before OIDC can
 		// authorize them. Preview Deployment Protection intercepts those requests, so
@@ -120,21 +153,17 @@ export async function runSandboxCodexRunner(context: RunnerRouteContext): Promis
 			`/api/internal/codex-chatgpt-proxy/runs/${runId}/attempts/${attemptId}`,
 			callbackBaseUrl,
 		).toString();
-		const authPayload = buildCodexChatGPTDummyAuthFile(codexChatGPTEnv.CHATGPT_ACCOUNT_ID);
-		const fallbackBranchName = buildAttemptBranchName({
-			branchPrefix: config.repository.branchPrefix,
-			issueNumber: parseWorkItemIssueNumber({ workItemId: detail.run.workItemId }),
-			attemptNumber: attempt.attemptNumber,
-		});
-		const requestedBranchName = attempt.gitBranchName ?? fallbackBranchName;
-
+		const authPayload = buildCodexChatGPTDummyAuthFile(
+			codexChatGPTEnv.CHATGPT_ACCOUNT_ID,
+		);
 		sandbox = await createVercelSandbox({
 			networkPolicy: mergeNetworkPolicies(
 				buildVercelSandboxCodexNetworkPolicy({
 					callbackUrl,
 					mediatorSecret: mediatorEnv.MEDIATOR_SECRET,
 					codexProxyUrl,
-					vercelProtectionBypassSecret: protectionBypassEnv.VERCEL_PROTECTION_BYPASS_SECRET,
+					vercelProtectionBypassSecret:
+						protectionBypassEnv.VERCEL_PROTECTION_BYPASS_SECRET,
 					proxyChatGPTAccountApi: false,
 					networkPolicyVariant,
 				}),
@@ -177,6 +206,9 @@ export async function runSandboxCodexRunner(context: RunnerRouteContext): Promis
 								argv: codexCommand.argv,
 								cwd: codexCommand.cwd,
 							},
+							codex_mode: codexMode,
+							target_repository: expectedRepositoryUrl,
+							target_branch: requestedBranchName,
 							source_snapshot_id: sourceSnapshotId,
 						},
 						null,
@@ -202,12 +234,13 @@ export async function runSandboxCodexRunner(context: RunnerRouteContext): Promis
 			command: COMMAND,
 		});
 
-		const refreshedAttempt = (
-			await getRunDetail(client, runId)
-		)?.attempts.find((candidate) => candidate.id === attemptId);
-		const branchName = (refreshedAttempt?.gitBranchName
-			|| attempt.gitBranchName
-			|| requestedBranchName);
+		const refreshedAttempt = (await getRunDetail(client, runId))?.attempts.find(
+			(candidate) => candidate.id === attemptId,
+		);
+		const branchName =
+			refreshedAttempt?.gitBranchName ||
+			attempt.gitBranchName ||
+			requestedBranchName;
 
 		if (!startResult.applied) {
 			return Response.json(
@@ -245,6 +278,7 @@ export async function runSandboxCodexRunner(context: RunnerRouteContext): Promis
 			data: {
 				repositoryUrl: expectedRepositoryUrl,
 				branchName,
+				codexMode,
 				commands: {
 					clone: summarizeCommand(sourcePreparationSummary.cloneCommand),
 					checkout: sourcePreparationSummary.checkoutCommand
@@ -290,6 +324,9 @@ export async function runSandboxCodexRunner(context: RunnerRouteContext): Promis
 				previewLength: promptSummary.preview.length,
 				sandboxId: getVercelSandboxId(sandbox),
 				sourceSnapshotId,
+				codexMode,
+				targetBranchName: branchName,
+				targetRepositoryUrl: expectedRepositoryUrl,
 				networkPolicyVariant,
 				useSnapshot: sourceSnapshotId !== null,
 			},
@@ -315,20 +352,26 @@ export async function runSandboxCodexRunner(context: RunnerRouteContext): Promis
 			command.exitCode === 0 && wrapperCallback?.callback_ok
 				? null
 				: await applyAttemptTerminalCallback(client, {
-					runId,
-					attemptId,
-					claimToken,
-					executionStatus: wrapperCallback?.codex_timed_out ? "timed_out" : command.exitCode === 0 ? "completed" : "failed",
-					exitCode: command.exitCode,
-					sandboxId: getVercelSandboxId(sandbox),
-					command: COMMAND,
-					error: buildFallbackError(command, wrapperCallback),
-				});
+						runId,
+						attemptId,
+						claimToken,
+						executionStatus: wrapperCallback?.codex_timed_out
+							? "timed_out"
+							: command.exitCode === 0
+								? "completed"
+								: "failed",
+						exitCode: command.exitCode,
+						sandboxId: getVercelSandboxId(sandbox),
+						command: COMMAND,
+						error: buildFallbackError(command, wrapperCallback),
+					});
 
 		const refreshedDetail = await getRunDetail(client, runId);
 
 		return Response.json({
 			sandboxId: getVercelSandboxId(sandbox),
+			mode: codexMode,
+			branchName,
 			command: summarizeCommand(command),
 			sourceSnapshotId,
 			prompt: {
@@ -343,7 +386,9 @@ export async function runSandboxCodexRunner(context: RunnerRouteContext): Promis
 			},
 			currentRunStatus: refreshedDetail?.run.status ?? null,
 			currentAttemptStatus:
-				refreshedDetail?.attempts.find((candidate) => candidate.id === attemptId)?.status ?? null,
+				refreshedDetail?.attempts.find(
+					(candidate) => candidate.id === attemptId,
+				)?.status ?? null,
 		});
 	} catch (error) {
 		if (error instanceof InstructionTemplateError) {
@@ -364,10 +409,21 @@ export async function runSandboxCodexRunner(context: RunnerRouteContext): Promis
 	}
 }
 
-async function readOptionalRequest(
-	request: Request,
-): Promise<
-	| { ok: true; value: { callbackBaseUrl?: string; networkPolicyVariant?: "default" | "no-transform" | "path-prefix" | "query-bypass" | "oidc"; useSnapshot?: boolean } }
+async function readOptionalRequest(request: Request): Promise<
+	| {
+			ok: true;
+			value: {
+				callbackBaseUrl?: string;
+				networkPolicyVariant?:
+					| "default"
+					| "no-transform"
+					| "path-prefix"
+					| "query-bypass"
+					| "oidc";
+				useSnapshot?: boolean;
+				mode?: SandboxCodexMode;
+			};
+	  }
 	| { ok: false; error: string }
 > {
 	const text = await request.text();
@@ -381,7 +437,10 @@ async function readOptionalRequest(
 	try {
 		value = JSON.parse(text);
 	} catch {
-		return { ok: false, error: "Request body must be valid JSON when provided." };
+		return {
+			ok: false,
+			error: "Request body must be valid JSON when provided.",
+		};
 	}
 
 	if (!isRecord(value)) {
@@ -389,11 +448,17 @@ async function readOptionalRequest(
 	}
 
 	if (value.callbackBaseUrl === undefined) {
-		return parseNetworkPolicyOptions(value);
+		return parseSandboxCodexRequestOptions(value);
 	}
 
-	if (typeof value.callbackBaseUrl !== "string" || !value.callbackBaseUrl.trim()) {
-		return { ok: false, error: "callbackBaseUrl must be a non-empty string when provided." };
+	if (
+		typeof value.callbackBaseUrl !== "string" ||
+		!value.callbackBaseUrl.trim()
+	) {
+		return {
+			ok: false,
+			error: "callbackBaseUrl must be a non-empty string when provided.",
+		};
 	}
 
 	try {
@@ -402,24 +467,41 @@ async function readOptionalRequest(
 		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
 			return { ok: false, error: "callbackBaseUrl must use http or https." };
 		}
-		return parseNetworkPolicyOptions({ ...value, callbackBaseUrl: parsed.origin });
+		return parseSandboxCodexRequestOptions({
+			...value,
+			callbackBaseUrl: parsed.origin,
+		});
 	} catch {
 		return { ok: false, error: "callbackBaseUrl must be a valid URL." };
 	}
 }
 
-function parseNetworkPolicyOptions(value: Record<string, unknown>): {
-	ok: true;
-	value: {
-		callbackBaseUrl?: string;
-		networkPolicyVariant?: "default" | "no-transform" | "path-prefix" | "query-bypass" | "oidc";
-		useSnapshot?: boolean;
-	};
-} | { ok: false; error: string } {
+function parseSandboxCodexRequestOptions(value: Record<string, unknown>):
+	| {
+			ok: true;
+			value: {
+				callbackBaseUrl?: string;
+				networkPolicyVariant?:
+					| "default"
+					| "no-transform"
+					| "path-prefix"
+					| "query-bypass"
+					| "oidc";
+				useSnapshot?: boolean;
+				mode?: SandboxCodexMode;
+			};
+	  }
+	| { ok: false; error: string } {
 	const result: {
 		callbackBaseUrl?: string;
-		networkPolicyVariant?: "default" | "no-transform" | "path-prefix" | "query-bypass" | "oidc";
+		networkPolicyVariant?:
+			| "default"
+			| "no-transform"
+			| "path-prefix"
+			| "query-bypass"
+			| "oidc";
 		useSnapshot?: boolean;
+		mode?: SandboxCodexMode;
 	} = {};
 
 	if (value.callbackBaseUrl !== undefined) {
@@ -429,11 +511,11 @@ function parseNetworkPolicyOptions(value: Record<string, unknown>): {
 	if (value.networkPolicyVariant !== undefined) {
 		if (
 			value.networkPolicyVariant !== "default" &&
-				value.networkPolicyVariant !== "no-transform" &&
-				value.networkPolicyVariant !== "path-prefix" &&
-				value.networkPolicyVariant !== "query-bypass" &&
-				value.networkPolicyVariant !== "oidc"
-			) {
+			value.networkPolicyVariant !== "no-transform" &&
+			value.networkPolicyVariant !== "path-prefix" &&
+			value.networkPolicyVariant !== "query-bypass" &&
+			value.networkPolicyVariant !== "oidc"
+		) {
 			return {
 				ok: false,
 				error:
@@ -446,13 +528,39 @@ function parseNetworkPolicyOptions(value: Record<string, unknown>): {
 
 	if (value.useSnapshot !== undefined) {
 		if (typeof value.useSnapshot !== "boolean") {
-			return { ok: false, error: "useSnapshot must be a boolean when provided." };
+			return {
+				ok: false,
+				error: "useSnapshot must be a boolean when provided.",
+			};
 		}
 
 		result.useSnapshot = value.useSnapshot;
 	}
 
+	if (value.mode !== undefined) {
+		if (value.mode !== "smoke" && value.mode !== "write") {
+			return { ok: false, error: "mode must be one of: smoke, write." };
+		}
+
+		result.mode = value.mode;
+	}
+
 	return { ok: true, value: result };
+}
+
+function buildExecutionPrompt(params: {
+	prompt: string;
+	mode: SandboxCodexMode;
+	targetRepositoryUrl: string;
+	targetBranchName: string;
+	sandboxMode: "read-only" | "workspace-write";
+}) {
+	const modeInstructions =
+		params.mode === "write"
+			? `\n\nYou are running in write mode for this Rhapsody run.\n- Working repository: ${params.targetRepositoryUrl}\n- Assigned branch: ${params.targetBranchName}\n- Do not push to any branch other than the assigned branch.\n- Make focused changes only for the selected work item.\n- If you changed files, commit and push HEAD to the assigned branch (${params.targetBranchName}) when done.\n- Do not create PRs yet because the GitHub API mediator integration is not implemented in this step.\n`
+			: `\n\nYou are running in smoke-test mode for Rhapsody.\n- Keep your response concise.\n- Do not edit files.\n`;
+
+	return `${params.prompt}${modeInstructions}\n- Current sandbox mode: ${params.sandboxMode}.`;
 }
 
 async function prepareSourceInSandbox({
@@ -637,7 +745,9 @@ function safeJson(text) {
 `;
 }
 
-function summarizeCommand(command: Awaited<ReturnType<typeof runVercelSandboxCommand>>) {
+function summarizeCommand(
+	command: Awaited<ReturnType<typeof runVercelSandboxCommand>>,
+) {
 	return {
 		commandId: command.commandId,
 		cwd: command.cwd,
@@ -763,7 +873,8 @@ function parseProbeOutput(stdout: string) {
 			statusText: parsed.statusText ?? null,
 			contentType: parsed.contentType ?? null,
 			bodyLength: parsed.bodyLength ?? null,
-			bodyPreview: typeof parsed.bodyPreview === "string" ? parsed.bodyPreview : null,
+			bodyPreview:
+				typeof parsed.bodyPreview === "string" ? parsed.bodyPreview : null,
 			looksLikeRhapsodyProxy: Boolean(parsed.looksLikeRhapsodyProxy),
 		};
 	} catch {
@@ -811,9 +922,21 @@ function serializeError(error: unknown) {
 }
 
 function isTerminalRunStatus(status: string) {
-	return status === "completed" || status === "failed" || status === "canceled" || status === "timed_out" || status === "stale";
+	return (
+		status === "completed" ||
+		status === "failed" ||
+		status === "canceled" ||
+		status === "timed_out" ||
+		status === "stale"
+	);
 }
 
 function isTerminalAttemptStatus(status: string) {
-	return status === "completed" || status === "failed" || status === "canceled" || status === "timed_out" || status === "stale";
+	return (
+		status === "completed" ||
+		status === "failed" ||
+		status === "canceled" ||
+		status === "timed_out" ||
+		status === "stale"
+	);
 }
