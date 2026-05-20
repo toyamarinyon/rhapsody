@@ -59,19 +59,7 @@ export async function loadMediatorCredentialState(): Promise<MediatorCredentialS
 
 export async function seedMediatorCredentialStateFromEnv(): Promise<SeedMediatorCredentialResult> {
 	const env = loadRhapsodyCodexChatGPTEnv();
-	const accountId = env.CHATGPT_ACCOUNT_ID?.trim() ?? CREDENTIAL_ACCOUNT_ID_FALLBACK;
-	const accessToken = env.CHATGPT_ACCESS_TOKEN?.trim();
-	const refreshToken = env.CHATGPT_REFRESH_TOKEN?.trim();
-
-	if (!accessToken || !refreshToken) {
-		throw new Error("CHATGPT_ACCESS_TOKEN and CHATGPT_REFRESH_TOKEN are required.");
-	}
-
-	const state: MediatorCredentialState = {
-		accessToken,
-		refreshToken,
-		accountId,
-	};
+	const state = readMediatorCredentialStateFromEnv(env);
 	const now = Date.now();
 
 	const client = createStateStoreClient();
@@ -83,7 +71,7 @@ export async function seedMediatorCredentialStateFromEnv(): Promise<SeedMediator
 	}
 
 	return {
-		accountIdPresent: Boolean(env.CHATGPT_ACCOUNT_ID?.trim()),
+		accountIdPresent: state.accountId !== CREDENTIAL_ACCOUNT_ID_FALLBACK,
 		updatedAt: now,
 	};
 }
@@ -148,24 +136,76 @@ async function loadMediatorCredentialStateFromDb(client: Client): Promise<Mediat
 }
 
 async function seedMediatorCredentialsFromEnv(client: Client): Promise<MediatorCredentialState | null> {
-	const env = loadRhapsodyCodexChatGPTEnv();
-	const accountId = env.CHATGPT_ACCOUNT_ID ?? CREDENTIAL_ACCOUNT_ID_FALLBACK;
-	const accessToken = env.CHATGPT_ACCESS_TOKEN?.trim();
-	const refreshToken = env.CHATGPT_REFRESH_TOKEN?.trim();
+	let state: MediatorCredentialState;
 
-	if (!accessToken || !refreshToken) {
+	try {
+		state = readMediatorCredentialStateFromEnv(loadRhapsodyCodexChatGPTEnv());
+	} catch {
 		return null;
 	}
-
-	const state = {
-		accessToken,
-		refreshToken,
-		accountId,
-	};
 
 	await saveMediatorCredentialStateInDb(client, state);
 
 	return state;
+}
+
+function readMediatorCredentialStateFromEnv(
+	env: ReturnType<typeof loadRhapsodyCodexChatGPTEnv>,
+): MediatorCredentialState {
+	const fromAuthJson = env.INITIAL_CHATGPT_AUTH_JSON?.trim()
+		? readMediatorCredentialStateFromAuthJson(env.INITIAL_CHATGPT_AUTH_JSON)
+		: null;
+
+	if (fromAuthJson) {
+		return fromAuthJson;
+	}
+
+	const accountId = env.CHATGPT_ACCOUNT_ID?.trim() ?? CREDENTIAL_ACCOUNT_ID_FALLBACK;
+	const accessToken = env.CHATGPT_ACCESS_TOKEN?.trim();
+	const refreshToken = env.CHATGPT_REFRESH_TOKEN?.trim();
+
+	if (!accessToken || !refreshToken) {
+		throw new Error("INITIAL_CHATGPT_AUTH_JSON or CHATGPT_ACCESS_TOKEN and CHATGPT_REFRESH_TOKEN are required.");
+	}
+
+	return {
+		accessToken,
+		refreshToken,
+		accountId,
+	};
+}
+
+function readMediatorCredentialStateFromAuthJson(rawAuthJson: string): MediatorCredentialState {
+	let parsed: unknown;
+
+	try {
+		parsed = JSON.parse(rawAuthJson);
+	} catch (error) {
+		throw new Error(`INITIAL_CHATGPT_AUTH_JSON must be valid JSON: ${serializeErrorMessage(error)}`);
+	}
+
+	if (!isRecord(parsed)) {
+		throw new Error("INITIAL_CHATGPT_AUTH_JSON must be a JSON object.");
+	}
+
+	const tokens = parsed.tokens;
+
+	if (!isRecord(tokens)) {
+		throw new Error("INITIAL_CHATGPT_AUTH_JSON must include a tokens object.");
+	}
+
+	const accessToken = nonEmptyString(tokens.access_token, "tokens.access_token");
+	const refreshToken = nonEmptyString(tokens.refresh_token, "tokens.refresh_token");
+	const accountId =
+		optionalNonEmptyString(tokens.account_id) ??
+		parseAccountIdFromIdToken(optionalNonEmptyString(tokens.id_token)) ??
+		CREDENTIAL_ACCOUNT_ID_FALLBACK;
+
+	return {
+		accessToken,
+		refreshToken,
+		accountId,
+	};
 }
 
 async function saveMediatorCredentialStateInDb(
@@ -283,6 +323,34 @@ function safeStringFromObject(payload: Record<string, unknown>, key: string): st
 	}
 
 	return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function nonEmptyString(value: unknown, field: string): string {
+	if (typeof value === "string" && value.trim()) {
+		return value;
+	}
+
+	throw new Error(`INITIAL_CHATGPT_AUTH_JSON ${field} must be a non-empty string.`);
+}
+
+function optionalNonEmptyString(value: unknown): string | null {
+	if (typeof value === "string" && value.trim()) {
+		return value;
+	}
+
+	return null;
+}
+
+function serializeErrorMessage(error: unknown): string {
+	if (error instanceof Error) {
+		return error.message;
+	}
+
+	return String(error);
 }
 
 function parseAccountIdFromIdToken(idToken: string | null): string | null {

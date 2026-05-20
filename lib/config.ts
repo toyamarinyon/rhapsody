@@ -49,6 +49,7 @@ export type RhapsodyServerEnv = {
 	CHATGPT_ACCESS_TOKEN?: string;
 	CHATGPT_ACCOUNT_ID?: string;
 	CHATGPT_REFRESH_TOKEN?: string;
+	INITIAL_CHATGPT_AUTH_JSON?: string;
 	VERCEL_OIDC_ISSUER?: string;
 	VERCEL_OIDC_AUDIENCE?: string;
 	VERCEL_TEAM_SLUG?: string;
@@ -70,7 +71,10 @@ export type RhapsodyCodexBaseSnapshotEnv = Pick<
 >;
 export type RhapsodyCodexChatGPTEnv = Pick<
 	RhapsodyServerEnv,
-	"CHATGPT_ACCESS_TOKEN" | "CHATGPT_ACCOUNT_ID" | "CHATGPT_REFRESH_TOKEN"
+	| "CHATGPT_ACCESS_TOKEN"
+	| "CHATGPT_ACCOUNT_ID"
+	| "CHATGPT_REFRESH_TOKEN"
+	| "INITIAL_CHATGPT_AUTH_JSON"
 >;
 
 const REQUIRED_ENV_KEYS = [
@@ -161,6 +165,7 @@ export function loadRhapsodyCodexChatGPTEnv(env = process.env): RhapsodyCodexCha
 		"CHATGPT_ACCESS_TOKEN",
 		"CHATGPT_ACCOUNT_ID",
 		"CHATGPT_REFRESH_TOKEN",
+		"INITIAL_CHATGPT_AUTH_JSON",
 	] as const);
 }
 

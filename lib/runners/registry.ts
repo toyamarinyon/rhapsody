@@ -39,7 +39,12 @@ export async function runAttemptWithDetail(context: RunnerRouteContext): Promise
 }
 
 export async function runAttempt(request: Request, runId: string, attemptId: string): Promise<Response> {
-	return runAttemptWithRunner(request, runId, attemptId, null);
+	return runAttemptExecution({
+		request,
+		runId,
+		attemptId,
+		runner: null,
+	});
 }
 
 export async function runAttemptWithRunner(
@@ -48,31 +53,50 @@ export async function runAttemptWithRunner(
 	attemptId: string,
 	runner: RunnerKey | null,
 ): Promise<Response> {
+	return runAttemptExecution({
+		request,
+		runId,
+		attemptId,
+		runner,
+	});
+}
+
+export async function runAttemptExecution(params: {
+	request: Request;
+	runId: string;
+	attemptId: string;
+	runner: RunnerKey | null;
+}): Promise<Response> {
 	const client = createStateStoreClient();
 
 	try {
-		const detail = await getRunDetail(client, runId);
+		const detail = await getRunDetail(client, params.runId);
 
 		if (!detail) {
 			return Response.json({ error: "Run not found." }, { status: 404 });
 		}
 
-		const attempt = detail.attempts.find((candidate) => candidate.id === attemptId);
+		const attempt = detail.attempts.find((candidate) => candidate.id === params.attemptId);
 
 		if (!attempt) {
 			return Response.json({ error: "Attempt not found." }, { status: 404 });
 		}
 
-		const selectedRunner = runner ? getRunner(runner) : getRunner(detail.run.runner);
+		const selectedRunner = params.runner
+			? getRunner(params.runner)
+			: getRunner(detail.run.runner);
 
 		if (!selectedRunner) {
-			return Response.json({ error: `Unknown runner: ${runner ?? detail.run.runner}.` }, { status: 400 });
+			return Response.json(
+				{ error: `Unknown runner: ${params.runner ?? detail.run.runner}.` },
+				{ status: 400 },
+			);
 		}
 
 		return await selectedRunner({
-			request,
-			runId,
-			attemptId,
+			request: params.request,
+			runId: params.runId,
+			attemptId: params.attemptId,
 			detail,
 			attempt,
 			client,

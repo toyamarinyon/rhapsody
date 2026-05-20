@@ -21,9 +21,13 @@ export async function POST(request: Request) {
 	} catch (error) {
 		if (error instanceof Error && error.message.includes("required")) {
 			return Response.json(
-				{ error: "Missing CHATGPT_ACCESS_TOKEN and/or CHATGPT_REFRESH_TOKEN in environment." },
+				{ error: "Missing INITIAL_CHATGPT_AUTH_JSON or CHATGPT_ACCESS_TOKEN and CHATGPT_REFRESH_TOKEN in environment." },
 				{ status: 400 },
 			);
+		}
+
+		if (error instanceof Error && error.message.includes("INITIAL_CHATGPT_AUTH_JSON")) {
+			return Response.json({ error: error.message }, { status: 400 });
 		}
 
 		return Response.json(
