@@ -51,9 +51,7 @@ const TIMEOUT_MS = 300_000;
 const NETWORK_PROBE_URL =
 	"https://chatgpt.com/backend-api/codex/models?client_version=0.130.0";
 const NETWORK_PROBE_STDOUT_PREVIEW_LENGTH = 240;
-const DEFAULT_SANDBOX_CODEX_MODE = "smoke" as const;
-
-type SandboxCodexMode = "smoke" | "write";
+const CODEX_MODE = "write";
 
 type SourcePreparationSummary = {
 	success: boolean;
@@ -81,9 +79,7 @@ export async function runSandboxCodexRunner(
 
 	try {
 		const config = loadRhapsodyConfig();
-		const codexMode = parsedBody.value.mode ?? DEFAULT_SANDBOX_CODEX_MODE;
-		const targetSandboxMode: "read-only" | "workspace-write" =
-			codexMode === "write" ? "workspace-write" : "read-only";
+		const targetSandboxMode = "workspace-write";
 		const instructions = await loadRepositoryInstructions();
 		const prompt = renderRepositoryInstructions({
 			template: instructions.template,
@@ -100,7 +96,6 @@ export async function runSandboxCodexRunner(
 		const requestedBranchName = attempt.gitBranchName ?? fallbackBranchName;
 		const executionPrompt = buildExecutionPrompt({
 			prompt,
-			mode: codexMode,
 			targetRepositoryUrl: expectedRepositoryUrl,
 			targetBranchName: requestedBranchName,
 			sandboxMode: targetSandboxMode,
@@ -214,7 +209,7 @@ export async function runSandboxCodexRunner(
 									argv: codexCommand.argv,
 									cwd: codexCommand.cwd,
 								},
-								codex_mode: codexMode,
+								codex_mode: CODEX_MODE,
 								target_repository: expectedRepositoryUrl,
 								target_branch: requestedBranchName,
 								repository_path: REPOSITORY_PATH,
@@ -287,7 +282,7 @@ export async function runSandboxCodexRunner(
 			data: {
 				repositoryUrl: expectedRepositoryUrl,
 				branchName,
-				codexMode,
+				codexMode: CODEX_MODE,
 				commands: {
 					clone: summarizeCommand(sourcePreparationSummary.cloneCommand),
 					checkout: sourcePreparationSummary.checkoutCommand
@@ -333,7 +328,7 @@ export async function runSandboxCodexRunner(
 				previewLength: promptSummary.preview.length,
 				sandboxId: getVercelSandboxId(sandbox),
 				sourceSnapshotId,
-				codexMode,
+				codexMode: CODEX_MODE,
 				targetBranchName: branchName,
 				targetRepositoryUrl: expectedRepositoryUrl,
 				networkPolicyVariant,
@@ -379,7 +374,7 @@ export async function runSandboxCodexRunner(
 
 		return Response.json({
 			sandboxId: getVercelSandboxId(sandbox),
-			mode: codexMode,
+			mode: CODEX_MODE,
 			branchName,
 			command: summarizeCommand(command),
 			sourceSnapshotId,
@@ -430,7 +425,6 @@ async function readOptionalRequest(request: Request): Promise<
 					| "query-bypass"
 					| "oidc";
 				useSnapshot?: boolean;
-				mode?: SandboxCodexMode;
 			};
 	  }
 	| { ok: false; error: string }
@@ -497,7 +491,6 @@ function parseSandboxCodexRequestOptions(value: Record<string, unknown>):
 					| "query-bypass"
 					| "oidc";
 				useSnapshot?: boolean;
-				mode?: SandboxCodexMode;
 			};
 	  }
 	| { ok: false; error: string } {
@@ -510,7 +503,6 @@ function parseSandboxCodexRequestOptions(value: Record<string, unknown>):
 			| "query-bypass"
 			| "oidc";
 		useSnapshot?: boolean;
-		mode?: SandboxCodexMode;
 	} = {};
 
 	if (value.callbackBaseUrl !== undefined) {
@@ -547,11 +539,10 @@ function parseSandboxCodexRequestOptions(value: Record<string, unknown>):
 	}
 
 	if (value.mode !== undefined) {
-		if (value.mode !== "smoke" && value.mode !== "write") {
-			return { ok: false, error: "mode must be one of: smoke, write." };
-		}
-
-		result.mode = value.mode;
+		return {
+			ok: false,
+			error: "mode is no longer supported; sandbox-codex always runs write mode.",
+		};
 	}
 
 	return { ok: true, value: result };
@@ -559,15 +550,11 @@ function parseSandboxCodexRequestOptions(value: Record<string, unknown>):
 
 function buildExecutionPrompt(params: {
 	prompt: string;
-	mode: SandboxCodexMode;
 	targetRepositoryUrl: string;
 	targetBranchName: string;
 	sandboxMode: "read-only" | "workspace-write";
 }) {
-	const modeInstructions =
-		params.mode === "write"
-			? `\n\nYou are running in write mode for this Rhapsody run.\n- Working repository: ${params.targetRepositoryUrl}\n- Assigned branch: ${params.targetBranchName}\n- Do not push to any branch other than the assigned branch.\n- Make focused changes only for the selected work item.\n- If git commit needs an identity, set local repository config only: user.name \"Rhapsody Codex\" and user.email \"rhapsody-codex@localhost\".\n- When changes are needed, you must create a commit and run: git push origin HEAD:${params.targetBranchName}\n- After pushing, verify the remote branch exists with: git ls-remote --heads origin ${params.targetBranchName}\n- Do not create PRs yet because the GitHub API mediator integration is not implemented in this step.\n`
-			: `\n\nYou are running in smoke-test mode for Rhapsody.\n- Keep your response concise.\n- Do not edit files.\n`;
+	const modeInstructions = `\n\nYou are running in write mode for this Rhapsody run.\n- Working repository: ${params.targetRepositoryUrl}\n- Assigned branch: ${params.targetBranchName}\n- Do not push to any branch other than the assigned branch.\n- Make focused changes only for the selected work item.\n- If git commit needs an identity, set local repository config only: user.name \"Rhapsody Codex\" and user.email \"rhapsody-codex@localhost\".\n- When changes are needed, you must create a commit and run: git push origin HEAD:${params.targetBranchName}\n- After pushing, verify the remote branch exists with: git ls-remote --heads origin ${params.targetBranchName}\n- Do not create PRs yet because the GitHub API mediator integration is not implemented in this step.\n`;
 
 	return `${params.prompt}${modeInstructions}\n- Current sandbox mode: ${params.sandboxMode}.`;
 }
