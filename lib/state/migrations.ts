@@ -182,6 +182,13 @@ export const stateStoreMigrations = [
 				ON runs (status, updated_at);
 		`,
 	},
+	{
+		id: "0004_attempts_git_branch_name",
+		sql: `
+			ALTER TABLE attempts
+				ADD COLUMN git_branch_name TEXT;
+		`,
+	},
 ] as const satisfies readonly StateStoreMigration[];
 
 export async function migrateStateStore(

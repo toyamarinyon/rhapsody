@@ -29,6 +29,7 @@ import {
 	getRunDetail,
 	markAttemptStarted,
 } from "@/lib/state";
+import { buildAttemptBranchName, parseWorkItemIssueNumber } from "@/lib/attempt-branch";
 import { type RunnerRouteContext } from "./types";
 
 const SANDBOX_WORKDIR = "/vercel/sandbox";
@@ -171,6 +172,11 @@ export async function runSandboxCodexRunner(context: RunnerRouteContext): Promis
 		const startResult = await markAttemptStarted(client, {
 			runId,
 			attemptId,
+			gitBranchName: buildAttemptBranchName({
+				branchPrefix: config.repository.branchPrefix,
+				issueNumber: parseWorkItemIssueNumber({ workItemId: detail.run.workItemId }),
+				attemptNumber: attempt.attemptNumber,
+			}),
 			claimToken,
 			sandboxId: getVercelSandboxId(sandbox),
 			command: COMMAND,

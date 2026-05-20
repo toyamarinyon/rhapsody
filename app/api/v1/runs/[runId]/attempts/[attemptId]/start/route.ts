@@ -1,6 +1,8 @@
 import { requireAdminAuth } from "@/lib/server/admin-auth";
 import { isRecord, optionalString, readJson } from "@/lib/server/json";
-import { createStateStoreClient, markAttemptStarted } from "@/lib/state";
+import { createStateStoreClient, getRunDetail, markAttemptStarted } from "@/lib/state";
+import { buildAttemptBranchName, parseWorkItemIssueNumber } from "@/lib/attempt-branch";
+import { loadRhapsodyConfig } from "@/lib/config";
 
 export const runtime = "nodejs";
 
@@ -35,11 +37,24 @@ export async function POST(
 
 	const { runId, attemptId } = await context.params;
 	const client = createStateStoreClient();
+	const config = loadRhapsodyConfig();
+	const detail = await getRunDetail(client, runId);
+	const attempt = detail?.attempts.find((candidate) => candidate.id === attemptId);
+	const issueNumber = detail ? parseWorkItemIssueNumber({ workItemId: detail.run.workItemId }) : null;
+	const gitBranchName =
+		detail && attempt
+			? buildAttemptBranchName({
+				branchPrefix: config.repository.branchPrefix,
+				issueNumber,
+				attemptNumber: attempt.attemptNumber,
+			})
+			: undefined;
 
 	try {
 		const result = await markAttemptStarted(client, {
 			runId,
 			attemptId,
+			gitBranchName,
 			claimToken: parsed.value.claimToken,
 			sandboxId: parsed.value.sandboxId,
 			command: parsed.value.command,

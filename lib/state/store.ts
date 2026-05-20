@@ -37,6 +37,7 @@ export type CreateAttemptInput = {
 	runId: string;
 	attemptNumber: number;
 	status?: AttemptStatus;
+	gitBranchName?: string | null;
 	sandboxId?: string | null;
 	command?: string | null;
 	now?: number;
@@ -129,6 +130,7 @@ export type StateStoreAttempt = {
 	runId: string;
 	attemptNumber: number;
 	status: AttemptStatus;
+	gitBranchName: string | null;
 	sandboxId: string | null;
 	command: string | null;
 	exitCode: number | null;
@@ -180,6 +182,7 @@ export type AttemptStartInput = {
 	runId: string;
 	attemptId: string;
 	claimToken: string;
+	gitBranchName?: string | null;
 	startedAt?: number | null;
 	sandboxId?: string | null;
 	command?: string | null;
@@ -287,6 +290,7 @@ export async function getRunDetail(client: Client, runId: string): Promise<RunDe
 					run_id,
 					attempt_number,
 					status,
+					git_branch_name,
 					sandbox_id,
 					command,
 					exit_code,
@@ -497,13 +501,23 @@ export async function markAttemptStarted(
 				UPDATE attempts
 				SET
 					status = ?,
+					git_branch_name = COALESCE(?, git_branch_name),
 					sandbox_id = COALESCE(?, sandbox_id),
 					command = COALESCE(?, command),
 					started_at = COALESCE(started_at, ?),
 					updated_at = ?
 				WHERE id = ? AND run_id = ?
 			`,
-			args: ["running", input.sandboxId ?? null, input.command ?? null, startedAt, now, input.attemptId, input.runId],
+			args: [
+				"running",
+				input.gitBranchName ?? null,
+				input.sandboxId ?? null,
+				input.command ?? null,
+				startedAt,
+				now,
+				input.attemptId,
+				input.runId,
+			],
 		});
 
 		await tx.execute({
@@ -766,12 +780,13 @@ export async function createClaimedManualRun(
 					run_id,
 					attempt_number,
 					status,
+					git_branch_name,
 					created_at,
 					updated_at
 				)
-				VALUES (?, ?, ?, ?, ?, ?)
+				VALUES (?, ?, ?, ?, ?, ?, ?)
 			`,
-			args: [attemptId, runId, 1, "pending", now, now],
+			args: [attemptId, runId, 1, "pending", null, now, now],
 		});
 
 		await tx.execute({
@@ -878,18 +893,20 @@ export async function createAttempt(
 				run_id,
 				attempt_number,
 				status,
+				git_branch_name,
 				sandbox_id,
 				command,
 				created_at,
 				updated_at
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`,
 		args: [
 			id,
 			input.runId,
 			input.attemptNumber,
 			status,
+			input.gitBranchName ?? null,
 			input.sandboxId ?? null,
 			input.command ?? null,
 			now,
@@ -1178,6 +1195,7 @@ function mapAttempt(row: Row): StateStoreAttempt {
 		runId: getString(row, "run_id"),
 		attemptNumber: getNumber(row, "attempt_number"),
 		status: getString(row, "status") as AttemptStatus,
+		gitBranchName: getNullableString(row, "git_branch_name"),
 		sandboxId: getNullableString(row, "sandbox_id"),
 		command: getNullableString(row, "command"),
 		exitCode: getNullableNumber(row, "exit_code"),

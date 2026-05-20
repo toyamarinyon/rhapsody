@@ -251,7 +251,9 @@ Fields:
 - `attempt_number`
 - `sandbox_id`
 - `snapshot_id`
-- `branch_name`
+- `branch_name`: deterministic attempt branch names generated at attempt start, typically
+  `branchPrefix/issue-<issue_number>-<attempt_number>`.
+  Existing rows without a value are allowed for backward compatibility.
 - `commit_sha`
 - `pull_request_url`
 - `started_at`

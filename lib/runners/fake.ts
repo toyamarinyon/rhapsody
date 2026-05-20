@@ -9,6 +9,7 @@ import {
 	createEvent,
 	markAttemptStarted,
 } from "@/lib/state";
+import { buildAttemptBranchName, parseWorkItemIssueNumber } from "@/lib/attempt-branch";
 import { type RunnerRouteContext } from "./types";
 
 const FAKE_SANDBOX_ID = "fake_sandbox";
@@ -51,6 +52,11 @@ export async function runFakeRunner(context: RunnerRouteContext): Promise<Respon
 	const startResult = await markAttemptStarted(client, {
 		runId,
 		attemptId,
+		gitBranchName: buildAttemptBranchName({
+			branchPrefix: config.repository.branchPrefix,
+			issueNumber: parseWorkItemIssueNumber({ workItemId: detail.run.workItemId }),
+			attemptNumber: attempt.attemptNumber,
+		}),
 		claimToken,
 		sandboxId: FAKE_SANDBOX_ID,
 		command: FAKE_COMMAND,

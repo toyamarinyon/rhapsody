@@ -26,6 +26,7 @@ import {
 	markAttemptStarted,
 	getRunDetail,
 } from "@/lib/state";
+import { buildAttemptBranchName, parseWorkItemIssueNumber } from "@/lib/attempt-branch";
 import { type RunnerRouteContext } from "./types";
 
 const SANDBOX_FAKE_RUNNER_COMMAND = "sandbox-fake-runner";
@@ -132,6 +133,11 @@ export async function runSandboxFakeRunner(context: RunnerRouteContext): Promise
 		const startResult = await markAttemptStarted(client, {
 			runId,
 			attemptId,
+			gitBranchName: buildAttemptBranchName({
+				branchPrefix: config.repository.branchPrefix,
+				issueNumber: parseWorkItemIssueNumber({ workItemId: detail.run.workItemId }),
+				attemptNumber: attempt.attemptNumber,
+			}),
 			claimToken,
 			sandboxId: getVercelSandboxId(sandbox),
 			command: SANDBOX_FAKE_RUNNER_COMMAND,

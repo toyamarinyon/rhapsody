@@ -1,4 +1,5 @@
 import projectConfig from "../rhapsody.config";
+import { normalizeBranchPrefix } from "@/lib/attempt-branch";
 
 export type RhapsodyTrackerConfig = {
 	kind: "github_project";
@@ -122,7 +123,13 @@ export class RhapsodyConfigError extends Error {
 
 export function loadRhapsodyConfig(): RhapsodyProjectConfig {
 	validateProjectConfig(projectConfig);
-	return projectConfig;
+	return {
+		...projectConfig,
+		repository: {
+			...projectConfig.repository,
+			branchPrefix: normalizeBranchPrefix(projectConfig.repository.branchPrefix),
+		},
+	};
 }
 
 export function loadRhapsodyServerEnv(env = process.env): RhapsodyServerEnv {

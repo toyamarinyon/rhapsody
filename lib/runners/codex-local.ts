@@ -16,6 +16,7 @@ import {
 	createEvent,
 	markAttemptStarted,
 } from "@/lib/state";
+import { buildAttemptBranchName, parseWorkItemIssueNumber } from "@/lib/attempt-branch";
 import { type RunnerRouteContext } from "./types";
 
 const CODEX_LOCAL_SANDBOX_ID = "local_dev_codex";
@@ -95,6 +96,11 @@ export async function runCodexLocalRunner(context: RunnerRouteContext): Promise<
 		const startResult = await markAttemptStarted(client, {
 			runId,
 			attemptId,
+			gitBranchName: buildAttemptBranchName({
+				branchPrefix: config.repository.branchPrefix,
+				issueNumber: parseWorkItemIssueNumber({ workItemId: detail.run.workItemId }),
+				attemptNumber: attempt.attemptNumber,
+			}),
 			claimToken,
 			sandboxId: CODEX_LOCAL_SANDBOX_ID,
 			command: CODEX_LOCAL_COMMAND,
