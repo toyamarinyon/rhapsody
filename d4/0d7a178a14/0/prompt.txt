@@ -178,3 +178,7 @@ Comment:
 not nullにはできないですかね？ディスカッションがしたいです。
 
 ## My request for Codex:
+
+---
+
+okです。commit, pushしてdeployが終わったらmigrationしましょう。
