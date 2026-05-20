@@ -17,6 +17,8 @@ export {
 	markAttemptStarted,
 	reconcileStaleRunningAttempt,
 	releaseClaimForRun,
+	validateAttemptCanReceiveCallback,
+	type AttemptCallbackAcceptance,
 	type AttemptStatus,
 	type AttemptExecutionStatus,
 	type AttemptStartInput,

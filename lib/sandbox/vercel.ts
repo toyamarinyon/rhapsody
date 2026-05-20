@@ -27,6 +27,12 @@ export type VercelSandboxCommandSummary = {
 	error?: string;
 };
 
+export type VercelSandboxDetachedCommandSummary = {
+	commandId: string;
+	cwd: string;
+	startedAt: number;
+};
+
 export type VercelSandboxSnapshot = {
 	snapshotId: string;
 	sourceSandboxId: string;
@@ -311,6 +317,25 @@ export async function runVercelSandboxCommand(
 			error: error instanceof Error ? error.message : String(error),
 		};
 	}
+}
+
+export async function startVercelSandboxCommand(
+	sandbox: RhapsodyVercelSandbox,
+	input: VercelSandboxRunCommandInput,
+): Promise<VercelSandboxDetachedCommandSummary> {
+	const command = await sandbox.runCommand({
+		cmd: input.cmd,
+		args: input.args,
+		cwd: input.cwd,
+		env: input.env,
+		detached: true,
+	});
+
+	return {
+		commandId: command.cmdId,
+		cwd: command.cwd,
+		startedAt: command.startedAt,
+	};
 }
 
 export function getVercelSandboxId(sandbox: RhapsodyVercelSandbox) {

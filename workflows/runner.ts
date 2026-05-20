@@ -1,4 +1,14 @@
 import { runAttemptExecution } from "@/lib/runners/registry";
+import { loadRhapsodyConfig } from "@/lib/config";
+import { createOrReuseOpenPullRequest } from "@/lib/github/pull-requests";
+import {
+	applyAttemptTerminalCallback,
+	createEvent,
+	createStateStoreClient,
+	type AttemptTransitionResult,
+} from "@/lib/state";
+import { buildAttemptHookToken } from "@/lib/workflows/attempt-hook";
+import { createHook } from "workflow";
 
 export type RunnerWorkflowInput = {
 	runId: string;
@@ -13,15 +23,74 @@ export type RunnerWorkflowOutput = {
 	startedBy?: string;
 	responseStatus: number;
 	responseBody: string;
+	hookToken: string;
+	callbackPayload: RunnerWorkflowCallbackPayload;
+	handoff: RunnerWorkflowHandoffResult;
+	finalization: AttemptTransitionResult;
 };
+
+export type RunnerWorkflowCallbackPayload = {
+	runId: string;
+	attemptId: string;
+	claimToken: string;
+	executionStatus: string;
+	exitCode?: number | null;
+	sandboxId?: string | null;
+	commandId?: string | null;
+	startedAt?: number | null;
+	completedAt?: number | null;
+	error?: string | null;
+	branchName?: string | null;
+	prSpec?: unknown;
+	postflight?: unknown;
+};
+
+export type RunnerWorkflowHandoff = {
+	reused: boolean;
+	number: number;
+	htmlUrl: string;
+	headRef: string;
+	baseRef: string;
+	title: string;
+};
+
+export type RunnerWorkflowHandoffResult =
+	| {
+			ok: true;
+			pullRequest: RunnerWorkflowHandoff | null;
+	  }
+	| {
+			ok: false;
+			pullRequest: null;
+			error: string;
+	  };
 
 export async function runnerWorkflow(input: RunnerWorkflowInput) {
 	"use workflow";
 
-	return runRunnerAttempt(input);
+	const hookToken = buildAttemptHookToken(input.attemptId);
+	const hook = createHook<RunnerWorkflowCallbackPayload>({
+		token: hookToken,
+	});
+	const launched = await runRunnerAttempt(input, hookToken);
+	const callbackPayload = await hook;
+	const handoff = await completeRunnerHandoff(input, callbackPayload);
+	const finalization = await finalizeRunnerAttempt(callbackPayload, handoff);
+
+	return {
+		runId: input.runId,
+		attemptId: input.attemptId,
+		startedBy: input.startedBy,
+		responseStatus: launched.responseStatus,
+		responseBody: launched.responseBody,
+		hookToken: launched.hookToken,
+		callbackPayload,
+		handoff,
+		finalization,
+	} satisfies RunnerWorkflowOutput;
 }
 
-async function runRunnerAttempt(input: RunnerWorkflowInput) {
+async function runRunnerAttempt(input: RunnerWorkflowInput, hookToken: string) {
 	"use step";
 
 	const callbackBaseUrl =
@@ -31,6 +100,7 @@ async function runRunnerAttempt(input: RunnerWorkflowInput) {
 		method: "POST",
 		body: JSON.stringify({
 			callbackBaseUrl,
+			hookToken,
 		}),
 	});
 	const response = await runAttemptExecution({
@@ -41,11 +111,148 @@ async function runRunnerAttempt(input: RunnerWorkflowInput) {
 	});
 	const responseBody = await response.text();
 
+	if (!response.ok) {
+		throw new Error(`Runner launch failed with HTTP ${response.status}: ${responseBody}`);
+	}
+
 	return {
-		runId: input.runId,
-		attemptId: input.attemptId,
-		startedBy: input.startedBy,
 		responseStatus: response.status,
 		responseBody,
-	} satisfies RunnerWorkflowOutput;
+		hookToken,
+	};
+}
+
+async function completeRunnerHandoff(
+	input: RunnerWorkflowInput,
+	callbackPayload: RunnerWorkflowCallbackPayload,
+): Promise<RunnerWorkflowHandoffResult> {
+	"use step";
+
+	if (
+		callbackPayload.executionStatus !== "completed" ||
+		!callbackPayload.branchName ||
+		!isPrSpec(callbackPayload.prSpec)
+	) {
+		return { ok: true, pullRequest: null };
+	}
+
+	const config = loadRhapsodyConfig();
+	const client = createStateStoreClient();
+
+	try {
+		const handoff = await createOrReuseOpenPullRequest({
+			owner: config.repository.owner,
+			repository: config.repository.name,
+			base: config.repository.defaultBranch,
+			head: callbackPayload.branchName,
+			title: callbackPayload.prSpec.title,
+			body: callbackPayload.prSpec.body,
+		});
+
+		await createEvent(client, {
+			runId: input.runId,
+			attemptId: input.attemptId,
+			level: "info",
+			type: "sandbox_codex_runner.pull_request_ready",
+			message: "Runner workflow created or reused a pull request for handoff.",
+			data: {
+				prSpec: callbackPayload.prSpec,
+				pullRequest: handoff,
+			},
+		});
+
+		return { ok: true, pullRequest: handoff satisfies RunnerWorkflowHandoff };
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+
+		await createEvent(client, {
+			runId: input.runId,
+			attemptId: input.attemptId,
+			level: "error",
+			type: "sandbox_codex_runner.pull_request_failed",
+			message: "Runner workflow could not create or reuse a pull request for handoff.",
+			data: {
+				error: message,
+				branchName: callbackPayload.branchName,
+				prSpec: callbackPayload.prSpec,
+			},
+		});
+
+		return { ok: false, pullRequest: null, error: message };
+	} finally {
+		client.close();
+	}
+}
+
+async function finalizeRunnerAttempt(
+	callbackPayload: RunnerWorkflowCallbackPayload,
+	handoff: RunnerWorkflowHandoffResult,
+) {
+	"use step";
+
+	const client = createStateStoreClient();
+
+	try {
+		return await applyAttemptTerminalCallback(client, {
+			runId: callbackPayload.runId,
+			attemptId: callbackPayload.attemptId,
+			claimToken: callbackPayload.claimToken,
+			executionStatus: evaluateFinalExecutionStatus(callbackPayload, handoff),
+			exitCode: callbackPayload.exitCode,
+			startedAt: callbackPayload.startedAt,
+			completedAt: callbackPayload.completedAt,
+			sandboxId: callbackPayload.sandboxId,
+			command: callbackPayload.commandId,
+			error: evaluateFinalError(callbackPayload, handoff),
+		});
+	} finally {
+		client.close();
+	}
+}
+
+function evaluateFinalExecutionStatus(
+	callbackPayload: RunnerWorkflowCallbackPayload,
+	handoff: RunnerWorkflowHandoffResult,
+) {
+	if (callbackPayload.executionStatus === "completed") {
+		return handoff.ok && handoff.pullRequest ? "completed" : "failed";
+	}
+
+	return callbackPayload.executionStatus;
+}
+
+function evaluateFinalError(
+	callbackPayload: RunnerWorkflowCallbackPayload,
+	handoff: RunnerWorkflowHandoffResult,
+) {
+	if (callbackPayload.executionStatus === "completed" && (!handoff.ok || !handoff.pullRequest)) {
+		if (!callbackPayload.branchName) {
+			return "Runner completed execution, but callback did not include a branch name for PR handoff.";
+		}
+
+		if (!isPrSpec(callbackPayload.prSpec)) {
+			return "Runner completed execution, but callback did not include a valid PR spec for handoff.";
+		}
+
+		if (!handoff.ok) {
+			return `Runner completed execution, but trusted PR handoff failed: ${handoff.error}`;
+		}
+
+		return "Runner completed execution, but trusted PR handoff did not produce a pull request.";
+	}
+
+	return callbackPayload.error;
+}
+
+function isPrSpec(value: unknown): value is { title: string; body: string } {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"title" in value &&
+		"body" in value &&
+		typeof (value as { title: unknown }).title === "string" &&
+		(value as { title: string }).title.trim().length > 0 &&
+		typeof (value as { body: unknown }).body === "string" &&
+		(value as { body: string }).body.trim().length > 0
+	);
 }

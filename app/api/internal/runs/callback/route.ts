@@ -1,6 +1,8 @@
 import { loadRhapsodyMediatorEnv } from "@/lib/config";
 import { isRecord, optionalString, readJson } from "@/lib/server/json";
-import { applyAttemptTerminalCallback, createStateStoreClient } from "@/lib/state";
+import { createEvent, createStateStoreClient, validateAttemptCanReceiveCallback } from "@/lib/state";
+import { buildAttemptHookToken } from "@/lib/workflows/attempt-hook";
+import { resumeHook } from "workflow/api";
 
 export const runtime = "nodejs";
 
@@ -15,6 +17,10 @@ type RunnerCallbackRequest = {
 	startedAt?: number | null;
 	completedAt?: number | null;
 	error?: string | null;
+	hookToken?: string | null;
+	branchName?: string | null;
+	prSpec?: unknown;
+	postflight?: unknown;
 };
 
 export async function POST(request: Request) {
@@ -39,26 +45,116 @@ export async function POST(request: Request) {
 	const client = createStateStoreClient();
 
 	try {
-		const result = await applyAttemptTerminalCallback(client, {
+		const acceptance = await validateAttemptCanReceiveCallback(client, {
 			runId: parsed.value.runId,
 			attemptId: parsed.value.attemptId,
 			claimToken: parsed.value.claimToken,
-			executionStatus: parsed.value.executionStatus,
-			exitCode: parsed.value.exitCode,
 			sandboxId: parsed.value.sandboxId,
-			command: parsed.value.commandId,
-			startedAt: parsed.value.startedAt,
-			completedAt: parsed.value.completedAt,
-			error: parsed.value.error,
 		});
 
-		if (!result.applied) {
-			return Response.json(result, { status: 409 });
+		if (!acceptance.ok) {
+			const terminalDuplicate =
+				acceptance.reason === "attempt_terminal" || acceptance.reason === "run_terminal";
+
+			return Response.json(
+				{
+					accepted: terminalDuplicate,
+					idempotent: terminalDuplicate,
+					workflowResume: {
+						resumed: false,
+						skipped: terminalDuplicate,
+						reason: acceptance.reason,
+					},
+					...acceptance,
+				},
+				{ status: terminalDuplicate ? 200 : 409 },
+			);
 		}
 
-		return Response.json(result, { status: result.idempotent ? 200 : 202 });
+		const event = await createEvent(client, {
+			runId: parsed.value.runId,
+			attemptId: parsed.value.attemptId,
+			level: parsed.value.executionStatus === "completed" ? "info" : "warn",
+			type: "attempt.callback_received",
+			message: "Attempt callback received; runner workflow will evaluate final status.",
+			data: buildCallbackEventPayload(parsed.value),
+		});
+		const workflowResume = await resumeAttemptHook(parsed.value);
+
+		if (!workflowResume.resumed && !("skipped" in workflowResume)) {
+			await createEvent(client, {
+				runId: parsed.value.runId,
+				attemptId: parsed.value.attemptId,
+				level: "warn",
+				type: "attempt.workflow_resume_failed",
+				message: "Attempt terminal callback was stored, but workflow hook resume failed.",
+				data: workflowResume,
+			});
+		}
+
+		return Response.json(
+			{
+				accepted: true,
+				idempotent: false,
+				eventId: event.id,
+				runStatus: acceptance.runStatus,
+				attemptStatus: acceptance.attemptStatus,
+				workflowResume,
+			},
+			{ status: 202 },
+		);
 	} finally {
 		client.close();
+	}
+}
+
+function buildCallbackEventPayload(callback: RunnerCallbackRequest) {
+	return {
+		executionStatus: callback.executionStatus,
+		exitCode: callback.exitCode ?? null,
+		sandboxId: callback.sandboxId ?? null,
+		commandId: callback.commandId ?? null,
+		startedAt: callback.startedAt ?? null,
+		completedAt: callback.completedAt ?? null,
+		error: callback.error ?? null,
+		hookToken: callback.hookToken ?? buildAttemptHookToken(callback.attemptId),
+		branchName: callback.branchName ?? null,
+		prSpec: callback.prSpec ?? null,
+		postflight: callback.postflight ?? null,
+	};
+}
+
+async function resumeAttemptHook(callback: RunnerCallbackRequest) {
+	const hookToken = callback.hookToken ?? buildAttemptHookToken(callback.attemptId);
+
+	try {
+		const hook = await resumeHook(hookToken, {
+			runId: callback.runId,
+			attemptId: callback.attemptId,
+			claimToken: callback.claimToken,
+			executionStatus: callback.executionStatus,
+			exitCode: callback.exitCode,
+			sandboxId: callback.sandboxId,
+			commandId: callback.commandId,
+			startedAt: callback.startedAt,
+			completedAt: callback.completedAt,
+			error: callback.error,
+			branchName: callback.branchName,
+			prSpec: callback.prSpec,
+			postflight: callback.postflight,
+		});
+
+		return {
+			resumed: true,
+			hookToken,
+			workflowRunId: hook.runId,
+		};
+	} catch (error) {
+		return {
+			resumed: false,
+			hookToken,
+			error: serializeError(error),
+		};
 	}
 }
 
@@ -138,6 +234,16 @@ function parseRunnerCallbackRequest(
 	if (error === undefined && "error" in value) {
 		return { ok: false, error: "error must be a string or null when provided." };
 	}
+	const hookToken = optionalString(value.hook_token);
+
+	if (hookToken === undefined && "hook_token" in value) {
+		return { ok: false, error: "hook_token must be a string or null when provided." };
+	}
+	const branchName = optionalString(value.branch_name);
+
+	if (branchName === undefined && "branch_name" in value) {
+		return { ok: false, error: "branch_name must be a string or null when provided." };
+	}
 
 	return {
 		ok: true,
@@ -152,8 +258,20 @@ function parseRunnerCallbackRequest(
 			startedAt: startedAt.value,
 			completedAt: completedAt.value,
 			error,
+			hookToken,
+			branchName,
+			prSpec: value.pr_spec,
+			postflight: value.postflight,
 		},
 	};
+}
+
+function serializeError(error: unknown) {
+	if (error instanceof Error) {
+		return { name: error.name, message: error.message };
+	}
+
+	return { name: "UnknownError", message: String(error) };
 }
 
 function requiredString(value: unknown, field: string): { ok: true; value: string } | { ok: false; error: string } {

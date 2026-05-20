@@ -232,6 +232,25 @@ export type AttemptTransitionNotApplied = {
 
 export type AttemptTransitionResult = AttemptTransitionApplied | AttemptTransitionNotApplied;
 
+export type AttemptCallbackAcceptance =
+	| {
+			ok: true;
+			runStatus: RunStatus;
+			attemptStatus: AttemptStatus;
+	  }
+	| {
+			ok: false;
+			reason:
+				| "run_not_found"
+				| "attempt_not_found"
+				| "claim_mismatch"
+				| "sandbox_mismatch"
+				| "attempt_terminal"
+				| "run_terminal";
+			runStatus?: RunStatus;
+			attemptStatus?: AttemptStatus;
+	  };
+
 export type ClaimReleaseInput = {
 	runId: string;
 	claimToken: string;
@@ -393,6 +412,60 @@ export async function getRunDetail(client: Client, runId: string): Promise<RunDe
 		events: eventsResult.rows.map(mapEvent),
 		claim: claimResult.rows[0] ? mapClaim(claimResult.rows[0]) : null,
 	};
+}
+
+export async function validateAttemptCanReceiveCallback(
+	client: Client,
+	input: { runId: string; attemptId: string; claimToken: string; sandboxId?: string | null },
+): Promise<AttemptCallbackAcceptance> {
+	const result = await client.execute({
+		sql: `
+			SELECT
+				runs.claim_token AS claim_token,
+				runs.status AS run_status,
+				attempts.status AS attempt_status,
+				attempts.sandbox_id AS attempt_sandbox_id
+			FROM runs
+			LEFT JOIN attempts
+				ON attempts.run_id = runs.id
+				AND attempts.id = ?
+			WHERE runs.id = ?
+			LIMIT 1
+		`,
+		args: [input.attemptId, input.runId],
+	});
+	const row = result.rows[0];
+
+	if (!row) {
+		return { ok: false, reason: "run_not_found" };
+	}
+
+	const runStatus = getString(row, "run_status") as RunStatus;
+	const claimToken = getString(row, "claim_token");
+	const attemptStatus = getNullableString(row, "attempt_status") as AttemptStatus | null;
+	const attemptSandboxId = getNullableString(row, "attempt_sandbox_id");
+
+	if (!attemptStatus) {
+		return { ok: false, reason: "attempt_not_found", runStatus };
+	}
+
+	if (claimToken !== input.claimToken) {
+		return { ok: false, reason: "claim_mismatch", runStatus, attemptStatus };
+	}
+
+	if (input.sandboxId && attemptSandboxId && attemptSandboxId !== input.sandboxId) {
+		return { ok: false, reason: "sandbox_mismatch", runStatus, attemptStatus };
+	}
+
+	if (isTerminalAttemptStatus(attemptStatus)) {
+		return { ok: false, reason: "attempt_terminal", runStatus, attemptStatus };
+	}
+
+	if (isTerminalRunStatus(runStatus)) {
+		return { ok: false, reason: "run_terminal", runStatus, attemptStatus };
+	}
+
+	return { ok: true, runStatus, attemptStatus };
 }
 
 export async function listStaleRunningAttempts(
