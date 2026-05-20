@@ -1,4 +1,4 @@
-import { createStateStoreClient } from "@/lib/state";
+import { createStateStoreClient, setRunnerWorkflowRunId } from "@/lib/state";
 import { runSchedulerTick } from "@/lib/scheduler/tick";
 import { start } from "workflow/api";
 
@@ -46,6 +46,10 @@ async function runSchedulerTickStep() {
 						startedBy: "scheduler",
 					},
 				]);
+				await setRunnerWorkflowRunId(client, {
+					runId: createdRun.runId,
+					runnerWorkflowRunId: workflow.runId,
+				});
 				const schedulerStartedRun: SchedulerStartedRun = {
 					...createdRun,
 					runnerWorkflowRunId: workflow.runId,

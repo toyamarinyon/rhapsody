@@ -189,6 +189,13 @@ export const stateStoreMigrations = [
 				ADD COLUMN git_branch_name TEXT;
 		`,
 	},
+	{
+		id: "0005_runs_runner_workflow_run_id",
+		sql: `
+			ALTER TABLE runs
+				ADD COLUMN runner_workflow_run_id TEXT;
+		`,
+	},
 ] as const satisfies readonly StateStoreMigration[];
 
 export async function migrateStateStore(

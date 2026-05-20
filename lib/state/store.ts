@@ -114,6 +114,7 @@ export type StateStoreRun = {
 	workItemId: string;
 	claimToken: string;
 	runner: RhapsodyRunner;
+	runnerWorkflowRunId: string | null;
 	status: RunStatus;
 	workItemTitle: string;
 	workItemUrl: string | null;
@@ -272,6 +273,24 @@ export type ClaimReleaseResult =
 			runStatus?: RunStatus;
 	  };
 
+export type SetRunnerWorkflowRunIdInput = {
+	runId: string;
+	runnerWorkflowRunId: string;
+	now?: number;
+};
+
+export type SetRunnerWorkflowRunIdResult =
+	| {
+			updated: true;
+			runId: string;
+			runnerWorkflowRunId: string;
+			updatedAt: number;
+	  }
+	| {
+			updated: false;
+			reason: "run_not_found";
+	  };
+
 export type StaleRunningAttempt = {
 	runId: string;
 	attemptId: string;
@@ -305,6 +324,7 @@ export type ReconcileStaleRunningAttemptResult =
 			attemptId: string;
 			runStatus: RunStatus;
 			attemptStatus: AttemptStatus;
+			runnerWorkflowRunId: string | null;
 			claimReleased: boolean;
 			eventId: string;
 			updatedAt: number;
@@ -326,6 +346,7 @@ export async function getRunDetail(client: Client, runId: string): Promise<RunDe
 				work_item_id,
 				claim_token,
 				runner,
+				runner_workflow_run_id,
 				status,
 				work_item_title,
 				work_item_url,
@@ -527,6 +548,7 @@ export async function reconcileStaleRunningAttempt(
 				SELECT
 					runs.id AS run_id,
 					runs.status AS run_status,
+					runs.runner_workflow_run_id AS runner_workflow_run_id,
 					runs.work_item_id AS work_item_id,
 					runs.claim_token AS claim_token,
 					attempts.id AS attempt_id,
@@ -634,16 +656,17 @@ export async function reconcileStaleRunningAttempt(
 
 		await tx.commit();
 
-		return {
-			applied: true,
-			runId: input.runId,
-			attemptId: input.attemptId,
-			runStatus: "timed_out",
-			attemptStatus: "timed_out",
-			claimReleased,
-			eventId,
-			updatedAt: now,
-		};
+			return {
+				applied: true,
+				runId: input.runId,
+				attemptId: input.attemptId,
+				runStatus: "timed_out",
+				attemptStatus: "timed_out",
+				runnerWorkflowRunId: getNullableString(row, "runner_workflow_run_id"),
+				claimReleased,
+				eventId,
+				updatedAt: now,
+			};
 	} catch (error) {
 		await tx.rollback();
 		throw error;
@@ -1138,6 +1161,37 @@ export async function createClaimedManualRun(
 	}
 }
 
+export async function setRunnerWorkflowRunId(
+	client: Client,
+	input: SetRunnerWorkflowRunIdInput,
+): Promise<SetRunnerWorkflowRunIdResult> {
+	const now = input.now ?? Date.now();
+	const result = await client.execute({
+		sql: `
+			UPDATE runs
+			SET
+				runner_workflow_run_id = ?,
+				updated_at = ?
+			WHERE id = ?
+		`,
+		args: [input.runnerWorkflowRunId, now, input.runId],
+	});
+
+	if ((result.rowsAffected ?? 0) < 1) {
+		return {
+			updated: false,
+			reason: "run_not_found",
+		};
+	}
+
+	return {
+		updated: true,
+		runId: input.runId,
+		runnerWorkflowRunId: input.runnerWorkflowRunId,
+		updatedAt: now,
+	};
+}
+
 export async function createManualRun(
 	client: Client,
 	input: CreateManualRunInput,
@@ -1480,6 +1534,7 @@ function mapRun(row: Row): StateStoreRun {
 		workItemId: getString(row, "work_item_id"),
 		claimToken: getString(row, "claim_token"),
 		runner: getString(row, "runner") as RhapsodyRunner,
+		runnerWorkflowRunId: getNullableString(row, "runner_workflow_run_id"),
 		status: getString(row, "status") as RunStatus,
 		workItemTitle: getString(row, "work_item_title"),
 		workItemUrl: getNullableString(row, "work_item_url"),
