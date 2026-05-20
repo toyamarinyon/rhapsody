@@ -247,22 +247,12 @@ export async function runVercelSandboxCommand(
 	sandbox: RhapsodyVercelSandbox,
 	input: VercelSandboxRunCommandInput,
 ): Promise<VercelSandboxCommandSummary> {
-	const abortController = input.timeoutMs ? new AbortController() : null;
-	let timedOut = false;
-	const timeout = input.timeoutMs
-		? setTimeout(() => {
-				timedOut = true;
-				abortController?.abort();
-			}, input.timeoutMs)
-		: null;
-
-	try {
+	if (!input.timeoutMs) {
 		const command = await sandbox.runCommand({
 			cmd: input.cmd,
 			args: input.args,
 			cwd: input.cwd,
 			env: input.env,
-			signal: abortController?.signal,
 		});
 		const [stdout, stderr] = await Promise.all([command.stdout(), command.stderr()]);
 
@@ -274,25 +264,52 @@ export async function runVercelSandboxCommand(
 			stdout,
 			stderr,
 		};
+	}
+
+	const abortController = new AbortController();
+	const timeout = setTimeout(() => {
+		abortController.abort();
+	}, input.timeoutMs);
+	const command = await sandbox.runCommand({
+		cmd: input.cmd,
+		args: input.args,
+		cwd: input.cwd,
+		env: input.env,
+		detached: true,
+	});
+
+	try {
+		const finished = await command.wait({ signal: abortController.signal });
+		clearTimeout(timeout);
+		const [stdout, stderr] = await Promise.all([finished.stdout(), finished.stderr()]);
+
+		return {
+			commandId: finished.cmdId,
+			cwd: finished.cwd,
+			startedAt: finished.startedAt,
+			exitCode: finished.exitCode,
+			stdout,
+			stderr,
+		};
 	} catch (error) {
-		if (!timedOut) {
+		clearTimeout(timeout);
+
+		if (!abortController.signal.aborted) {
 			throw error;
 		}
 
+		await command.kill("SIGTERM").catch(() => undefined);
+
 		return {
-			commandId: "unknown",
-			cwd: input.cwd ?? "",
-			startedAt: Date.now(),
+			commandId: command.cmdId,
+			cwd: command.cwd,
+			startedAt: command.startedAt,
 			exitCode: 124,
 			stdout: "",
 			stderr: `Command timed out after ${input.timeoutMs}ms.`,
 			timedOut: true,
 			error: error instanceof Error ? error.message : String(error),
 		};
-	} finally {
-		if (timeout) {
-			clearTimeout(timeout);
-		}
 	}
 }
 
