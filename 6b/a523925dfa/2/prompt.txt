@@ -1,0 +1,14 @@
+In /Users/toyamarinyon/Documents/rhapsody, implement the first small step for deterministic attempt branch assignment. You are not alone in the codebase; do not revert edits made by others. Build on current uncommitted changes, but keep this change focused.
+
+Goal: add config + DB persistence + branch-name generation only. Do not wire sandbox checkout/push yet.
+
+Requirements:
+- Add config shape for git branch prefix, defaulting to `rhapsody`. User prefers `rhapsody/` style but store prefix as `rhapsody` or normalized form consistently; choose conservative existing config style.
+- Add migration for attempts branch name, likely `attempts.git_branch_name TEXT` nullable. Existing attempts should remain valid. If there is schema/check pattern, follow it.
+- Add a small helper to build deterministic attempt branch names from branchPrefix, issueNumber, runId, attemptNumber. Expected form: `rhapsody/issue-11/run-be06422b/attempt-1` where run id may include `run_...`; strip or slice consistently so branch is URL-safe/git-safe. Avoid LLM involvement.
+- During attempt creation/start, assign and persist gitBranchName if it is not already set. Prefer attempt start boundary if existing code makes that easy; otherwise nearest safe run creation point is okay, but explain tradeoff.
+- Expose gitBranchName in run detail/state API responses if attempts are serialized there.
+- Update SPEC/ADR if there is an obvious section for branch ownership; keep docs small.
+- Add focused tests if existing test patterns exist; otherwise run tsc/lint.
+
+Final response should list changed files and validation run.

@@ -1,0 +1,41 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "6ba523925dfa",
+  "session_id": "019e42e3-2307-74a1-83b7-9f4c7eb5151a",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-20T01:11:01.88314Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "app/api/v1/runs/[runId]/attempts/[attemptId]/start/route.ts",
+    "docs/SPEC.md",
+    "lib/attempt-branch.ts",
+    "lib/config.ts",
+    "lib/runners/codex-local.ts",
+    "lib/runners/fake.ts",
+    "lib/runners/sandbox-codex.ts",
+    "lib/runners/sandbox-fake.ts",
+    "lib/state/migrations.ts",
+    "lib/state/store.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "2163fbf1131e",
+  "checkpoint_transcript_start": 340,
+  "transcript_lines_at_start": 340,
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-20T01:11:01.863214Z",
+    "agent_lines": 134,
+    "agent_removed": 7,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 134,
+    "total_lines_changed": 141,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
