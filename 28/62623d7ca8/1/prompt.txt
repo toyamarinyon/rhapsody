@@ -80,3 +80,12 @@ oidc variantで試してみましょう。
 ---
 
 workflowをoidc variantで動くか試したいですね。
+
+---
+
+一旦コミットしましょう。
+次は、
+legazy chatgptの実装コードの削除
+oidc variantに統一
+を進めたいです。
+oidc variant統一は問題ないか確認したい
