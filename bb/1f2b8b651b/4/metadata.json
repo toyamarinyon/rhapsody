@@ -1,0 +1,68 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "bb1f2b8b651b",
+  "session_id": "019e42e9-b56f-7be0-8b22-ed074fb72482",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-20T01:10:20.011151Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/adr/0005-use-run-scoped-github-mediation-for-agent-writes.md",
+    "lib/sandbox/vercel.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "47662bba1125",
+  "token_usage": {
+    "input_tokens": 35364,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1031552,
+    "output_tokens": 4527,
+    "api_call_count": 22
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-20T01:10:20.001032Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 0,
+    "total_lines_changed": 0,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 688,
+      "user_lines_removed": 7,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "app/api/internal/sandbox-git-operations-smoke/route.ts": 485,
+        "app/api/v1/runs/[runId]/attempts/[attemptId]/start/route.ts": 17,
+        "docs/SPEC.md": 3,
+        "docs/adr/0005-use-run-scoped-github-mediation-for-agent-writes.md": 11,
+        "lib/attempt-branch.ts": 63,
+        "lib/config.ts": 8,
+        "lib/runners/codex-local.ts": 7,
+        "lib/runners/fake.ts": 7,
+        "lib/runners/sandbox-codex.ts": 7,
+        "lib/runners/sandbox-fake.ts": 7,
+        "lib/sandbox/vercel.ts": 44,
+        "lib/state/migrations.ts": 7,
+        "lib/state/store.ts": 22
+      },
+      "user_removed_per_file": {
+        "app/api/v1/runs/[runId]/attempts/[attemptId]/start/route.ts": 1,
+        "docs/SPEC.md": 1,
+        "lib/config.ts": 1,
+        "lib/state/store.ts": 4
+      }
+    }
+  ]
+}
