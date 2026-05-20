@@ -1,0 +1,36 @@
+Continue in /Users/toyamarinyon/Documents/rhapsody. We have committed `dbe8425 feat: add scheduler tick route` locally but not pushed. The user wants to continue before push.
+
+Task 1: Refactor scheduler core out of the route before Workflow SDK integration.
+
+Current route: app/api/v1/admin/scheduler/tick/route.ts
+Current helper: lib/github/project-items.ts
+
+Please:
+1. Create a scheduler core module, e.g. `lib/scheduler/tick.ts`.
+2. Move the Project fetch + state summary + claim/run creation logic from the route into an exported function, e.g. `runSchedulerTick()`.
+3. Keep the route thin: auth, create state client if the core shouldn't own it (choose the cleaner boundary), call core, return JSON. Avoid duplicating logic.
+4. Preserve behavior and response shape from the current route.
+5. Keep execution deferred for now.
+6. Keep `SCHEDULER_STATUS_FILTER = ["Todo"]` or equivalent in the scheduler module, with the existing MVP decision comment.
+7. Do not touch unrelated files. Do not commit.
+8. Run `pnpm exec tsc --noEmit` and `pnpm lint`.
+
+After that, report changed files and any tradeoffs. Once I verify, we may proceed to Workflow SDK integration.
+
+---
+
+続きお願いします。作業ディレクトリは /Users/toyamarinyon/Documents/rhapsody です。ユーザー要望は「Workflow SDK 導入前に scheduler core を route から分離。動作確認できたらそのまま C に進む」です。core 分離はすでに `lib/scheduler/tick.ts` と薄い route で実装済み、preview でも alreadyClaimed が返るところまで確認済みです。
+
+次の C として Vercel Workflow SDK を導入してください。`pnpm add workflow` は親側で実行済みで `workflow 4.2.4` が package/lock に入っているはずですが、build script approval warning で exit 1 になっています。必要なら状況確認してください。
+
+実装方針:
+- `next.config.ts` を `workflow/next` の `withWorkflow` で wrap する。
+- `workflows/scheduler.ts` を作る。
+  - workflow function は `"use workflow"`。
+  - step function は `"use step"` で、`createStateStoreClient()` を作って `runSchedulerTick(client)` を呼び、finally で close。
+  - route から直接 core を呼ぶのではなく、この workflow を開始できるようにする。
+- `app/api/v1/admin/scheduler/tick/route.ts` は admin auth 後に `start(schedulerWorkflow, [...])` して、workflowRunId と started:true を返す形に寄せる。
+- 可能なら admin 用の workflow run status 取得 route も小さく追加してください。`workflow/api` の `getRun` が使えそうならそれで。難しければ無理しなくてよいです。
+- 既存の `runSchedulerTick` core は workflow step とテスト・デバッグで再利用できる形のままにしてください。
+- 人間が読める命名と境界を大事に。余計な抽象化は入れず、最小の Workflow SDK integration にしてください。
+- 終わったら変更ファイルと実行したチェック、未確認事項を教えてください。
