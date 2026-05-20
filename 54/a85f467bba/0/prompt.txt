@@ -71,3 +71,7 @@ $ biome format --write .
 Formatted 59 files in 33ms. Fixed 1 file.
 
 特にwanings出ませんでした
+
+---
+
+これをcommitして対比したファイルを元に戻しましょう
