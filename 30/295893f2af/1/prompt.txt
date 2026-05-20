@@ -1,0 +1,16 @@
+In /Users/toyamarinyon/Documents/rhapsody, implement the next small step: connect `attempt.gitBranchName` to sandbox-codex source preparation, but do not yet change Codex prompt/push behavior beyond what is needed to prepare the branch.
+
+You are not alone in the codebase; do not revert edits made by others. Current main has commits for GitHub brokering smoke endpoint and deterministic attempt branches.
+
+Goal for this step:
+- In `sandbox-codex` runner, before Codex execution, clone/prepare the configured repository inside the sandbox and checkout the assigned `attempt.gitBranchName` branch.
+- Use the GitHub Basic auth network policy helper added in `lib/sandbox/vercel.ts` so Git clone works without putting GITHUB_TOKEN in sandbox env.
+- Keep branch/repo values from run/config context, not from user prompt/LLM.
+- Record useful events for source preparation: repo URL, branch name, command summaries exit codes, but do not log secrets.
+- If `attempt.gitBranchName` is missing, either generate/persist it at attempt start as existing flow should do, or fail clearly. Prefer using persisted detail after markAttemptStarted if needed.
+- Keep existing ChatGPT proxy network policy working; if multiple policies must be combined, add a small helper rather than duplicating huge structures.
+- Do not implement GitHub API mediator or PR creation yet.
+- Update SPEC if needed with a short source prep note.
+- Run tsc/lint if feasible.
+
+Final response should list changed files, validation, and how to smoke test this path.
