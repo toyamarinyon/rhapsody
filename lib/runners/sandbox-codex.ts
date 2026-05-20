@@ -841,7 +841,7 @@ async function changedFilesFromGit(workdir, baseBranch) {
 
 	return changedFilesCommand.stdout
 		.trim()
-		.split("\n")
+		.split("\\n")
 		.map((path) => path.trim())
 		.filter((path) => path.length > 0);
 }
