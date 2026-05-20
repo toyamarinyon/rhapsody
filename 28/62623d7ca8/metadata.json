@@ -1,0 +1,20 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "2862623d7ca8",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "app/api/v1/admin/codex-chatgpt-credentials/seed-from-env/route.ts",
+    "lib/codex/credentials.ts",
+    "lib/runners/registry.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/28/62623d7ca8/0/metadata.json",
+      "transcript": "/28/62623d7ca8/0/full.jsonl",
+      "content_hash": "/28/62623d7ca8/0/content_hash.txt",
+      "prompt": "/28/62623d7ca8/0/prompt.txt"
+    }
+  ]
+}
