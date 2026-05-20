@@ -21,6 +21,7 @@ export default {
 		maxConcurrentRunsByStatus: {},
 		claimTtlMs: 900000,
 		maxRetryBackoffMs: 300000,
+		runningAttemptTimeoutMs: 600000,
 	},
 	runner: "sandbox-codex",
 } satisfies RhapsodyProjectConfig;

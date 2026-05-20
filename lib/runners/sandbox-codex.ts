@@ -50,6 +50,7 @@ const REPOSITORY_PATH = "/vercel/sandbox/repository";
 const PROMPT_PREVIEW_LENGTH = 500;
 const OUTPUT_PREVIEW_LENGTH = 1000;
 const TIMEOUT_MS = 300_000;
+const SANDBOX_TIMEOUT_MS = TIMEOUT_MS + 120_000;
 const NETWORK_PROBE_URL =
 	"https://chatgpt.com/backend-api/codex/models?client_version=0.130.0";
 const NETWORK_PROBE_STDOUT_PREVIEW_LENGTH = 240;
@@ -175,6 +176,7 @@ export async function runSandboxCodexRunner(
 			mediatorCredentialState?.accountId ?? DUMMY_CHATGPT_ACCOUNT_ID,
 		);
 		sandbox = await createVercelSandbox({
+			timeout: SANDBOX_TIMEOUT_MS,
 			networkPolicy: mergeNetworkPolicies(
 				buildVercelSandboxCodexNetworkPolicy({
 					callbackUrl,

@@ -253,6 +253,52 @@ export type ClaimReleaseResult =
 			runStatus?: RunStatus;
 	  };
 
+export type StaleRunningAttempt = {
+	runId: string;
+	attemptId: string;
+	workItemId: string;
+	claimToken: string;
+	attemptStartedAt: number | null;
+	attemptUpdatedAt: number;
+	sandboxId: string | null;
+	command: string | null;
+	claimExpiresAt: number | null;
+};
+
+export type ListStaleRunningAttemptsInput = {
+	cutoff: number;
+	limit: number;
+};
+
+export type ReconcileStaleRunningAttemptInput = {
+	runId: string;
+	attemptId: string;
+	now?: number;
+	eventId?: string;
+	reason: string;
+	maxRunningAttemptAgeMs: number;
+};
+
+export type ReconcileStaleRunningAttemptResult =
+	| {
+			applied: true;
+			runId: string;
+			attemptId: string;
+			runStatus: RunStatus;
+			attemptStatus: AttemptStatus;
+			claimReleased: boolean;
+			eventId: string;
+			updatedAt: number;
+	  }
+	| {
+			applied: false;
+			runId: string;
+			attemptId: string;
+			reason: "not_found" | "not_running";
+			runStatus?: RunStatus;
+			attemptStatus?: AttemptStatus;
+	  };
+
 export async function getRunDetail(client: Client, runId: string): Promise<RunDetail | null> {
 	const runResult = await client.execute({
 		sql: `
@@ -347,6 +393,190 @@ export async function getRunDetail(client: Client, runId: string): Promise<RunDe
 		events: eventsResult.rows.map(mapEvent),
 		claim: claimResult.rows[0] ? mapClaim(claimResult.rows[0]) : null,
 	};
+}
+
+export async function listStaleRunningAttempts(
+	client: Client,
+	input: ListStaleRunningAttemptsInput,
+): Promise<StaleRunningAttempt[]> {
+	const result = await client.execute({
+		sql: `
+			SELECT
+				runs.id AS run_id,
+				attempts.id AS attempt_id,
+				runs.work_item_id AS work_item_id,
+				runs.claim_token AS claim_token,
+				attempts.started_at AS attempt_started_at,
+				attempts.updated_at AS attempt_updated_at,
+				attempts.sandbox_id AS sandbox_id,
+				attempts.command AS command,
+				claims.claim_expires_at AS claim_expires_at
+			FROM attempts
+			INNER JOIN runs
+				ON runs.id = attempts.run_id
+			LEFT JOIN claims
+				ON claims.work_item_id = runs.work_item_id
+				AND claims.run_id = runs.id
+				AND claims.claim_token = runs.claim_token
+			WHERE attempts.status = 'running'
+				AND runs.status = 'running'
+				AND COALESCE(attempts.started_at, attempts.updated_at) <= ?
+			ORDER BY COALESCE(attempts.started_at, attempts.updated_at) ASC
+			LIMIT ?
+		`,
+		args: [input.cutoff, input.limit],
+	});
+
+	return result.rows.map((row) => ({
+		runId: getString(row, "run_id"),
+		attemptId: getString(row, "attempt_id"),
+		workItemId: getString(row, "work_item_id"),
+		claimToken: getString(row, "claim_token"),
+		attemptStartedAt: getNullableNumber(row, "attempt_started_at"),
+		attemptUpdatedAt: getNumber(row, "attempt_updated_at"),
+		sandboxId: getNullableString(row, "sandbox_id"),
+		command: getNullableString(row, "command"),
+		claimExpiresAt: getNullableNumber(row, "claim_expires_at"),
+	}));
+}
+
+export async function reconcileStaleRunningAttempt(
+	client: Client,
+	input: ReconcileStaleRunningAttemptInput,
+): Promise<ReconcileStaleRunningAttemptResult> {
+	const now = input.now ?? Date.now();
+	const eventId = input.eventId ?? createPrefixedId("evt");
+	const tx = await client.transaction("write");
+
+	try {
+		const result = await tx.execute({
+			sql: `
+				SELECT
+					runs.id AS run_id,
+					runs.status AS run_status,
+					runs.work_item_id AS work_item_id,
+					runs.claim_token AS claim_token,
+					attempts.id AS attempt_id,
+					attempts.status AS attempt_status,
+					attempts.started_at AS attempt_started_at,
+					attempts.updated_at AS attempt_updated_at,
+					attempts.sandbox_id AS sandbox_id,
+					attempts.command AS command,
+					claims.claim_token AS active_claim_token
+				FROM runs
+				LEFT JOIN attempts
+					ON attempts.run_id = runs.id
+					AND attempts.id = ?
+				LEFT JOIN claims
+					ON claims.work_item_id = runs.work_item_id
+					AND claims.run_id = runs.id
+					AND claims.claim_token = runs.claim_token
+				WHERE runs.id = ?
+				LIMIT 1
+			`,
+			args: [input.attemptId, input.runId],
+		});
+		const row = result.rows[0];
+
+		if (!row || getNullableString(row, "attempt_id") === null) {
+			await tx.commit();
+			return {
+				applied: false,
+				runId: input.runId,
+				attemptId: input.attemptId,
+				reason: "not_found",
+			};
+		}
+
+		const runStatus = getString(row, "run_status") as RunStatus;
+		const attemptStatus = getString(row, "attempt_status") as AttemptStatus;
+
+		if (runStatus !== "running" || attemptStatus !== "running") {
+			await tx.commit();
+			return {
+				applied: false,
+				runId: input.runId,
+				attemptId: input.attemptId,
+				reason: "not_running",
+				runStatus,
+				attemptStatus,
+			};
+		}
+
+		await tx.execute({
+			sql: `
+				UPDATE attempts
+				SET
+					status = ?,
+					finished_at = COALESCE(finished_at, ?),
+					updated_at = ?
+				WHERE id = ? AND run_id = ? AND status = 'running'
+			`,
+			args: ["timed_out", now, now, input.attemptId, input.runId],
+		});
+
+		await tx.execute({
+			sql: `
+				UPDATE runs
+				SET
+					status = ?,
+					finished_at = COALESCE(finished_at, ?),
+					updated_at = ?
+				WHERE id = ? AND status = 'running'
+			`,
+			args: ["timed_out", now, now, input.runId],
+		});
+
+		const workItemId = getString(row, "work_item_id");
+		const claimToken = getString(row, "claim_token");
+		const activeClaimToken = getNullableString(row, "active_claim_token");
+		let claimReleased = false;
+
+		if (activeClaimToken === claimToken) {
+			await tx.execute({
+				sql: "DELETE FROM claims WHERE work_item_id = ? AND run_id = ? AND claim_token = ?",
+				args: [workItemId, input.runId, claimToken],
+			});
+			claimReleased = true;
+		}
+
+		await insertEvent(tx, {
+			id: eventId,
+			runId: input.runId,
+			attemptId: input.attemptId,
+			level: "warn",
+			type: "reconciler.attempt_timed_out",
+			message: "Reconciler marked stale running attempt as timed_out.",
+			data: {
+				reason: input.reason,
+				maxRunningAttemptAgeMs: input.maxRunningAttemptAgeMs,
+				attemptStartedAt: getNullableNumber(row, "attempt_started_at"),
+				attemptUpdatedAt: getNumber(row, "attempt_updated_at"),
+				sandboxId: getNullableString(row, "sandbox_id"),
+				command: getNullableString(row, "command"),
+				claimReleased,
+			},
+			now,
+		});
+
+		await tx.commit();
+
+		return {
+			applied: true,
+			runId: input.runId,
+			attemptId: input.attemptId,
+			runStatus: "timed_out",
+			attemptStatus: "timed_out",
+			claimReleased,
+			eventId,
+			updatedAt: now,
+		};
+	} catch (error) {
+		await tx.rollback();
+		throw error;
+	} finally {
+		tx.close();
+	}
 }
 
 export async function releaseClaimForRun(client: Client, input: ClaimReleaseInput): Promise<ClaimReleaseResult> {

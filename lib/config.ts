@@ -23,6 +23,7 @@ export type RhapsodySchedulerConfig = {
 	maxConcurrentRunsByStatus: Record<string, number>;
 	claimTtlMs: number;
 	maxRetryBackoffMs: number;
+	runningAttemptTimeoutMs?: number;
 };
 
 export type RhapsodyRunner = "fake" | "sandbox-fake" | "codex-local" | "sandbox-codex";
@@ -44,6 +45,7 @@ export type RhapsodyServerEnv = {
 	VERCEL_TOKEN: string;
 	VERCEL_TEAM_ID: string;
 	VERCEL_PROJECT_ID: string;
+	CRON_SECRET?: string;
 	VERCEL_PROTECTION_BYPASS_SECRET?: string;
 	RHAPSODY_CODEX_BASE_SNAPSHOT_ID?: string;
 	INITIAL_CHATGPT_AUTH_JSON?: string;
@@ -56,6 +58,7 @@ export type RhapsodyStateStoreEnv = Pick<RhapsodyServerEnv, "TURSO_DATABASE_URL"
 export type RhapsodyGitHubEnv = Pick<RhapsodyServerEnv, "GITHUB_TOKEN">;
 export type RhapsodyMediatorEnv = Pick<RhapsodyServerEnv, "MEDIATOR_SECRET">;
 export type RhapsodyAuthSecretEnv = Pick<RhapsodyServerEnv, "AUTH_SECRET">;
+export type RhapsodyCronEnv = Pick<RhapsodyServerEnv, "CRON_SECRET">;
 export type RhapsodyVercelOidcEnv = Pick<
 	RhapsodyServerEnv,
 	"VERCEL_OIDC_ISSUER" | "VERCEL_OIDC_AUDIENCE" | "VERCEL_TEAM_SLUG"
@@ -140,6 +143,10 @@ export function loadRhapsodyMediatorEnv(env = process.env): RhapsodyMediatorEnv 
 
 export function loadRhapsodyAuthSecretEnv(env = process.env): RhapsodyAuthSecretEnv {
 	return loadRequiredEnv(env, REQUIRED_AUTH_SECRET_ENV_KEYS);
+}
+
+export function loadRhapsodyCronEnv(env = process.env): RhapsodyCronEnv {
+	return loadOptionalEnv(env, ["CRON_SECRET"] as const);
 }
 
 export function loadRhapsodyVercelOidcEnv(env = process.env): RhapsodyVercelOidcEnv {
@@ -258,6 +265,7 @@ function validateProjectConfig(config: RhapsodyProjectConfig) {
 	requirePositiveInteger(issues, "scheduler.maxConcurrentRuns", config.scheduler.maxConcurrentRuns);
 	requirePositiveInteger(issues, "scheduler.claimTtlMs", config.scheduler.claimTtlMs);
 	requirePositiveInteger(issues, "scheduler.maxRetryBackoffMs", config.scheduler.maxRetryBackoffMs);
+	requireOptionalPositiveInteger(issues, "scheduler.runningAttemptTimeoutMs", config.scheduler.runningAttemptTimeoutMs);
 
 	if (!isRhapsodyRunner(config.runner)) {
 		issues.push("runner must be one of: fake, sandbox-fake, codex-local, sandbox-codex");
@@ -303,4 +311,12 @@ function requirePositiveInteger(issues: string[], field: string, value: number) 
 	if (!Number.isInteger(value) || value <= 0) {
 		issues.push(`${field} must be a positive integer`);
 	}
+}
+
+function requireOptionalPositiveInteger(issues: string[], field: string, value: number | undefined) {
+	if (value === undefined) {
+		return;
+	}
+
+	requirePositiveInteger(issues, field, value);
 }

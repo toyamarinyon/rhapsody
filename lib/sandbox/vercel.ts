@@ -41,6 +41,7 @@ export type VercelSandboxSnapshotSource = {
 export type CreateVercelSandboxInput = {
 	source?: VercelSandboxSnapshotSource;
 	runtime?: string;
+	timeout?: number;
 	env?: Record<string, string>;
 	networkPolicy?: NetworkPolicy;
 };
@@ -218,6 +219,7 @@ export async function createVercelSandbox(input: CreateVercelSandboxInput = {}) 
 	const sandbox = await Sandbox.create({
 		...credentials,
 		...(input.source ? { source: input.source } : { runtime: input.runtime ?? DEFAULT_SANDBOX_RUNTIME }),
+		timeout: input.timeout,
 		env: input.env,
 		networkPolicy: input.networkPolicy ? "allow-all" : undefined,
 	});
