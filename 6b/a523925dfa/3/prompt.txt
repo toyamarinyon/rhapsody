@@ -1,0 +1,7 @@
+In /Users/toyamarinyon/Documents/rhapsody, adjust deterministic branch naming to the user's preferred shorter format. You are not alone in the codebase; do not revert edits made by others.
+
+Current helper likely returns something like `rhapsody/issue-11/run-be06422b/attempt-1`. Change it to `{prefix}/issue-{issueNo}-{attemptNo}`, for example `rhapsody/issue-11-1`. Run id should no longer be included in branch name, though the helper input type may keep runId if simpler; prefer removing unused input if not too invasive.
+
+Update docs/SPEC text and any comments/examples accordingly. Keep branchPrefix normalization. Ensure all call sites compile. Run tsc/lint if feasible.
+
+Final response should list files changed and validation.
