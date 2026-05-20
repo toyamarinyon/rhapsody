@@ -36,6 +36,7 @@ import {
 	buildAttemptBranchName,
 	parseWorkItemIssueNumber,
 } from "@/lib/attempt-branch";
+import { createOrReuseOpenPullRequest } from "@/lib/github/pull-requests";
 import { type RunnerRouteContext } from "./types";
 
 const SANDBOX_WORKDIR = "/vercel/sandbox";
@@ -44,6 +45,7 @@ const COMMAND = "sandbox-codex-runner";
 const WRAPPER_PATH = "wrapper.js";
 const PROMPT_PATH = "prompt.txt";
 const METADATA_PATH = "metadata.json";
+const PR_SPEC_PATH = "/vercel/sandbox/rhapsody-output/pr.json";
 const REPOSITORY_PATH = "/vercel/sandbox/repository";
 const PROMPT_PREVIEW_LENGTH = 500;
 const OUTPUT_PREVIEW_LENGTH = 1000;
@@ -57,6 +59,20 @@ type SourcePreparationSummary = {
 	success: boolean;
 	cloneCommand: Awaited<ReturnType<typeof runVercelSandboxCommand>>;
 	checkoutCommand: Awaited<ReturnType<typeof runVercelSandboxCommand>> | null;
+};
+
+type PrSpec = {
+	title: string;
+	body: string;
+};
+
+type PullRequestHandoffSummary = {
+	reused: boolean;
+	number: number;
+	htmlUrl: string;
+	headRef: string;
+	baseRef: string;
+	title: string;
 };
 
 export async function runSandboxCodexRunner(
@@ -204,17 +220,18 @@ export async function runSandboxCodexRunner(
 							run_id: runId,
 							attempt_id: attemptId,
 							sandbox_id: getVercelSandboxId(sandbox),
-								command: {
-									command: codexCommand.command,
-									argv: codexCommand.argv,
-									cwd: codexCommand.cwd,
-								},
-								codex_mode: CODEX_MODE,
-								target_repository: expectedRepositoryUrl,
-								target_branch: requestedBranchName,
-								repository_path: REPOSITORY_PATH,
-								source_snapshot_id: sourceSnapshotId,
+							command: {
+								command: codexCommand.command,
+								argv: codexCommand.argv,
+								cwd: codexCommand.cwd,
 							},
+							codex_mode: CODEX_MODE,
+							target_repository: expectedRepositoryUrl,
+							target_branch: requestedBranchName,
+							base_branch: config.repository.defaultBranch,
+							repository_path: REPOSITORY_PATH,
+							source_snapshot_id: sourceSnapshotId,
+						},
 						null,
 						2,
 					),
@@ -341,38 +358,74 @@ export async function runSandboxCodexRunner(
 			args: [WRAPPER_PATH],
 			cwd: SANDBOX_WORKDIR,
 			env: {
-				RHAPSODY_CALLBACK_URL: callbackUrl,
-				RHAPSODY_RUN_ID: runId,
-				RHAPSODY_ATTEMPT_ID: attemptId,
-				RHAPSODY_CLAIM_TOKEN: claimToken,
-				RHAPSODY_SANDBOX_ID: getVercelSandboxId(sandbox),
-				RHAPSODY_COMMAND_ID: COMMAND,
 				CODEX_HOME: CODEX_HOME_PATH,
 			},
 		});
 
 		const wrapperCallback = parseWrapperStdout(command.stdout);
-		const terminalFallback =
-			command.exitCode === 0 && wrapperCallback?.callback_ok
-				? null
-				: await applyAttemptTerminalCallback(client, {
-						runId,
-						attemptId,
-						claimToken,
-						executionStatus: wrapperCallback?.codex_timed_out
-							? "timed_out"
-							: command.exitCode === 0
-								? "completed"
-								: "failed",
-						exitCode: command.exitCode,
-						sandboxId: getVercelSandboxId(sandbox),
-						command: COMMAND,
-						error: buildFallbackError(command, wrapperCallback),
-					});
+		const wrapperSucceeded =
+			command.exitCode === 0 &&
+			!wrapperCallback?.codex_timed_out &&
+			wrapperCallback?.postflight?.ok === true &&
+			isPrSpec(wrapperCallback.pr_spec);
+		let pullRequestHandoff: PullRequestHandoffSummary | null = null;
+		let pullRequestHandoffError: string | null = null;
+
+		if (wrapperSucceeded) {
+			try {
+				const config = loadRhapsodyConfig();
+				pullRequestHandoff = await createOrReuseOpenPullRequest({
+					owner: config.repository.owner,
+					repository: config.repository.name,
+					base: config.repository.defaultBranch,
+					head: branchName,
+					title: wrapperCallback.pr_spec.title,
+					body: wrapperCallback.pr_spec.body,
+				});
+
+				await createEvent(client, {
+					runId,
+					attemptId,
+					level: "info",
+					type: "sandbox_codex_runner.pull_request_ready",
+					message:
+						"Sandbox Codex runner created or reused a pull request for handoff.",
+					data: {
+						prSpec: wrapperCallback.pr_spec,
+						pullRequest: pullRequestHandoff,
+					},
+				});
+			} catch (error) {
+				pullRequestHandoffError =
+					error instanceof Error
+						? error.message
+						: "Unable to create or reuse pull request.";
+			}
+		}
+
+		const terminalCallback = await applyAttemptTerminalCallback(client, {
+			runId,
+			attemptId,
+			claimToken,
+			executionStatus: buildExecutionStatus({
+				command,
+				wrapperCallback,
+				pullRequestHandoff,
+				pullRequestHandoffError,
+			}),
+			exitCode: command.exitCode,
+			sandboxId: getVercelSandboxId(sandbox),
+			command: COMMAND,
+			error: buildTerminalError(
+				command,
+				wrapperCallback,
+				pullRequestHandoff,
+				pullRequestHandoffError,
+			),
+		});
 
 		const refreshedDetail = await getRunDetail(client, runId);
-
-		return Response.json({
+		const responseBody = {
 			sandboxId: getVercelSandboxId(sandbox),
 			mode: CODEX_MODE,
 			branchName,
@@ -386,14 +439,28 @@ export async function runSandboxCodexRunner(
 			callback: {
 				url: callbackUrl,
 				parse: wrapperCallback,
-				terminalFallback,
+				terminalCallback,
+				pullRequestHandoff,
 			},
 			currentRunStatus: refreshedDetail?.run.status ?? null,
 			currentAttemptStatus:
 				refreshedDetail?.attempts.find(
 					(candidate) => candidate.id === attemptId,
 				)?.status ?? null,
-		});
+		};
+
+		if (!terminalCallback.applied) {
+			return Response.json(
+				{
+					...responseBody,
+					error: "Attempt terminal callback was not applied.",
+					reason: terminalCallback.reason,
+				},
+				{ status: 409 },
+			);
+		}
+
+		return Response.json(responseBody);
 	} catch (error) {
 		if (error instanceof InstructionTemplateError) {
 			return Response.json({ error: error.message }, { status: 422 });
@@ -541,7 +608,8 @@ function parseSandboxCodexRequestOptions(value: Record<string, unknown>):
 	if (value.mode !== undefined) {
 		return {
 			ok: false,
-			error: "mode is no longer supported; sandbox-codex always runs write mode.",
+			error:
+				"mode is no longer supported; sandbox-codex always runs write mode.",
 		};
 	}
 
@@ -554,7 +622,7 @@ function buildExecutionPrompt(params: {
 	targetBranchName: string;
 	sandboxMode: "read-only" | "workspace-write";
 }) {
-	const modeInstructions = `\n\nYou are running in write mode for this Rhapsody run.\n- Working repository: ${params.targetRepositoryUrl}\n- Assigned branch: ${params.targetBranchName}\n- Do not push to any branch other than the assigned branch.\n- Make focused changes only for the selected work item.\n- If git commit needs an identity, set local repository config only: user.name \"Rhapsody Codex\" and user.email \"rhapsody-codex@localhost\".\n- When changes are needed, you must create a commit and run: git push origin HEAD:${params.targetBranchName}\n- After pushing, verify the remote branch exists with: git ls-remote --heads origin ${params.targetBranchName}\n- Do not create PRs yet because the GitHub API mediator integration is not implemented in this step.\n`;
+	const modeInstructions = `\n\nYou are running in write mode for this Rhapsody run.\n- Working repository: ${params.targetRepositoryUrl}\n- Assigned branch: ${params.targetBranchName}\n- Do not push to any branch other than the assigned branch.\n- Make focused changes only for the selected work item.\n- If git commit needs an identity, set local repository config only: user.name \"Rhapsody Codex\" and user.email \"rhapsody-codex@localhost\".\n- When changes are needed, you must create a commit and run: git push origin HEAD:${params.targetBranchName}\n- After pushing, verify the remote branch exists with: git ls-remote --heads origin ${params.targetBranchName}\n- After creating the commit and push, write a PR handoff file at ${PR_SPEC_PATH} containing JSON with this exact shape:\n  { \"title\": \"<string>\", \"body\": \"<string>\" }\n  both fields must be non-empty.\n- Do not call GitHub APIs or create PRs directly.\n`;
 
 	return `${params.prompt}${modeInstructions}\n- Current sandbox mode: ${params.sandboxMode}.`;
 }
@@ -605,28 +673,6 @@ function buildWrapperSource() {
 	return `const { spawn } = require("node:child_process");
 const { readFile } = require("node:fs/promises");
 
-function required(name) {
-	const value = process.env[name];
-
-	if (!value) {
-		throw new Error("Missing required environment variable: " + name);
-	}
-
-	return value;
-}
-
-function safeJson(text) {
-	if (!text) {
-		return null;
-	}
-
-	try {
-		return JSON.parse(text);
-	} catch {
-		return text;
-	}
-}
-
 function buildCodexChildEnv() {
 	const env = { ...process.env };
 
@@ -675,6 +721,37 @@ function runCommand(command, args, cwd) {
 	});
 }
 
+async function readJsonPrSpec() {
+	try {
+		const rawPrSpec = await readFile("${PR_SPEC_PATH}", "utf8");
+		const parsed = JSON.parse(rawPrSpec);
+
+		if (
+			typeof parsed !== "object" ||
+			parsed === null ||
+			typeof parsed.title !== "string" ||
+			!parsed.title.trim() ||
+			typeof parsed.body !== "string" ||
+			!parsed.body.trim()
+		) {
+			return {
+				ok: false,
+				error: "PR spec was present but not a valid non-empty { title, body } object.",
+			};
+		}
+
+		return { ok: true, value: parsed };
+	} catch (error) {
+		return {
+			ok: false,
+			error:
+				error && typeof error === "object" && "code" in error && error.code === "ENOENT"
+					? "Could not find PR spec at ${PR_SPEC_PATH}."
+					: "PR spec must be readable JSON with non-empty title and body.",
+		};
+	}
+}
+
 async function runWritePostflight(metadata) {
 	if (metadata.codex_mode !== "write") {
 		return null;
@@ -682,9 +759,18 @@ async function runWritePostflight(metadata) {
 
 	const cwd = metadata.repository_path;
 	const targetBranch = metadata.target_branch;
+	const baseBranch = metadata.base_branch;
+	if (typeof baseBranch !== "string" || baseBranch.length === 0) {
+		return {
+			ok: false,
+			error: "Sandbox metadata did not include a base branch.",
+			commands: {},
+		};
+	}
+
 	const commitCountCommand = await runCommand(
 		"git",
-		["rev-list", "--count", "origin/main..HEAD"],
+		["rev-list", "--count", "origin/" + baseBranch + "..HEAD"],
 		cwd,
 	);
 	const commitCount = Number.parseInt(commitCountCommand.stdout.trim(), 10);
@@ -698,11 +784,11 @@ async function runWritePostflight(metadata) {
 	}
 
 	if (commitCount < 1) {
-		return {
-			ok: false,
-			error: "Codex did not create a commit beyond origin/main.",
-			commands: { commit_count: commitCountCommand },
-		};
+			return {
+				ok: false,
+				error: "Codex did not create a commit beyond origin/" + baseBranch + ".",
+				commands: { commit_count: commitCountCommand },
+			};
 	}
 
 	const pushCommand = await runCommand(
@@ -740,6 +826,20 @@ async function runWritePostflight(metadata) {
 		};
 	}
 
+	const prSpecResult = await readJsonPrSpec();
+
+	if (!prSpecResult.ok) {
+		return {
+			ok: false,
+			error: prSpecResult.error,
+			commands: {
+				commit_count: commitCountCommand,
+				push: pushCommand,
+				verify: verifyCommand,
+			},
+		};
+	}
+
 	return {
 		ok: true,
 		error: null,
@@ -748,18 +848,13 @@ async function runWritePostflight(metadata) {
 			push: pushCommand,
 			verify: verifyCommand,
 		},
+		pr_spec: prSpecResult.value,
 	};
 }
 
 (async () => {
 	const metadata = JSON.parse(await readFile("${METADATA_PATH}", "utf8"));
 	const prompt = await readFile("${PROMPT_PATH}", "utf8");
-	const callbackUrl = required("RHAPSODY_CALLBACK_URL");
-	const runId = required("RHAPSODY_RUN_ID");
-	const attemptId = required("RHAPSODY_ATTEMPT_ID");
-	const claimToken = required("RHAPSODY_CLAIM_TOKEN");
-	const sandboxId = required("RHAPSODY_SANDBOX_ID");
-	const commandId = process.env.RHAPSODY_COMMAND_ID ?? "${COMMAND}";
 
 	const child = spawn(metadata.command.command, metadata.command.argv, {
 		stdio: ["pipe", "pipe", "pipe"],
@@ -810,48 +905,6 @@ async function runWritePostflight(metadata) {
 			? await runWritePostflight(metadata)
 			: null;
 	const postflightError = postflight && !postflight.ok ? postflight.error : null;
-	const callbackPayload = {
-		run_id: runId,
-		attempt_id: attemptId,
-		claim_token: claimToken,
-		execution_status:
-			timedOut ? "timed_out" : exitCode === 0 && !postflightError ? "completed" : "failed",
-		exit_code: exitCode,
-		sandbox_id: sandboxId,
-		command_id: commandId,
-		completed_at: new Date().toISOString(),
-		error:
-			spawnError ??
-			postflightError ??
-			(timedOut
-				? "Codex timed out after ${String(TIMEOUT_MS)}ms."
-				: exitCode === 0
-				? null
-			: metadata.command && metadata.command.command
-					? "Codex exited with code " + String(exitCode) + "."
-					: "Codex command could not be launched."),
-	};
-
-	let callbackStatus = null;
-	let callbackOk = false;
-	let callbackBody = null;
-	let callbackError = null;
-
-	try {
-		const response = await fetch(callbackUrl, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-			},
-			body: JSON.stringify(callbackPayload),
-		});
-		const text = await response.text();
-		callbackStatus = response.status;
-		callbackOk = response.ok;
-		callbackBody = safeJson(text);
-	} catch (error) {
-		callbackError = error instanceof Error ? error.message : String(error);
-	}
 
 	console.log(
 		JSON.stringify({
@@ -860,14 +913,11 @@ async function runWritePostflight(metadata) {
 			codex_stdout: stdout.slice(0, ${OUTPUT_PREVIEW_LENGTH}),
 			codex_stderr: stderr.slice(0, ${OUTPUT_PREVIEW_LENGTH}),
 			postflight,
-			callback_status: callbackStatus,
-			callback_ok: callbackOk,
-			callback_body: callbackBody,
-			callback_error: callbackError,
+			pr_spec: postflight ? postflight.pr_spec ?? null : null,
 		}),
 	);
 
-	if (spawnError || timedOut || postflightError || !callbackOk || exitCode !== 0) {
+	if (spawnError || timedOut || postflightError || exitCode !== 0) {
 		process.exitCode = 1;
 	}
 })();
@@ -904,6 +954,19 @@ function parseWrapperStdout(stdout: string) {
 	} catch {
 		return null;
 	}
+}
+
+function isPrSpec(value: unknown): value is PrSpec {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"title" in value &&
+		"body" in value &&
+		typeof (value as { title: unknown }).title === "string" &&
+		(value as { title: string }).title.trim().length > 0 &&
+		typeof (value as { body: unknown }).body === "string" &&
+		(value as { body: string }).body.trim().length > 0
+	);
 }
 
 async function runNetworkPolicyProbe(sandbox: RhapsodyVercelSandbox) {
@@ -1011,19 +1074,61 @@ function parseProbeOutput(stdout: string) {
 	}
 }
 
-function buildFallbackError(
+function buildExecutionStatus(args: {
+	command: Awaited<ReturnType<typeof runVercelSandboxCommand>>;
+	wrapperCallback: ReturnType<typeof parseWrapperStdout>;
+	pullRequestHandoff: PullRequestHandoffSummary | null;
+	pullRequestHandoffError: string | null;
+}) {
+	if (args.wrapperCallback?.codex_timed_out) {
+		return "timed_out";
+	}
+
+	if (
+		args.command.exitCode === 0 &&
+		args.wrapperCallback?.postflight?.ok === true &&
+		args.pullRequestHandoff &&
+		!args.pullRequestHandoffError
+	) {
+		return "completed";
+	}
+
+	return "failed";
+}
+
+function buildTerminalError(
 	command: Awaited<ReturnType<typeof runVercelSandboxCommand>>,
 	wrapperCallback: ReturnType<typeof parseWrapperStdout>,
+	pullRequestHandoff: PullRequestHandoffSummary | null,
+	pullRequestHandoffError: string | null,
 ) {
-	if (wrapperCallback && wrapperCallback.callback_ok === false) {
-		return `Sandbox callback failed with HTTP ${String(wrapperCallback.callback_status)}.`;
+	if (pullRequestHandoffError) {
+		return `Pull request handoff failed: ${pullRequestHandoffError}`;
+	}
+
+	if (wrapperCallback?.codex_timed_out) {
+		return "Codex timed out.";
+	}
+
+	if (wrapperCallback?.postflight && wrapperCallback.postflight.ok === false) {
+		return typeof wrapperCallback.postflight.error === "string"
+			? wrapperCallback.postflight.error
+			: "Sandbox Codex postflight failed.";
+	}
+
+	if (
+		command.exitCode === 0 &&
+		wrapperCallback?.postflight?.ok === true &&
+		pullRequestHandoff
+	) {
+		return null;
 	}
 
 	if (command.exitCode === 0) {
-		return "Sandbox runner wrapper exited successfully, but callback response was missing.";
+		return "Pull request handoff was not completed.";
 	}
 
-	return "Codex runner failed before recording a successful callback.";
+	return "Codex runner failed before completing postflight.";
 }
 
 function serializeError(error: unknown) {

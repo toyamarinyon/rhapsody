@@ -488,11 +488,12 @@ Required steps:
 8. Prepare brokered agent authentication without writing real credentials into the sandbox.
 9. Prepare wrapper inputs, including rendered prompt, Workflow hook metadata, and event metadata.
 10. Create a deterministic Workflow hook token for this attempt.
-11. Launch the wrapper inside the sandbox workspace. The wrapper emits fixed runner events around
-    `codex exec` and delivers the terminal callback.
+11. Launch the wrapper inside the sandbox workspace. The wrapper runs `codex exec`, verifies the
+    pushed branch, and reads repository-external handoff artifacts such as PR title/body JSON.
 12. Persist sandbox ID, command ID, callback metadata, and attempt status.
-13. Pause on the Workflow hook until the wrapper posts a terminal callback.
-14. Resume from the callback payload.
+13. Pause on the Workflow hook until the wrapper completes and returns observed execution output.
+14. Resume with wrapper output and create or reuse trusted GitHub handoff artifacts, such as pull
+    requests, from Rhapsody-owned code.
 15. Record logs/events and any configured git diff, commits, pull request metadata, sandbox export,
     or snapshot.
 16. Verify GitHub handoff and post-run policy.
@@ -506,9 +507,10 @@ invocation. Agent execution completion is callback-driven, with watchdog reconci
 fallback. See [ADR 0006](adr/0006-use-callback-driven-workflow-orchestration.md).
 
 For the MVP, agent execution uses a TypeScript/Node sandbox wrapper. The wrapper is the
-sandbox-side attempt executor and owns fixed runner event emission around `codex exec` plus terminal
-callback delivery. It reports observed execution status only; the runner workflow evaluates final
-attempt and run status after GitHub handoff verification and policy checks. See
+sandbox-side attempt executor and owns `codex exec`, branch push verification, and collection of
+repository-external handoff artifacts. It reports observed execution status only; trusted Rhapsody
+code creates or reuses pull requests, records handoff events, and evaluates final attempt and run
+status after GitHub handoff verification and policy checks. See
 [ADR 0011](adr/0011-use-sandbox-wrapper-for-mvp-runner-execution.md).
 
 The MVP prepares source code with Vercel Sandbox Git source initialization. The runner resolves and
@@ -519,12 +521,14 @@ checking out the persisted `attempt.gitBranchName` branch before starting `codex
 See
 [ADR 0009](adr/0009-use-vercel-sandbox-git-source-initialization-for-source-preparation.md).
 
-### 7.1 Agent Completion Callback
+### 7.1 Agent Completion Handoff
 
-The sandbox wrapper MUST send a terminal callback when the agent command completes, fails, times
-out, or is stopped.
+Runner implementations MUST apply exactly one terminal attempt transition when the agent command
+completes, fails, times out, or is stopped. The transition may be delivered by an authenticated
+sandbox callback route, or applied by trusted runner code after collecting sandbox output and
+handoff artifacts.
 
-Callback payloads include:
+Terminal handoff payloads include:
 
 - `run_id`
 - `attempt_id`
@@ -537,12 +541,14 @@ Callback payloads include:
 - `error` (string or null)
 - implementation-defined output, GitHub link, sandbox export, or snapshot references
 
-The callback route MUST authenticate the request, validate the run and attempt against the state
-store, persist the payload idempotently, and resume the runner workflow hook.
+When using a callback route, the route MUST authenticate the request, validate the run and attempt
+against the state store, persist the payload idempotently, and resume the runner workflow hook.
+When using runner-owned completion, the runner MUST enforce the same validation and treat an
+unapplied terminal transition as a failed runner response.
 
-The callback execution status is not authoritative for final run success. The runner workflow MUST
-evaluate final attempt and run status separately using callback data, GitHub handoff verification,
-and workflow policy.
+The agent execution status is not authoritative for final run success. The runner workflow MUST
+evaluate final attempt and run status separately using terminal handoff data, GitHub handoff
+verification, and workflow policy.
 
 Post-run verification is required before a successful run outcome and before claim release. The MVP
 uses tiered verification for active run and attempt consistency, GitHub handoff state, mediator
@@ -666,10 +672,10 @@ Rhapsody MAY update GitHub state directly for scheduler-owned lifecycle transiti
 - mark item as `Human Review` after PR creation
 - mark item as `Failed` if a configured failure status exists
 
-Agent-owned writes, such as issue comments, pull request descriptions, labels, and handoff notes,
-MAY happen through advertised tools, CLI commands, or API calls inside the sandbox, but they MUST be
-mediated so raw GitHub credentials are not written into the sandbox. The MVP uses a PAT in
-`GITHUB_TOKEN` and a run-scoped GitHub mediator; GitHub App installation tokens are deferred. See
+Agent-owned write intent, such as pull request titles and descriptions, MAY be generated inside the
+sandbox as structured handoff artifacts. GitHub side effects that require trusted credentials, such
+as pull request creation, are executed by Rhapsody-owned code after branch and handoff verification.
+The MVP uses a PAT in `GITHUB_TOKEN`; GitHub App installation tokens are deferred. See
 [ADR 0005](adr/0005-use-run-scoped-github-mediation-for-agent-writes.md).
 
 After sandbox execution completes, Rhapsody MUST verify the GitHub handoff before marking a run
@@ -748,7 +754,8 @@ Recommended hardening:
 - Durable run, attempt, and event tables backed by Turso/libSQL.
 - Runner workflow skeleton.
 - Sandbox Codex runner always performs write execution with branch/repo-specific instructions,
-  explicit push target, and post-run verification before marking the attempt completed.
+  explicit push target, Codex-generated PR handoff JSON, trusted pull request creation or reuse,
+  and post-run verification before marking the attempt completed.
 - Brokered ChatGPT auth for Codex execution sandboxes.
 - Vercel Sandbox creation and command execution.
 - Basic logs/events table.
