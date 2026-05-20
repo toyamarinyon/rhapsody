@@ -111,8 +111,8 @@ Initial decisions:
 
 - A completed run with a valid pull request may move to `Human Review` only after post-run decision
   concludes that human review is needed.
-- A documentation-only pull request may be classified as eligible for auto-merge once reviewer
-  Codex and repository checks are available.
+- A documentation-only pull request may be classified as eligible for auto-merge. In the current
+  MVP, trusted Rhapsody code merges that pull request and moves the Project item to `Done`.
 - Code changes, low confidence, missing checks, ambiguous handoff, or reviewer uncertainty should
   move to `Human Review`.
 - Clear reviewer-requested changes should produce a pull request comment and keep the item active.
@@ -132,6 +132,8 @@ Project status updates are workflow-owned lifecycle transitions:
 - `Done`: Rhapsody or a human has accepted the result and no further scheduler action is needed.
 
 Creating a pull request is not sufficient to move an item to `Human Review`.
+Likewise, an auto-merge candidate is not complete until trusted Rhapsody code merges the pull
+request and updates the Project item to `Done`.
 
 ## Consequences
 

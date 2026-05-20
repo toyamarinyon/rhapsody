@@ -1,6 +1,11 @@
 import { runAttemptExecution } from "@/lib/runners/registry";
 import { loadRhapsodyConfig } from "@/lib/config";
-import { createOrReuseOpenPullRequest } from "@/lib/github/pull-requests";
+import {
+	createOrReuseOpenPullRequest,
+	mergePullRequest,
+	type PullRequestMergeResult,
+} from "@/lib/github/pull-requests";
+import { updateProjectIssueStatus } from "@/lib/github/project-items";
 import { parseWorkItemIssueNumber } from "@/lib/attempt-branch";
 import {
 	applyAttemptTerminalCallback,
@@ -34,6 +39,7 @@ export type RunnerWorkflowOutput = {
 	callbackPayload: RunnerWorkflowCallbackPayload;
 	handoff: RunnerWorkflowHandoffResult;
 	postRunDecision: PostRunDecision;
+	postRunAction: RunnerWorkflowPostRunActionResult;
 	finalization: AttemptTransitionResult;
 };
 
@@ -73,6 +79,25 @@ export type RunnerWorkflowHandoffResult =
 			error: string;
 	  };
 
+export type RunnerWorkflowPostRunActionResult = {
+	action: PostRunDecision["action"];
+	pullRequestMerge:
+		| { attempted: false }
+		| { attempted: true; merged: true; result: PullRequestMergeResult }
+		| { attempted: true; merged: false; error: string };
+	projectStatusUpdate:
+		| { attempted: false }
+		| {
+				attempted: true;
+				updated: true;
+				targetStatus: string;
+				itemId: string;
+				fieldId: string;
+				optionId: string;
+		  }
+		| { attempted: true; updated: false; targetStatus: string; error: string };
+};
+
 export async function runnerWorkflow(input: RunnerWorkflowInput) {
 	"use workflow";
 
@@ -90,6 +115,11 @@ export async function runnerWorkflow(input: RunnerWorkflowInput) {
 		handoff,
 		finalization,
 	);
+	const postRunAction = await applyPostRunDecisionAction(
+		input,
+		handoff,
+		postRunDecision,
+	);
 
 	return {
 		runId: input.runId,
@@ -101,6 +131,7 @@ export async function runnerWorkflow(input: RunnerWorkflowInput) {
 		callbackPayload,
 		handoff,
 		postRunDecision,
+		postRunAction,
 		finalization,
 	} satisfies RunnerWorkflowOutput;
 }
@@ -327,6 +358,282 @@ async function finalizeRunnerAttempt(
 		});
 	} finally {
 		client.close();
+	}
+}
+
+async function applyPostRunDecisionAction(
+	input: RunnerWorkflowInput,
+	handoff: RunnerWorkflowHandoffResult,
+	decision: PostRunDecision,
+): Promise<RunnerWorkflowPostRunActionResult> {
+	"use step";
+
+	const client = createStateStoreClient();
+	const config = loadRhapsodyConfig();
+	const detail = await getRunDetail(client, input.runId);
+	const issueNumber = detail
+		? parseWorkItemIssueNumber({ workItemId: detail.run.workItemId })
+		: null;
+
+	try {
+		if (!handoff.ok || !handoff.pullRequest) {
+			await createEvent(client, {
+				runId: input.runId,
+				attemptId: input.attemptId,
+				level: "warn",
+				type: "sandbox_codex_runner.post_run_action_skipped",
+				message:
+					"Runner workflow skipped post-run side effects because no trusted pull request handoff was available.",
+				data: {
+					action: decision.action,
+					reason: decision.reason,
+				},
+			});
+
+			return {
+				action: decision.action,
+				pullRequestMerge: { attempted: false },
+				projectStatusUpdate: { attempted: false },
+			};
+		}
+
+		if (issueNumber === null) {
+			await createEvent(client, {
+				runId: input.runId,
+				attemptId: input.attemptId,
+				level: "warn",
+				type: "sandbox_codex_runner.post_run_action_skipped",
+				message:
+					"Runner workflow could not resolve the work item issue number for post-run side effects.",
+				data: {
+					action: decision.action,
+					reason: decision.reason,
+					pullRequestNumber: handoff.pullRequest.number,
+				},
+			});
+
+			return {
+				action: decision.action,
+				pullRequestMerge: { attempted: false },
+				projectStatusUpdate: { attempted: false },
+			};
+		}
+
+		if (decision.action === "auto_merge_candidate") {
+			return await mergePullRequestAndMarkDone({
+				client,
+				config,
+				input,
+				handoff: handoff.pullRequest,
+				issueNumber,
+			});
+		}
+
+		return await moveProjectItemToHumanReview({
+			client,
+			config,
+			input,
+			handoff: handoff.pullRequest,
+			issueNumber,
+			decision,
+		});
+	} finally {
+		client.close();
+	}
+}
+
+async function mergePullRequestAndMarkDone(input: {
+	client: ReturnType<typeof createStateStoreClient>;
+	config: ReturnType<typeof loadRhapsodyConfig>;
+	input: RunnerWorkflowInput;
+	handoff: RunnerWorkflowHandoff;
+	issueNumber: number;
+}): Promise<RunnerWorkflowPostRunActionResult> {
+	try {
+		const mergeResult = await mergePullRequest({
+			owner: input.config.repository.owner,
+			repository: input.config.repository.name,
+			pullRequestNumber: input.handoff.number,
+			commitTitle: input.handoff.title,
+		});
+
+		await createEvent(input.client, {
+			runId: input.input.runId,
+			attemptId: input.input.attemptId,
+			level: "info",
+			type: "sandbox_codex_runner.pull_request_merged",
+			message: "Runner workflow merged the trusted pull request.",
+			data: {
+				pullRequest: input.handoff,
+				mergeResult,
+			},
+		});
+
+		try {
+			const statusResult = await updateProjectIssueStatus({
+				owner: input.config.tracker.owner,
+				repository: input.config.tracker.repository,
+				projectNumber: input.config.tracker.projectNumber,
+				statusField: input.config.tracker.statusField,
+				issueNumber: input.issueNumber,
+				status: "Done",
+			});
+
+			await createEvent(input.client, {
+				runId: input.input.runId,
+				attemptId: input.input.attemptId,
+				level: "info",
+				type: "sandbox_codex_runner.project_status_updated",
+				message: "Runner workflow moved the Project item to Done.",
+				data: {
+					issueNumber: input.issueNumber,
+					toStatus: "Done",
+					projectItemId: statusResult.itemId,
+					fieldId: statusResult.fieldId,
+					optionId: statusResult.optionId,
+					pullRequestNumber: input.handoff.number,
+				},
+			});
+
+			return {
+				action: "auto_merge_candidate",
+				pullRequestMerge: { attempted: true, merged: true, result: mergeResult },
+				projectStatusUpdate: {
+					attempted: true,
+					updated: true,
+					targetStatus: "Done",
+					itemId: statusResult.itemId,
+					fieldId: statusResult.fieldId,
+					optionId: statusResult.optionId,
+				},
+			};
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+
+			await createEvent(input.client, {
+				runId: input.input.runId,
+				attemptId: input.input.attemptId,
+				level: "warn",
+				type: "sandbox_codex_runner.project_status_update_failed",
+				message:
+					"Runner workflow merged the pull request, but could not move the Project item to Done.",
+				data: {
+					issueNumber: input.issueNumber,
+					toStatus: "Done",
+					error: message,
+					pullRequestNumber: input.handoff.number,
+				},
+			});
+
+			return {
+				action: "auto_merge_candidate",
+				pullRequestMerge: { attempted: true, merged: true, result: mergeResult },
+				projectStatusUpdate: {
+					attempted: true,
+					updated: false,
+					targetStatus: "Done",
+					error: message,
+				},
+			};
+		}
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+
+		await createEvent(input.client, {
+			runId: input.input.runId,
+			attemptId: input.input.attemptId,
+			level: "warn",
+			type: "sandbox_codex_runner.pull_request_merge_failed",
+			message: "Runner workflow could not merge the trusted pull request.",
+			data: {
+				pullRequest: input.handoff,
+				error: message,
+			},
+		});
+
+		return {
+			action: "auto_merge_candidate",
+			pullRequestMerge: { attempted: true, merged: false, error: message },
+			projectStatusUpdate: { attempted: false },
+		};
+	}
+}
+
+async function moveProjectItemToHumanReview(input: {
+	client: ReturnType<typeof createStateStoreClient>;
+	config: ReturnType<typeof loadRhapsodyConfig>;
+	input: RunnerWorkflowInput;
+	handoff: RunnerWorkflowHandoff;
+	issueNumber: number;
+	decision: PostRunDecision;
+}): Promise<RunnerWorkflowPostRunActionResult> {
+	try {
+		const statusResult = await updateProjectIssueStatus({
+			owner: input.config.tracker.owner,
+			repository: input.config.tracker.repository,
+			projectNumber: input.config.tracker.projectNumber,
+			statusField: input.config.tracker.statusField,
+			issueNumber: input.issueNumber,
+			status: "Human Review",
+		});
+
+		await createEvent(input.client, {
+			runId: input.input.runId,
+			attemptId: input.input.attemptId,
+			level: "info",
+			type: "sandbox_codex_runner.project_status_updated",
+			message: "Runner workflow moved the Project item to Human Review.",
+			data: {
+				issueNumber: input.issueNumber,
+				toStatus: "Human Review",
+				projectItemId: statusResult.itemId,
+				fieldId: statusResult.fieldId,
+				optionId: statusResult.optionId,
+				pullRequestNumber: input.handoff.number,
+				reason: input.decision.reason,
+			},
+		});
+
+		return {
+			action: "human_review",
+			pullRequestMerge: { attempted: false },
+			projectStatusUpdate: {
+				attempted: true,
+				updated: true,
+				targetStatus: "Human Review",
+				itemId: statusResult.itemId,
+				fieldId: statusResult.fieldId,
+				optionId: statusResult.optionId,
+			},
+		};
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+
+		await createEvent(input.client, {
+			runId: input.input.runId,
+			attemptId: input.input.attemptId,
+			level: "warn",
+			type: "sandbox_codex_runner.project_status_update_failed",
+			message: "Runner workflow could not move the Project item to Human Review.",
+			data: {
+				issueNumber: input.issueNumber,
+				toStatus: "Human Review",
+				error: message,
+				pullRequestNumber: input.handoff.number,
+				reason: input.decision.reason,
+			},
+		});
+
+		return {
+			action: "human_review",
+			pullRequestMerge: { attempted: false },
+			projectStatusUpdate: {
+				attempted: true,
+				updated: false,
+				targetStatus: "Human Review",
+				error: message,
+			},
+		};
 	}
 }
 

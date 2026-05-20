@@ -9,6 +9,13 @@ export type PullRequestSummary = {
 	title: string;
 };
 
+export type PullRequestMergeResult = {
+	number: number;
+	merged: boolean;
+	message: string;
+	sha: string | null;
+};
+
 type GitHubApiPullRequest = {
 	number: number;
 	html_url: string;
@@ -19,6 +26,12 @@ type GitHubApiPullRequest = {
 	base: {
 		ref: string;
 	};
+};
+
+type GitHubApiPullRequestMergeResponse = {
+	sha: string | null;
+	merged: boolean;
+	message: string;
 };
 
 export class GitHubPullRequestError extends Error {
@@ -102,6 +115,54 @@ export async function createOrReuseOpenPullRequest(
 	return {
 		reused: false,
 		...created,
+	};
+}
+
+export async function mergePullRequest(
+	input: {
+		owner: string;
+		repository: string;
+		pullRequestNumber: number;
+		mergeMethod?: "merge" | "squash" | "rebase";
+		commitTitle?: string;
+	},
+	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
+): Promise<PullRequestMergeResult> {
+	const response = await fetch(
+		`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}/pulls/${input.pullRequestNumber}/merge`,
+		{
+			method: "PUT",
+			headers: {
+				Accept: "application/vnd.github+json",
+				Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+				"X-GitHub-Api-Version": "2022-11-28",
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				merge_method: input.mergeMethod ?? "squash",
+				commit_title: input.commitTitle,
+			}),
+		},
+	);
+
+	if (!response.ok) {
+		const message = await safeResponseText(response);
+		throw new GitHubPullRequestError(
+			response.status,
+			input.owner,
+			input.repository,
+			"merge",
+			message,
+		);
+	}
+
+	const payload = normalizePullRequestMergeResponse(await response.json());
+
+	return {
+		number: input.pullRequestNumber,
+		merged: payload.merged,
+		message: payload.message,
+		sha: payload.sha,
 	};
 }
 
@@ -244,6 +305,18 @@ function normalizePullRequestList(value: unknown): GitHubApiPullRequest[] {
 	);
 }
 
+function normalizePullRequestMergeResponse(
+	value: unknown,
+): GitHubApiPullRequestMergeResponse {
+	if (!isGitHubPullRequestMergeResponse(value)) {
+		throw new Error(
+			"GitHub pull request merge response had an unexpected shape.",
+		);
+	}
+
+	return value;
+}
+
 function isGitHubPullRequest(value: unknown): value is GitHubApiPullRequest {
 	if (typeof value !== "object" || value === null) {
 		return false;
@@ -260,6 +333,21 @@ function isGitHubPullRequest(value: unknown): value is GitHubApiPullRequest {
 		typeof pr.base === "object" &&
 		pr.base !== null &&
 		typeof pr.base.ref === "string"
+	);
+}
+
+function isGitHubPullRequestMergeResponse(
+	value: unknown,
+): value is GitHubApiPullRequestMergeResponse {
+	if (typeof value !== "object" || value === null) {
+		return false;
+	}
+
+	const merge = value as Partial<GitHubApiPullRequestMergeResponse>;
+	return (
+		(merge.sha === null || typeof merge.sha === "string") &&
+		typeof merge.merged === "boolean" &&
+		typeof merge.message === "string"
 	);
 }
 

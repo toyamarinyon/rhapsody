@@ -694,6 +694,9 @@ Rhapsody decides needs human attention, not every pull request handoff. See
 [ADR 0013](adr/0013-define-post-run-decision-and-review-policy.md).
 Policy decisions are sourced from `.rhapsody/config.toml` with conservative defaults when policy data
 is missing or invalid.
+For the current MVP action set, `auto_merge_candidate` causes trusted Rhapsody code to merge the
+pull request and move the Project item to `Done`, while `human_review` moves the Project item to
+`Human Review`.
 
 ## 10. Observability API
 
