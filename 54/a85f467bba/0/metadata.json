@@ -1,0 +1,99 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "54a85f467bba",
+  "session_id": "019e45dd-0cb4-7911-8135-473abe1c8942",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-20T15:53:33.875579Z",
+  "branch": "main",
+  "checkpoints_count": 5,
+  "files_touched": [
+    ".rhapsody/config.toml",
+    "docs/SPEC.md",
+    "docs/adr/0013-define-post-run-decision-and-review-policy.md",
+    "lib/post-run-decision.test.ts",
+    "lib/post-run-decision.ts",
+    "lib/runners/sandbox-codex.ts",
+    "workflows/runner.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.4",
+  "turn_id": "1f2fb7d23712",
+  "token_usage": {
+    "input_tokens": 215608,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3436288,
+    "output_tokens": 21299,
+    "api_call_count": 75
+  },
+  "session_metrics": {
+    "turn_count": 16
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-20T15:53:33.830924Z",
+    "agent_lines": 824,
+    "agent_removed": 10,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 824,
+    "total_lines_changed": 834,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1915,
+      "agent_lines_removed": 340
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1915,
+      "agent_lines_removed": 340
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1915,
+      "agent_lines_removed": 340
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 38,
+      "user_lines_removed": 38,
+      "agent_lines_added": 1918,
+      "agent_lines_removed": 340,
+      "user_added_per_file": {
+        ".codex/hooks.json": 38
+      },
+      "user_removed_per_file": {
+        ".codex/hooks.json": 38
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 38,
+      "user_lines_removed": 38,
+      "agent_lines_added": 1918,
+      "agent_lines_removed": 340,
+      "user_added_per_file": {
+        ".codex/hooks.json": 38
+      },
+      "user_removed_per_file": {
+        ".codex/hooks.json": 38
+      }
+    }
+  ]
+}
