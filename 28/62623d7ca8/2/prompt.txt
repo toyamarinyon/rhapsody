@@ -1,0 +1,38 @@
+続きお願いします。作業ディレクトリは /Users/toyamarinyon/Documents/rhapsody です。
+
+現状:
+- `c575dcc feat: start scheduler tick through workflow` までコミット済み。
+- `POST /api/v1/admin/scheduler/tick` は `schedulerWorkflow` を start します。
+- `workflows/scheduler.ts` は `runSchedulerTickStep()` で `runSchedulerTick(client)` を呼び、Project Todo から claim/run/attempt を作ります。
+- ただし `runSchedulerTick` の戻り値はまだ `executed:false` で、runner workflow は起動していません。
+
+次のゴール:
+「Project Todo → scheduler workflow → run/attempt 作成 → runner workflow start」までを最小でつないでください。まだ runner の中で完全な Sandbox Codex 実行まで行けなくても、既存の実行 path に自然につながる形にしてください。
+
+実装方針の希望:
+- `workflows/runner.ts` を新規作成するのが自然そうです。
+- runner workflow の入力は `runId`, `attemptId` を中心に、必要なら最小限の metadata を足してください。
+- scheduler workflow は `runSchedulerTickStep()` の結果から `createdRuns` を見て、各 run/attempt に対して `start(runnerWorkflow, [...])` する。
+- start した runner workflow id は scheduler の returnValue に含めたいです。`runSchedulerTick` core 側をどう変えるかは任せますが、route 専用ではなく workflow から読みやすい形にしてください。
+- runner workflow 内では、既存の run endpoint が使っている実行処理を再利用できるなら core に切り出してください。無理に全部移植せず、最小で「runner workflow が起動し、run/attempt の実行開始 path に入れる」ところを優先してください。
+- 既存 API route の互換性はなるべく壊さないでください。
+- 人間が読める命名と境界を大事に。Workflow SDK の都合を隠しすぎず、でも route に orchestration logic を戻さないでください。
+
+まず実装に入ってください。完了したら、変更ファイル、設計意図、実行したチェック、未確認事項をまとめてください。
+
+---
+
+レビュー結果です。こちらで以下を修正しました。
+
+- `app/api/v1/admin/scheduler/tick/route.ts` の `GET ?runId=` は、Workflow SDK 4.2.4 だと `exists/status/returnValue` が Promise getter なので、関数ガード版では実行時に壊れます。前回通った `await run.exists`, `await run.status`, completed のときだけ `await run.returnValue` に戻しました。
+- `workflows/scheduler.ts` は created run が 0 件でも `execution.triggered: true` になっていたので、`runnerWorkflows.length > 0` ベースに修正し、`executed` も同じ意味に揃えました。
+
+Preview E2E 結果:
+- deploy 成功。Workflow manifest は 2 workflows / 69 steps。
+- `POST /api/v1/admin/scheduler/tick` 成功。
+- scheduler workflow returnValue に createdRuns と runnerWorkflows が入りました。
+- runner workflow は completed し、`runAttemptExecution` 経由で sandbox-codex runner に入りました。
+- run/attempt は `running -> failed` まで更新されました。
+- 失敗原因は Codex ChatGPT auth refresh の 401 (`Your access token could not be refreshed`) で、scheduler/runner workflow 接続とは別件に見えます。
+
+この状態で設計・実装上の懸念が他にあれば教えてください。特になければこの差分を現時点の完了として扱います。
