@@ -1,0 +1,31 @@
+In /Users/toyamarinyon/Documents/rhapsody, implement the PR-spec handoff for sandbox-codex. You are not alone in the codebase; do not revert others' edits. Keep changes scoped and human-readable.
+
+Goal:
+- Codex generates PR title/body as structured output in a repository-external sandbox path.
+- Trusted Rhapsody runner reads that output and creates or reuses a GitHub Pull Request after postflight succeeds.
+
+Desired design:
+1. Define a repository-external output path, e.g. `/vercel/sandbox/rhapsody-output/pr.json`.
+2. Update sandbox-codex prompt instructions so Codex must write that JSON with schema `{ "title": string, "body": string }`.
+3. Update wrapper/postflight so write-mode success requires:
+   - commit exists beyond `origin/main`
+   - push succeeds
+   - remote branch verifies
+   - PR spec file exists, parses as JSON, and has non-empty title/body
+   - include the parsed PR spec in wrapper stdout/callback parse output, but not in state callback payload unless needed.
+4. Add trusted GitHub helper in `lib/github/pull-requests.ts` using existing env/config patterns. It should:
+   - look for an existing open PR for same head branch in configured owner/repo
+   - reuse if found
+   - otherwise create a PR with base `main`, head branch, generated title/body
+   - return `{ reused, number, htmlUrl, headRef, baseRef, title }` or similar.
+5. In `runSandboxCodexRunner`, after wrapper callback parse indicates postflight ok and contains PR spec, call trusted helper, create an event like `sandbox_codex_runner.pull_request_ready`, and if PR creation fails, mark attempt/run failed via terminal callback or otherwise ensure API response/current state reflects failure. Prefer simple reliable behavior over complex migration.
+6. Record PR info in events only for MVP; do not add DB columns.
+7. Do not let Codex create PRs or call GitHub API for PR creation; update prompt accordingly.
+8. Keep existing E2E branch push behavior intact.
+
+Validation:
+- Run `pnpm exec tsc --noEmit`
+- Run `pnpm lint`
+- Run `git diff --check`
+
+Return changed files and any verification results. Do not commit.
