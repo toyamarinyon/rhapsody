@@ -1,0 +1,56 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "5b1c3aff6d41",
+  "session_id": "019e4395-8f25-7832-9798-b640186116b8",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-20T04:17:23.847884Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/SPEC.md",
+    "lib/runners/sandbox-codex.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "31ef9f5438f1",
+  "token_usage": {
+    "input_tokens": 81736,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1235328,
+    "output_tokens": 15052,
+    "api_call_count": 22
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-20T04:17:23.833312Z",
+    "agent_lines": 0,
+    "agent_removed": 19,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 127,
+    "total_committed": 58,
+    "total_lines_changed": 146,
+    "agent_percentage": 13.013698630136986,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 431,
+      "user_lines_removed": 127,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/SPEC.md": 15,
+        "lib/github/pull-requests.ts": 231,
+        "lib/runners/sandbox-codex.ts": 185
+      },
+      "user_removed_per_file": {
+        "docs/SPEC.md": 12,
+        "lib/runners/sandbox-codex.ts": 115
+      }
+    }
+  ]
+}

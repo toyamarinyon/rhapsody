@@ -1,0 +1,16 @@
+In /Users/toyamarinyon/Documents/rhapsody, perform a fresh pre-commit review of the current working tree. Do not edit files. Focus only on bugs, state-transition risks, security boundary issues, and spec drift in the uncommitted PR handoff implementation.
+
+Context to know:
+- Goal: Codex running in Vercel Sandbox generates PR title/body as JSON outside the repository at `/vercel/sandbox/rhapsody-output/pr.json`.
+- Trusted Rhapsody runner reads that JSON and creates or reuses a GitHub PR after branch push/postflight verification.
+- The wrapper should not send terminal callback itself; runner should apply terminal callback only after PR handoff succeeds or fails.
+- Changed files likely include `lib/runners/sandbox-codex.ts`, `lib/github/pull-requests.ts`, and `docs/SPEC.md`.
+
+Please review:
+1. Is terminal state application correct, especially PR handoff failure after wrapper success?
+2. Is PR reuse/create idempotent and scoped enough to owner/repo/base/head?
+3. Are secrets or callback tokens exposed to Codex/sandbox more than intended?
+4. Does SPEC now accurately describe the implementation without overstating mediator guarantees?
+5. Any TypeScript/runtime issues that `tsc` might miss due to wrapper string code?
+
+Return findings ordered by severity with file/line references. If no blockers, say so and list residual risks.
