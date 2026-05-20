@@ -104,3 +104,7 @@ workflow的にはどんな感じで動くんですかね？
 > 補足すると、いまの Done / Human Review は trusted action 側で固定文字列として使っています。
 
 どの部分ですか？
+
+---
+
+updateProjectIssueStatusのstatusが固定値なんですね。一度コミットして、ここやりましょう。実装は [@ikura](agent://019e4607-4de2-7922-9031-735f9754bac9) に依頼してあなたはアウトプットの評価とフィードバックをお願いします。
