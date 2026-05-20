@@ -1,0 +1,55 @@
+Implement config-driven post-run decision policy for Rhapsody in this repo. You own the code changes for config loading/policy evaluation/runner integration/docs/tests in your branch workspace. You are not alone in the codebase; do not revert others' edits, and adapt to existing changes.
+
+Context:
+- Repo root: /Users/toyamarinyon/Documents/rhapsody
+- Current relevant files: lib/config.ts, workflows/runner.ts, docs/SPEC.md, docs/adr/0013-define-post-run-decision-and-review-policy.md, rhapsody.config.ts, .rhapsody/ currently only has INSTRUCTIONS.md.
+- Current main branch does not yet have lib/post-run-decision.ts; PR #38 proposed it, but implement against current workspace state.
+
+Goals:
+1. Add repo-owned `.rhapsody/config.toml` as the initial home for post-run decision policy.
+2. Define a `post_run.auto_merge_eligible` array-of-tables schema where rules are ORed and each rule's fields are ANDed.
+3. Support rg/gitignore-like path patterns with `!` negation inside each rule, specifically so `docs/**` plus `!docs/adr/**` works. Keep supported pattern surface intentionally small and documented.
+4. Keep default posture conservative: human review required by default; only changes matching an eligible rule can become auto-merge candidates. Unknown/non-matching paths should not auto-merge.
+5. Replace/extend current post-run decision logic to be config-driven and explainable, including matched rule / excluded paths / unmatched paths where useful.
+6. Wire runner post-run decision into current workflow in a way that preserves trusted side effects. It's OK if auto-merge remains a candidate outcome rather than actually merging, as long as the structure supports the smarter decision path and human review fallback.
+7. Update docs/spec/ADR as needed.
+
+Constraints/preferences:
+- Read local docs/instructions before editing.
+- Prefer existing repo patterns.
+- If there is no TOML parser dependency, avoid adding network-dependent installs. Either use an already available dependency or implement a narrowly scoped parser/loader for the needed subset.
+- Use apply_patch for edits.
+- Add focused tests if feasible.
+
+Please return:
+- Summary of what you changed
+- File list changed
+- Any risks or follow-up gaps
+- Verification you were able to run (or why not)
+
+---
+
+Quick check-in: please send a concise progress update, especially whether you found an approach for TOML parsing and how you are modeling the OR/AND path rules.
+
+---
+
+That direction sounds good. Please finish the implementation and then send your final summary with changed files, risks/gaps, and verification run. Include any important semantics choices around `paths` matching so I can review them closely.
+
+---
+
+Nice progress. I want one revision pass before I accept it.
+
+Please address these issues:
+1. Keep `paths` as the primary pattern list with rg/gitignore-like negation inside the same array. Do not require a separate `excludes` field for the core behavior. Supporting `!docs/adr/**` inside `paths` is the important part.
+2. Rule semantics for `paths` should be conservative but intuitive: changed files must be included by at least one positive pattern and excluded by no negative pattern. However, do NOT require every positive include pattern to be matched by at least one file; that makes rules surprisingly strict.
+3. Update docs/config examples to reflect the single-array `paths` approach.
+4. If feasible, add a focused test or at least a small self-check around pattern/rule evaluation, since this is easy to get subtly wrong.
+
+Please send back the delta from your previous version and any remaining tradeoffs.
+
+---
+
+One last review pass from me:
+- Please remove or clearly quarantine any undocumented legacy `excludes` compatibility if it complicates the public schema. I’d prefer the schema surface to stay small unless compatibility is truly needed.
+- Please confirm whether the unrelated formatter churn is only in your worker workspace or part of the intended change set. If it touched unrelated files in your branch, revert that churn before considering this done.
+- Please send a concise final verdict: do you believe the patch is clean/minimal now, and if not, what remains?
