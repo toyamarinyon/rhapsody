@@ -1,9 +1,11 @@
 import { runAttemptExecution } from "@/lib/runners/registry";
 import { loadRhapsodyConfig } from "@/lib/config";
 import { createOrReuseOpenPullRequest } from "@/lib/github/pull-requests";
+import { parseWorkItemIssueNumber } from "@/lib/attempt-branch";
 import {
 	applyAttemptTerminalCallback,
 	createEvent,
+	getRunDetail,
 	createStateStoreClient,
 	type AttemptTransitionResult,
 } from "@/lib/state";
@@ -140,13 +142,15 @@ async function completeRunnerHandoff(
 	const client = createStateStoreClient();
 
 	try {
+		const detail = await getRunDetail(client, input.runId);
+		const issueNumber = detail ? parseWorkItemIssueNumber({ workItemId: detail.run.workItemId }) : null;
 		const handoff = await createOrReuseOpenPullRequest({
 			owner: config.repository.owner,
 			repository: config.repository.name,
 			base: config.repository.defaultBranch,
 			head: callbackPayload.branchName,
 			title: callbackPayload.prSpec.title,
-			body: callbackPayload.prSpec.body,
+			body: appendIssueReference(callbackPayload.prSpec.body, issueNumber),
 		});
 
 		await createEvent(client, {
@@ -255,4 +259,19 @@ function isPrSpec(value: unknown): value is { title: string; body: string } {
 		typeof (value as { body: unknown }).body === "string" &&
 		(value as { body: string }).body.trim().length > 0
 	);
+}
+
+function appendIssueReference(body: string, issueNumber: number | null) {
+	if (issueNumber === null) {
+		return body;
+	}
+
+	const reference = `Refs #${issueNumber}`;
+	const issuePattern = new RegExp(`(?:refs|closes|fixes|resolves)\\s+#${issueNumber}(?!\\d)`, "iu");
+
+	if (issuePattern.test(body)) {
+		return body;
+	}
+
+	return `${body.trimEnd()}\n\n${reference}`;
 }
