@@ -1,0 +1,25 @@
+そうですね。tickができることはわかったので、このままADR/SPECに合わせて実装を進めていいかなと思います。一度コミットしておきましょうか。
+
+---
+
+pushする前に、実装を進めたいです。できますか？決めることがありますか？
+
+---
+
+> Workflow SDK 導入前に、まず scheduler core を route から分離
+
+これをやりましょう。できたら動作確認して、問題なければそのままCに進んでください。 [@lilas](agent://019e445c-3ddd-78c0-b981-5d1c1652c1bb) 使ってくださいね。
+
+---
+
+> pnpm lint: pass。ただし Workflow SDK が生成した ignored file に eslint-disable warning が2件出ます
+
+.gitignoreのファイルにはeslintもignoreするようにできないんでしたっけ？
+
+---
+
+globalIgnore追加するんじゃなくて、gitignoreを考慮する設定みたいなイメージでした
+
+---
+
+いや、これも微妙ですね。plugin追加してやるほどじゃないので最初通りglobalIgnoreに追加で良いです。

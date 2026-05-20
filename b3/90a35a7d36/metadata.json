@@ -1,0 +1,32 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "b390a35a7d36",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "app/api/v1/admin/scheduler/tick/route.ts",
+    "eslint.config.mjs",
+    "lib/scheduler/tick.ts",
+    "next.config.ts",
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "workflows/scheduler.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b3/90a35a7d36/0/metadata.json",
+      "transcript": "/b3/90a35a7d36/0/full.jsonl",
+      "content_hash": "/b3/90a35a7d36/0/content_hash.txt",
+      "prompt": "/b3/90a35a7d36/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 171761,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 11419904,
+    "output_tokens": 19124,
+    "api_call_count": 129
+  }
+}
