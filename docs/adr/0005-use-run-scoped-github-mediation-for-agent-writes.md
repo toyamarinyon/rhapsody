@@ -129,6 +129,17 @@ Negative consequences:
 - Store the upstream `GITHUB_TOKEN` only in trusted Rhapsody environment variables or secret storage.
 - Verify post-run that any created PR belongs to the configured repository, targets the configured
   base branch, and uses an expected branch prefix.
+- For smoke-testing Vercel Sandbox network-policy header injection, use a narrow internal
+  `/api/internal/sandbox-git-operations-smoke` endpoint that applies Authorization transforms to
+  `github.com`, `*.github.com`, and `api.github.com` for `ls-remote` smoke checks.
+- The same smoke endpoint also supports explicit `clone` and `push` test operations. `push` is
+  explicit-only and experimental: it requires `branchName` and enforces the `rhapsody-smoke/` prefix,
+  then performs a temporary smoke write/commit/push under `.rhapsody-smoke/` inside a sandboxed clone.
+- A local smoke test on 2026-05-20 showed `git ls-remote` fails with `token` and `bearer` header
+  forms, but succeeds when the transform injects GitHub's Basic auth form
+  `Authorization: Basic base64(x-access-token:<token>)`.
+- This broad host transform is explicitly experimental and does **not** replace the run-scoped GitHub
+  mediator model.
 
 ## Revisit When
 

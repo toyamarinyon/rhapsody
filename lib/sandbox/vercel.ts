@@ -84,6 +84,50 @@ export function buildVercelSandboxCallbackNetworkPolicy(args: {
 	};
 }
 
+export function buildVercelSandboxGitHubNetworkPolicy(args: {
+	githubToken: string;
+	authorizationHeaderPrefix?: "token" | "bearer" | "basic";
+}): NetworkPolicy {
+	// WARNING: Broad github.com + *.github.com + api.github.com header transform is
+	// exploratory for smoke testing and is not the final mediator model for
+	// agent-scoped writes.
+	const tokenHeaderPrefix = args.authorizationHeaderPrefix ?? "basic";
+	const authorizationValue = buildTokenAuthorizationHeader(
+		tokenHeaderPrefix,
+		args.githubToken,
+	);
+
+	return {
+		allow: {
+			"github.com": buildAuthorizationTransformRule(authorizationValue),
+			"*.github.com": buildAuthorizationTransformRule(authorizationValue),
+			"api.github.com": buildAuthorizationTransformRule(authorizationValue),
+		},
+	};
+}
+
+function buildAuthorizationTransformRule(authorizationValue: string): NetworkPolicyRule[] {
+	return [
+		{
+			transform: [
+				{
+					headers: {
+						Authorization: authorizationValue,
+					},
+				},
+			],
+		},
+	];
+}
+
+function buildTokenAuthorizationHeader(prefix: "token" | "bearer" | "basic", githubToken: string) {
+	if (prefix === "basic") {
+		return `Basic ${Buffer.from(`x-access-token:${githubToken}`, "utf8").toString("base64")}`;
+	}
+
+	return `${prefix} ${githubToken}`;
+}
+
 export function buildVercelSandboxCodexNetworkPolicy(args: {
 	callbackUrl: string;
 	codexProxyUrl: string;
