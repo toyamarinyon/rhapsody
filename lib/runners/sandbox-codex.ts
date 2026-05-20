@@ -828,7 +828,7 @@ async function runWritePostflight(metadata) {
 	};
 }
 
-async function changedFilesFromGit(workdir: string, baseBranch: string): Promise<string[]> {
+async function changedFilesFromGit(workdir, baseBranch) {
 	const changedFilesCommand = await runCommand(
 		"git",
 		["diff", "--name-only", "origin/" + baseBranch + "..HEAD"],
