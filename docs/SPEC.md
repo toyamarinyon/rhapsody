@@ -696,6 +696,9 @@ Minimum endpoints:
   - Returns item-specific run/debug details.
 - `GET /api/v1/runs/:run_id`
   - Returns run attempts, sandbox references, logs, sandbox exports, snapshots, and GitHub links.
+  - Includes a derived diagnostics projection for failed, stale, and running attempts, with a
+    human-readable summary, latest error event, terminal callback error when present, claim expiry
+    state, and conservative recommended operator action.
 - `POST /api/v1/refresh`
   - Requests an immediate scheduler tick.
 
