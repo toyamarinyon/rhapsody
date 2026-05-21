@@ -1,0 +1,32 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "51c0d246d357",
+  "session_id": "019e445c-3ddd-78c0-b981-5d1c1652c1bb",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-21T04:26:03.907131Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "app/api/v1/admin/scheduler/tick/route.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "5b4d1788b77a",
+  "checkpoint_transcript_start": 1213,
+  "transcript_lines_at_start": 1213,
+  "session_metrics": {
+    "turn_count": 11
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-21T04:26:03.846195Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 20,
+    "human_modified": 9,
+    "human_removed": 0,
+    "total_committed": 20,
+    "total_lines_changed": 29,
+    "agent_percentage": 0,
+    "metric_version": 2
+  }
+}

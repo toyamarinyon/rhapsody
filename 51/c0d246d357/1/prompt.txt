@@ -1,0 +1,167 @@
+続きお願いします。作業ディレクトリは /Users/toyamarinyon/Documents/rhapsody です。
+
+現状:
+- `c575dcc feat: start scheduler tick through workflow` までコミット済み。
+- `POST /api/v1/admin/scheduler/tick` は `schedulerWorkflow` を start します。
+- `workflows/scheduler.ts` は `runSchedulerTickStep()` で `runSchedulerTick(client)` を呼び、Project Todo から claim/run/attempt を作ります。
+- ただし `runSchedulerTick` の戻り値はまだ `executed:false` で、runner workflow は起動していません。
+
+次のゴール:
+「Project Todo → scheduler workflow → run/attempt 作成 → runner workflow start」までを最小でつないでください。まだ runner の中で完全な Sandbox Codex 実行まで行けなくても、既存の実行 path に自然につながる形にしてください。
+
+実装方針の希望:
+- `workflows/runner.ts` を新規作成するのが自然そうです。
+- runner workflow の入力は `runId`, `attemptId` を中心に、必要なら最小限の metadata を足してください。
+- scheduler workflow は `runSchedulerTickStep()` の結果から `createdRuns` を見て、各 run/attempt に対して `start(runnerWorkflow, [...])` する。
+- start した runner workflow id は scheduler の returnValue に含めたいです。`runSchedulerTick` core 側をどう変えるかは任せますが、route 専用ではなく workflow から読みやすい形にしてください。
+- runner workflow 内では、既存の run endpoint が使っている実行処理を再利用できるなら core に切り出してください。無理に全部移植せず、最小で「runner workflow が起動し、run/attempt の実行開始 path に入れる」ところを優先してください。
+- 既存 API route の互換性はなるべく壊さないでください。
+- 人間が読める命名と境界を大事に。Workflow SDK の都合を隠しすぎず、でも route に orchestration logic を戻さないでください。
+
+まず実装に入ってください。完了したら、変更ファイル、設計意図、実行したチェック、未確認事項をまとめてください。
+
+---
+
+レビュー結果です。こちらで以下を修正しました。
+
+- `app/api/v1/admin/scheduler/tick/route.ts` の `GET ?runId=` は、Workflow SDK 4.2.4 だと `exists/status/returnValue` が Promise getter なので、関数ガード版では実行時に壊れます。前回通った `await run.exists`, `await run.status`, completed のときだけ `await run.returnValue` に戻しました。
+- `workflows/scheduler.ts` は created run が 0 件でも `execution.triggered: true` になっていたので、`runnerWorkflows.length > 0` ベースに修正し、`executed` も同じ意味に揃えました。
+
+Preview E2E 結果:
+- deploy 成功。Workflow manifest は 2 workflows / 69 steps。
+- `POST /api/v1/admin/scheduler/tick` 成功。
+- scheduler workflow returnValue に createdRuns と runnerWorkflows が入りました。
+- runner workflow は completed し、`runAttemptExecution` 経由で sandbox-codex runner に入りました。
+- run/attempt は `running -> failed` まで更新されました。
+- 失敗原因は Codex ChatGPT auth refresh の 401 (`Your access token could not be refreshed`) で、scheduler/runner workflow 接続とは別件に見えます。
+
+この状態で設計・実装上の懸念が他にあれば教えてください。特になければこの差分を現時点の完了として扱います。
+
+---
+
+続きお願いします。作業ディレクトリは /Users/toyamarinyon/Documents/rhapsody です。
+
+前提:
+- 直近コミットは `7f4aa4f feat: run scheduler attempts through oidc workflow`。
+- `INITIAL_CHATGPT_AUTH_JSON` seed + DB credential state + OIDC variant で direct runner / workflow runner ともに Codex 実行と issue comment 作成まで成功しています。
+- default variant は 401 で怪しいので、ChatGPT proxy は OIDC に寄せたいです。
+- callback route `/api/internal/runs/callback` は今回は触らないでください。そこは `x-rhapsody-mediator-secret` のままで OK。ただし名称は将来改善余地あり、今回は対象外です。
+
+ゴール:
+ChatGPT proxy / sandbox-codex 周りを OIDC 前提に整理してください。
+
+やってほしいこと:
+1. `sandbox-codex` の ChatGPT proxy network policy を OIDC 固定にする。
+   - `networkPolicyVariant` の request body option を削除。
+   - `default`, `no-transform`, `path-prefix`, `query-bypass` など検証用 variant を削除。
+   - `workflows/runner.ts` から `networkPolicyVariant: "oidc"` の明示を不要にする。
+   - ChatGPT proxy 向けには mediator secret header を注入しない。OIDC header で認証する前提。
+   - callback URL への `x-rhapsody-mediator-secret` 注入は残して OK。
+
+2. legacy ChatGPT env seed を削除する。
+   - `CHATGPT_ACCESS_TOKEN`, `CHATGPT_REFRESH_TOKEN`, `CHATGPT_ACCOUNT_ID` の env 型/loader/fallback parser を削除。
+   - seed source は `INITIAL_CHATGPT_AUTH_JSON` のみ。
+   - `.env.example` から legacy fallback seed fields を削除。
+   - seed endpoint の error message も `INITIAL_CHATGPT_AUTH_JSON` 前提にする。
+   - dummy auth file の account id は DB state から取れないなら fallback でも良いですが、legacy env には戻さないでください。
+
+3. ChatGPT proxy route 側の mediator auth は OIDC を本線にする。
+   - `x-rhapsody-mediator-secret` fallback が ChatGPT proxy に残っているなら削除してよいです。
+   - ただし `/api/internal/runs/callback` の secret 認証は変更しないでください。
+
+4. docs については、明らかに古い `.env.example` と必要なら SPEC/ADR の一文だけ直してください。大きな ADR はまだ不要です。
+
+完了後:
+- 変更ファイル
+- 設計判断
+- 実行したチェック
+- 気になる点
+を報告してください。
+
+---
+
+レビューと E2E 結果です。
+
+こちらで確認したこと:
+- 差分の方向性は OK です。
+- callback route `/api/internal/runs/callback` は未変更で、secret 認証のまま残っています。
+- ChatGPT proxy route から mediator secret fallback が消え、OIDC のみになっています。
+- legacy env (`CHATGPT_ACCESS_TOKEN`, `CHATGPT_REFRESH_TOKEN`, `CHATGPT_ACCOUNT_ID`) は config/env/example/seed parser から消えています。
+- `networkPolicyVariant` と検証用 variants も runner request / workflow / network policy から消えています。
+
+Checks:
+- `pnpm exec tsc --noEmit`: pass
+- `pnpm lint`: pass
+- `git diff --check`: pass
+
+Preview E2E:
+- deploy: success
+- seed-from-env: success (`INITIAL_CHATGPT_AUTH_JSON` only)
+- issue #32 を Project に追加して scheduler workflow 起動
+- scheduler workflow が #32 の run/attempt を作成し、runner workflow start
+- runner workflow が sandbox-codex を OIDC-only network policy で実行
+- Codex reached execution and created an issue comment:
+  `OIDC-only sandbox-codex workflow smoke test reached Codex execution.`
+- Rhapsody run/attempt は failed ですが、理由は既知の no-commit postflight (`Codex did not create a commit beyond origin/main.`)。今回の OIDC 統一とは別件です。
+
+気になる点:
+- `buildVercelSandboxCodexNetworkPolicy` は引数名として `mediatorSecret` をまだ受けていますが、これは callback host の transform にだけ使っています。将来 rename したいですが、今回 callback は対象外なのでこのままでよさそうです。
+- SPEC/ADR の `MEDIATOR_SECRET` 記述は callback や GitHub mediator も含む広い話なので、ChatGPT proxy OIDC 化と矛盾しないかだけ最終的に軽く見たいです。
+
+追加で懸念があれば教えてください。なければこの差分は mergeable と見ます。
+
+---
+
+Implement reconciler MVP for stale running attempts in /Users/toyamarinyon/Documents/rhapsody.
+
+Context:
+- Recent production run #35 got stuck: sandbox timed out at 5m and stopped, while Rhapsody run/attempt stayed running after last event `sandbox_codex_runner.prompt_rendered`.
+- We decided NOT to make reconciler a Workflow yet. Implement a route-triggered MVP with Workflow-ready core function.
+- Vercel Cron should use `CRON_SECRET`; Vercel sends `Authorization: Bearer <CRON_SECRET>` automatically per docs. Manual admin calls should still work with existing `ROOT_PASSWORD` auth if practical.
+
+Goals:
+1. Add stale attempt reconciliation core, e.g. `runReconcilerTick({ now, maxRunningAttemptAgeMs, limit })`.
+2. Find running attempts older than a configurable timeout/grace budget and mark attempt/run terminal (`timed_out` or `stale`; choose the most appropriate based on existing state model), release claim, and emit clear events.
+3. Add API route, likely `app/api/v1/admin/reconcile/route.ts`, callable by Vercel Cron and manual admin.
+4. Add `CRON_SECRET` env parsing/example/docs where appropriate.
+5. Add `vercel.json` cron entry for periodic reconcile, probably every 5 minutes, if project already uses vercel.json or create it if appropriate.
+6. Also address the root cause: set explicit Vercel Sandbox timeout longer than Codex wrapper timeout. Add a sandbox timeout field to `createVercelSandbox` and use it in sandbox-codex runner (e.g. wrapper/Codex timeout plus buffer, or a clear constant). Keep it simple.
+7. Tests or focused coverage where practical. At minimum run `pnpm lint`, `pnpm exec tsc --noEmit`, and `git diff --check`.
+
+Constraints:
+- Keep implementation small and readable; no broad refactor.
+- Do not use Python or shell file writes for source edits; use apply_patch.
+- Do not revert unrelated changes.
+- Avoid logging secrets.
+- Reconciler must be idempotent and safe for repeated cron invocations.
+- Do not implement a workflow for reconciliation yet, but structure the core so it can move into a workflow later.
+
+Please edit files directly in your workspace and report changed files, key behavior, and verification results.
+
+---
+
+Rhapsody repo task: implement ADR-aligned callback-driven runner orchestration. Context: current implementation incorrectly waits synchronously inside workflows/runner.ts -> runAttemptExecution -> sandbox.runCommand until Codex/Sandbox completion. ADR 0006 and ADR 0011 require runner workflow to start detached sandbox wrapper command, persist sandbox/command/hook/callback state, pause on Workflow hook, and have the sandbox wrapper send terminal callback to /api/internal/runs/callback which persists payload and resumes the workflow. Please inspect docs/adr/0006-use-callback-driven-workflow-orchestration.md, docs/adr/0011-use-sandbox-wrapper-for-mvp-runner-execution.md, docs/SPEC.md sections around Runner Workflow, and current code. Implement a scoped fix toward the ADR shape. Important: do not revert unrelated changes. You are not alone in the codebase; accommodate existing edits. Prefer small, readable changes.
+
+Expected direction:
+- Runner workflow should not wait for full Codex execution in a Vercel Function step.
+- Start sandbox wrapper as detached command and persist enough state (sandboxId, commandId, hook token/state if available with current Workflow SDK).
+- Callback route should remain idempotent and should resume the workflow hook if Workflow SDK API supports it in current project dependencies.
+- If Workflow SDK hook API is not obvious/available, implement the nearest safe slice and clearly report blocker and exact API gap.
+- Preserve current PR creation/post-run logic placement if possible, but do not fake completion.
+- Run pnpm exec tsc --noEmit, pnpm lint, and git diff --check.
+
+Please edit files directly in your workspace and report changed files, verification, and any remaining gaps.
+
+---
+
+Review feedback: the hook/pause/resume direction is good, but one important ADR mismatch remains. Current callback route still calls applyAttemptTerminalCallback before resuming the workflow, so a callback with executionStatus=completed makes the run completed before trusted PR handoff/verification. ADR 0006/0011/SPEC say the wrapper reports observed execution facts; the runner workflow then creates/reuses PR and evaluates final attempt/run status separately.
+
+Please adjust the implementation so:
+1. /api/internal/runs/callback authenticates and validates the callback, persists a callback-received event/payload, and resumes the hook. It should NOT finalize the attempt/run before workflow handoff evaluation.
+2. Duplicate callback for an already-terminal attempt should not resume the hook again.
+3. runnerWorkflow after `await hook` should perform PR handoff when callback execution completed + prSpec valid, then call applyAttemptTerminalCallback itself with final evaluated executionStatus/error. If PR handoff fails/missing after a completed execution, final status should be failed with a clear error.
+4. Preserve failed/timed_out callback behavior: workflow should finalize failed/timed_out appropriately after resume.
+5. Keep the callback payload carrying claimToken into the workflow because finalization needs it.
+6. Keep the wrapper best-effort callback retry that I added, and keep idempotency safe.
+
+Run pnpm exec tsc --noEmit, pnpm lint, git diff --check again and report changed files. Do not revert unrelated changes.
