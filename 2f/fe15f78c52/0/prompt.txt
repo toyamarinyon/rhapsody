@@ -170,3 +170,19 @@ Requirements:
 5. Run `pnpm format:check` and `pnpm typecheck`.
 
 Please edit files directly. Final response: changed files, verification, caveats, and a short note about how post-PR checks are classified.
+
+---
+
+Phase 3 review feedback. Please refine the implementation before we commit:
+
+1. `lib/github/checks.ts` currently uses the combined commit status endpoint only. That often misses GitHub Actions check runs. Please update it to inspect GitHub check runs for the PR head SHA, preferably via REST `GET /repos/{owner}/{repo}/commits/{ref}/check-runs` after fetching the PR head SHA. You may keep commit status as fallback if there are no check runs or the check-run response is unknown. The summary evidence should include enough detail for future repair: check run name/status/conclusion/detailsUrl (trimmed list is fine), headSha, classification.
+
+Classification guidance:
+- any queued/in_progress/requested/waiting/pending check => `checks_pending`
+- any completed check with failure/error/timed_out/cancelled/action_required => `ci_failed`
+- all completed success/skipped/neutral => `checks_success`
+- no usable signals or parse/API failure => `checks_unknown` (or fallback to combined status if available)
+
+2. Avoid creating duplicate post-PR curator decisions every scheduler tick for the same PR head/classification. Add a freshness/dedup guard. A simple rule is fine: if the graph already has a latest `post_pr` decision whose evidence has the same pull request number, head SHA, and classification, skip creating a new curator run and report handled/skipped accordingly.
+
+3. Keep typecheck/format clean. Do not add repair yet.
