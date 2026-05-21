@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rhapsody Diagnostics"
+  short_description: "Triage Rhapsody issue and run failures"
+  default_prompt: "Use $rhapsody-diagnostics to investigate why this Rhapsody issue did not create a pull request."
