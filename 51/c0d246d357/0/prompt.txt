@@ -329,3 +329,7 @@ typecheckをscriptに追加して、tsc --noEmitと一緒にnode --check lib/...
 ---
 
 結構いい感じになってきたのでcronでtickも動かしましょうか。
+
+---
+
+tickは1分ごとがいいですね。
