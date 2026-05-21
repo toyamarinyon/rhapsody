@@ -20,6 +20,7 @@ import {
 	linkIntakeToBuilder,
 	runPostPrCurator,
 } from "@/lib/workers/curator";
+import { runRepairerPlanner } from "@/lib/workers/repairer";
 import { loadRhapsodyConfig } from "@/lib/config";
 
 type SchedulerTickCreatedRun = {
@@ -480,7 +481,7 @@ async function runPostPrCuratorForInProgress(
 			};
 		}
 
-		await runPostPrCurator(client, {
+		const postPrResult = await runPostPrCurator(client, {
 			workItem: item,
 			workItemId,
 			owner: config.repository.owner,
@@ -489,6 +490,20 @@ async function runPostPrCuratorForInProgress(
 			pullRequestUrl: pullRequestArtifact.url ?? "",
 			existingDecisions: graph.decisions,
 		});
+		if (
+			postPrResult.classification === "ci_failed" &&
+			!postPrResult.skippedFreshDuplicate
+		) {
+			await runRepairerPlanner(client, {
+				workItem: item,
+				workItemId,
+				postPrDecisionId: postPrResult.decisionId,
+				pullRequestNumber: pullRequestArtifact.number,
+				pullRequestUrl: pullRequestArtifact.url ?? "",
+				checkSummary: postPrResult.checkSummary,
+				existingDecisions: graph.decisions,
+			});
+		}
 
 		return {
 			handled: true,

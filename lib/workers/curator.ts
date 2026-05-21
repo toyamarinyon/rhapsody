@@ -7,6 +7,7 @@ import {
 	type Decision,
 } from "@/lib/state";
 import { getPullRequestCheckSummary } from "@/lib/github/checks";
+import type { PullRequestCheckSummary } from "@/lib/github/checks";
 import type { GitHubProjectIssueWorkItem } from "@/lib/github/project-items";
 
 export type IntakeCuratorOutcome = "buildable" | "ask_human";
@@ -29,17 +30,7 @@ export type PostPrCuratorResult = {
 		| "ci_failed"
 		| "checks_unknown";
 	skippedFreshDuplicate: boolean;
-	checkSummary: {
-		classification:
-			| "checks_pending"
-			| "checks_success"
-			| "ci_failed"
-			| "checks_unknown";
-		status: string | null;
-		headSha: string | null;
-		checkRuns: unknown[];
-		rawState?: string | null;
-	};
+	checkSummary: PullRequestCheckSummary;
 };
 
 export async function runIntakeCurator(
