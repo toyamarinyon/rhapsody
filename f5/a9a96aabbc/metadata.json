@@ -1,0 +1,27 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "f5a9a96aabbc",
+  "strategy": "manual-commit",
+  "branch": "codex/new-scheduler",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "lib/state/index.ts",
+    "lib/state/migrations.ts",
+    "lib/state/worker-graph.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f5/a9a96aabbc/0/metadata.json",
+      "transcript": "/f5/a9a96aabbc/0/full.jsonl",
+      "content_hash": "/f5/a9a96aabbc/0/content_hash.txt",
+      "prompt": "/f5/a9a96aabbc/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 128732,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3137280,
+    "output_tokens": 19972,
+    "api_call_count": 53
+  }
+}
