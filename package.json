@@ -7,7 +7,8 @@
 		"build": "next build",
 		"start": "next start",
 		"lint": "eslint",
-		"format": "biome format --write ."
+		"format": "biome format --write .",
+		"typecheck": "tsc --noEmit && node --check lib/runners/sandbox-codex-wrapper/wrapper.cjs"
 	},
 	"dependencies": {
 		"@libsql/client": "^0.17.3",
