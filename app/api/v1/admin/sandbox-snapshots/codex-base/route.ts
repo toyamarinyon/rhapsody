@@ -52,7 +52,10 @@ export async function POST(request: Request) {
 	try {
 		sandbox = await createVercelSandbox();
 		const codexVersionInitial = await runCodexVersion(sandbox);
-		commandSummaries.push({ command: BASE_COMMAND, summary: codexVersionInitial });
+		commandSummaries.push({
+			command: BASE_COMMAND,
+			summary: codexVersionInitial,
+		});
 
 		let codexVersion = normalizeVersionOutput(codexVersionInitial.stdout);
 		let codexVersionExitCode = codexVersionInitial.exitCode;
@@ -60,10 +63,16 @@ export async function POST(request: Request) {
 		if (codexVersionInitial.exitCode !== 0) {
 			const codexPackage = parsed.value.codexPackage ?? DEFAULT_CODEX_PACKAGE;
 			const installResult = await installCodexPackage(sandbox, codexPackage);
-			commandSummaries.push({ command: `npm install -g ${codexPackage}`, summary: installResult });
+			commandSummaries.push({
+				command: `npm install -g ${codexPackage}`,
+				summary: installResult,
+			});
 
 			const codexVersionAfterInstall = await runCodexVersion(sandbox);
-			commandSummaries.push({ command: BASE_COMMAND, summary: codexVersionAfterInstall });
+			commandSummaries.push({
+				command: BASE_COMMAND,
+				summary: codexVersionAfterInstall,
+			});
 			codexVersion = normalizeVersionOutput(codexVersionAfterInstall.stdout);
 			codexVersionExitCode = codexVersionAfterInstall.exitCode;
 		}
@@ -118,7 +127,10 @@ async function runCodexVersion(sandbox: RhapsodyVercelSandbox) {
 	});
 }
 
-async function installCodexPackage(sandbox: RhapsodyVercelSandbox, codexPackage: string) {
+async function installCodexPackage(
+	sandbox: RhapsodyVercelSandbox,
+	codexPackage: string,
+) {
 	return runVercelSandboxCommand(sandbox, {
 		cmd: "npm",
 		args: ["install", "-g", codexPackage],
@@ -130,7 +142,9 @@ function normalizeVersionOutput(value: string) {
 	return value.trim();
 }
 
-function parseCodexBaseRequest(body: string): { ok: true; value: CodexBaseRequest } | { ok: false; error: string } {
+function parseCodexBaseRequest(
+	body: string,
+): { ok: true; value: CodexBaseRequest } | { ok: false; error: string } {
 	if (!body.trim()) {
 		return { ok: true, value: {} };
 	}
@@ -152,13 +166,20 @@ function parseCodexBaseRequest(body: string): { ok: true; value: CodexBaseReques
 	}
 
 	if (typeof parsed.codexPackage !== "string" || !parsed.codexPackage.trim()) {
-		return { ok: false, error: "codexPackage must be a non-empty string when provided." };
+		return {
+			ok: false,
+			error: "codexPackage must be a non-empty string when provided.",
+		};
 	}
 
 	const codexPackage = parsed.codexPackage.trim();
 
 	if (!isAllowedCodexPackage(codexPackage)) {
-		return { ok: false, error: "codexPackage must be @openai/codex or @openai/codex@<version-or-tag>." };
+		return {
+			ok: false,
+			error:
+				"codexPackage must be @openai/codex or @openai/codex@<version-or-tag>.",
+		};
 	}
 
 	return { ok: true, value: { codexPackage } };

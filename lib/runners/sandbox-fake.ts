@@ -26,7 +26,10 @@ import {
 	markAttemptStarted,
 	getRunDetail,
 } from "@/lib/state";
-import { buildAttemptBranchName, parseWorkItemIssueNumber } from "@/lib/attempt-branch";
+import {
+	buildAttemptBranchName,
+	parseWorkItemIssueNumber,
+} from "@/lib/attempt-branch";
 import { type RunnerRouteContext } from "./types";
 
 const SANDBOX_FAKE_RUNNER_COMMAND = "sandbox-fake-runner";
@@ -41,7 +44,9 @@ type SandboxFakeRunnerRequest = {
 	callbackBaseUrl?: string;
 };
 
-export async function runSandboxFakeRunner(context: RunnerRouteContext): Promise<Response> {
+export async function runSandboxFakeRunner(
+	context: RunnerRouteContext,
+): Promise<Response> {
 	const { client, request, runId, attemptId, detail, attempt } = context;
 	const parsedBody = await readOptionalSandboxFakeRunnerRequest(request);
 
@@ -49,8 +54,12 @@ export async function runSandboxFakeRunner(context: RunnerRouteContext): Promise
 		return Response.json({ error: parsedBody.error }, { status: 400 });
 	}
 
-	const callbackBaseUrl = parsedBody.value.callbackBaseUrl ?? new URL(request.url).origin;
-	const callbackUrl = new URL("/api/internal/runs/callback", callbackBaseUrl).toString();
+	const callbackBaseUrl =
+		parsedBody.value.callbackBaseUrl ?? new URL(request.url).origin;
+	const callbackUrl = new URL(
+		"/api/internal/runs/callback",
+		callbackBaseUrl,
+	).toString();
 	let sandbox: RhapsodyVercelSandbox | null = null;
 
 	try {
@@ -58,7 +67,8 @@ export async function runSandboxFakeRunner(context: RunnerRouteContext): Promise
 		const mediatorEnv = loadRhapsodyMediatorEnv();
 		const protectionBypassEnv = loadRhapsodyProtectionBypassEnv();
 		const codexBaseSnapshotEnv = loadRhapsodyCodexBaseSnapshotEnv();
-		const sourceSnapshotId = codexBaseSnapshotEnv.RHAPSODY_CODEX_BASE_SNAPSHOT_ID ?? null;
+		const sourceSnapshotId =
+			codexBaseSnapshotEnv.RHAPSODY_CODEX_BASE_SNAPSHOT_ID ?? null;
 		const instructions = await loadRepositoryInstructions();
 		const prompt = renderRepositoryInstructions({
 			template: instructions.template,
@@ -70,7 +80,10 @@ export async function runSandboxFakeRunner(context: RunnerRouteContext): Promise
 			preview: prompt.slice(0, PROMPT_PREVIEW_LENGTH),
 		};
 
-		if (isTerminalRunStatus(detail.run.status) || isTerminalAttemptStatus(attempt.status)) {
+		if (
+			isTerminalRunStatus(detail.run.status) ||
+			isTerminalAttemptStatus(attempt.status)
+		) {
 			return Response.json({
 				idempotent: true,
 				runStatus: detail.run.status,
@@ -85,7 +98,8 @@ export async function runSandboxFakeRunner(context: RunnerRouteContext): Promise
 			networkPolicy: buildVercelSandboxCallbackNetworkPolicy({
 				callbackUrl,
 				mediatorSecret: mediatorEnv.MEDIATOR_SECRET,
-				vercelProtectionBypassSecret: protectionBypassEnv.VERCEL_PROTECTION_BYPASS_SECRET,
+				vercelProtectionBypassSecret:
+					protectionBypassEnv.VERCEL_PROTECTION_BYPASS_SECRET,
 			}),
 			...(sourceSnapshotId
 				? {
@@ -135,7 +149,9 @@ export async function runSandboxFakeRunner(context: RunnerRouteContext): Promise
 			attemptId,
 			gitBranchName: buildAttemptBranchName({
 				branchPrefix: config.repository.branchPrefix,
-				issueNumber: parseWorkItemIssueNumber({ workItemId: detail.run.workItemId }),
+				issueNumber: parseWorkItemIssueNumber({
+					workItemId: detail.run.workItemId,
+				}),
 				attemptNumber: attempt.attemptNumber,
 			}),
 			claimToken,
@@ -216,7 +232,9 @@ export async function runSandboxFakeRunner(context: RunnerRouteContext): Promise
 				terminalFallback,
 				currentRunStatus: refreshedDetail?.run.status ?? null,
 				currentAttemptStatus:
-					refreshedDetail?.attempts.find((candidate) => candidate.id === attemptId)?.status ?? null,
+					refreshedDetail?.attempts.find(
+						(candidate) => candidate.id === attemptId,
+					)?.status ?? null,
 			},
 		});
 	} catch (error) {
@@ -240,7 +258,9 @@ export async function runSandboxFakeRunner(context: RunnerRouteContext): Promise
 
 async function readOptionalSandboxFakeRunnerRequest(
 	request: Request,
-): Promise<{ ok: true; value: SandboxFakeRunnerRequest } | { ok: false; error: string }> {
+): Promise<
+	{ ok: true; value: SandboxFakeRunnerRequest } | { ok: false; error: string }
+> {
 	const text = await request.text();
 
 	if (!text.trim()) {
@@ -252,7 +272,10 @@ async function readOptionalSandboxFakeRunnerRequest(
 	try {
 		value = JSON.parse(text);
 	} catch {
-		return { ok: false, error: "Request body must be valid JSON when provided." };
+		return {
+			ok: false,
+			error: "Request body must be valid JSON when provided.",
+		};
 	}
 
 	if (!isRecord(value)) {
@@ -263,8 +286,14 @@ async function readOptionalSandboxFakeRunnerRequest(
 		return { ok: true, value: {} };
 	}
 
-	if (typeof value.callbackBaseUrl !== "string" || !value.callbackBaseUrl.trim()) {
-		return { ok: false, error: "callbackBaseUrl must be a non-empty string when provided." };
+	if (
+		typeof value.callbackBaseUrl !== "string" ||
+		!value.callbackBaseUrl.trim()
+	) {
+		return {
+			ok: false,
+			error: "callbackBaseUrl must be a non-empty string when provided.",
+		};
 	}
 
 	try {
@@ -351,7 +380,9 @@ function safeJson(text) {
 `;
 }
 
-function summarizeCommand(command: Awaited<ReturnType<typeof runVercelSandboxCommand>>) {
+function summarizeCommand(
+	command: Awaited<ReturnType<typeof runVercelSandboxCommand>>,
+) {
 	return {
 		commandId: command.commandId,
 		cwd: command.cwd,
@@ -382,9 +413,21 @@ function parseWrapperStdout(stdout: string) {
 }
 
 function isTerminalRunStatus(status: string) {
-	return status === "completed" || status === "failed" || status === "canceled" || status === "timed_out" || status === "stale";
+	return (
+		status === "completed" ||
+		status === "failed" ||
+		status === "canceled" ||
+		status === "timed_out" ||
+		status === "stale"
+	);
 }
 
 function isTerminalAttemptStatus(status: string) {
-	return status === "completed" || status === "failed" || status === "canceled" || status === "timed_out" || status === "stale";
+	return (
+		status === "completed" ||
+		status === "failed" ||
+		status === "canceled" ||
+		status === "timed_out" ||
+		status === "stale"
+	);
 }

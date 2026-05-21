@@ -1,6 +1,9 @@
 import { createClient, type Client } from "@libsql/client";
 
-import { loadRhapsodyStateStoreEnv, type RhapsodyStateStoreEnv } from "../config";
+import {
+	loadRhapsodyStateStoreEnv,
+	type RhapsodyStateStoreEnv,
+} from "../config";
 
 export function createStateStoreClient(
 	env: RhapsodyStateStoreEnv = loadRhapsodyStateStoreEnv(),

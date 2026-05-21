@@ -1,4 +1,6 @@
-export type JsonParseResult = { ok: true; value: unknown } | { ok: false; response: Response };
+export type JsonParseResult =
+	| { ok: true; value: unknown }
+	| { ok: false; response: Response };
 
 export async function readJson(request: Request): Promise<JsonParseResult> {
 	try {
@@ -6,7 +8,10 @@ export async function readJson(request: Request): Promise<JsonParseResult> {
 	} catch {
 		return {
 			ok: false,
-			response: Response.json({ error: "Request body must be valid JSON." }, { status: 400 }),
+			response: Response.json(
+				{ error: "Request body must be valid JSON." },
+				{ status: 400 },
+			),
 		};
 	}
 }

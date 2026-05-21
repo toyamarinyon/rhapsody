@@ -1,4 +1,7 @@
-import { DUMMY_CHATGPT_REFRESH_TOKEN, buildCodexChatGPTDummyAuthFile } from "@/lib/codex/auth";
+import {
+	DUMMY_CHATGPT_REFRESH_TOKEN,
+	buildCodexChatGPTDummyAuthFile,
+} from "@/lib/codex/auth";
 import { decodeJwt } from "jose";
 import {
 	loadMediatorCredentialState,
@@ -21,7 +24,9 @@ async function handleCodexChatGPTProxy(
 ) {
 	const method = request.method.toUpperCase();
 	const { path } = await context.params;
-	const forwardedHost = normalizeForwardedHost(request.headers.get("vercel-forwarded-host") ?? "");
+	const forwardedHost = normalizeForwardedHost(
+		request.headers.get("vercel-forwarded-host") ?? "",
+	);
 	const proxyPath = parseProxyPath(path);
 	const normalizedPath = proxyPath.upstreamPath;
 	const auth = await requireMediatorAuth(request, proxyPath.runContext);
@@ -39,17 +44,23 @@ async function handleCodexChatGPTProxy(
 		});
 
 		return Response.json(
-			{ error: "WebSocket upgrade is not supported for this mediator endpoint." },
+			{
+				error: "WebSocket upgrade is not supported for this mediator endpoint.",
+			},
 			{ status: 426 },
 		);
 	}
 
-	const body = isBodyAllowedForMethod(method) ? await request.arrayBuffer() : null;
+	const body = isBodyAllowedForMethod(method)
+		? await request.arrayBuffer()
+		: null;
 
 	const routeBranch =
-		forwardedHost === "auth.openai.com" && normalizedPath.endsWith("/oauth/token")
+		forwardedHost === "auth.openai.com" &&
+		normalizedPath.endsWith("/oauth/token")
 			? "oauth_refresh"
-			: forwardedHost === "chatgpt.com" && normalizedPath.includes("/backend-api/")
+			: forwardedHost === "chatgpt.com" &&
+					normalizedPath.includes("/backend-api/")
 				? "chatgpt_backend"
 				: "unsupported";
 
@@ -79,26 +90,44 @@ async function handleCodexChatGPTProxy(
 		method,
 		branch: routeBranch,
 	});
-	return Response.json({ error: "Unsupported forwarded target." }, { status: 400 });
+	return Response.json(
+		{ error: "Unsupported forwarded target." },
+		{ status: 400 },
+	);
 }
 
-export async function GET(request: Request, context: { params: Promise<{ path: string[] }> }) {
+export async function GET(
+	request: Request,
+	context: { params: Promise<{ path: string[] }> },
+) {
 	return handleCodexChatGPTProxy(request, context);
 }
 
-export async function POST(request: Request, context: { params: Promise<{ path: string[] }> }) {
+export async function POST(
+	request: Request,
+	context: { params: Promise<{ path: string[] }> },
+) {
 	return handleCodexChatGPTProxy(request, context);
 }
 
-export async function PUT(request: Request, context: { params: Promise<{ path: string[] }> }) {
+export async function PUT(
+	request: Request,
+	context: { params: Promise<{ path: string[] }> },
+) {
 	return handleCodexChatGPTProxy(request, context);
 }
 
-export async function PATCH(request: Request, context: { params: Promise<{ path: string[] }> }) {
+export async function PATCH(
+	request: Request,
+	context: { params: Promise<{ path: string[] }> },
+) {
 	return handleCodexChatGPTProxy(request, context);
 }
 
-export async function DELETE(request: Request, context: { params: Promise<{ path: string[] }> }) {
+export async function DELETE(
+	request: Request,
+	context: { params: Promise<{ path: string[] }> },
+) {
 	return handleCodexChatGPTProxy(request, context);
 }
 
@@ -114,11 +143,17 @@ async function handleAuthTokenExchange(
 	});
 
 	if (!state?.refreshToken) {
-		return Response.json({ error: "Missing ChatGPT refresh token in mediator state." }, { status: 500 });
+		return Response.json(
+			{ error: "Missing ChatGPT refresh token in mediator state." },
+			{ status: 500 },
+		);
 	}
 
 	if (method !== "POST") {
-		return Response.json({ error: "Only POST is allowed for auth token refresh." }, { status: 405 });
+		return Response.json(
+			{ error: "Only POST is allowed for auth token refresh." },
+			{ status: 405 },
+		);
 	}
 
 	const upstreamResponse = await fetch("https://auth.openai.com/oauth/token", {
@@ -154,14 +189,23 @@ async function handleAuthTokenExchange(
 	let updatedState = state;
 
 	try {
-		const upstreamPayload = (await upstreamResponse.json()) as Record<string, unknown>;
-		updatedState = await updateMediatorCredentialsFromOAuthResponse(state, upstreamPayload);
+		const upstreamPayload = (await upstreamResponse.json()) as Record<
+			string,
+			unknown
+		>;
+		updatedState = await updateMediatorCredentialsFromOAuthResponse(
+			state,
+			upstreamPayload,
+		);
 	} catch {
 		// Keep previously persisted credentials if the upstream body is not JSON.
 	}
 
 	if (!updatedState.accessToken || !updatedState.accountId) {
-		return Response.json({ error: "OAuth refresh did not return usable credentials." }, { status: 500 });
+		return Response.json(
+			{ error: "OAuth refresh did not return usable credentials." },
+			{ status: 500 },
+		);
 	}
 
 	const accountId = updatedState.accountId;
@@ -194,7 +238,9 @@ async function handleChatGPTBackendProxy(
 	}
 
 	const requestUrl = new URL(request.url);
-	const upstreamUrl = new URL(`https://chatgpt.com${normalizedPath}${requestUrl.search}`);
+	const upstreamUrl = new URL(
+		`https://chatgpt.com${normalizedPath}${requestUrl.search}`,
+	);
 	const upstreamResponse = await fetch(upstreamUrl.toString(), {
 		method,
 		headers: {
@@ -260,7 +306,7 @@ async function requireMediatorAuth(
 		return unauthorized("oidc_verification_failed");
 	}
 
-	if (!await isProxyRunContextActive(runContext)) {
+	if (!(await isProxyRunContextActive(runContext))) {
 		return unauthorized("run_context_inactive");
 	}
 
@@ -270,7 +316,10 @@ async function requireMediatorAuth(
 function unauthorized(reason: string): { ok: false; response: Response } {
 	return {
 		ok: false,
-		response: Response.json({ error: "Unauthorized.", reason }, { status: 401 }),
+		response: Response.json(
+			{ error: "Unauthorized.", reason },
+			{ status: 401 },
+		),
 	};
 }
 
@@ -282,7 +331,10 @@ function decodeSafeOidcClaims(token: string) {
 	}
 }
 
-function buildExpectedOidcAudience(origin: string, runContext: ProxyRunContext | null) {
+function buildExpectedOidcAudience(
+	origin: string,
+	runContext: ProxyRunContext | null,
+) {
 	if (!runContext) {
 		return `${origin}/api/internal/codex-chatgpt-proxy`;
 	}
@@ -356,7 +408,9 @@ async function isProxyRunContextActive(runContext: ProxyRunContext | null) {
 
 	try {
 		const detail = await getRunDetail(client, runContext.runId);
-		const attempt = detail?.attempts.find((candidate) => candidate.id === runContext.attemptId);
+		const attempt = detail?.attempts.find(
+			(candidate) => candidate.id === runContext.attemptId,
+		);
 
 		return detail?.run.status === "running" && attempt?.status === "running";
 	} finally {
@@ -396,7 +450,9 @@ function readOAuthClientId(body: ArrayBuffer | null) {
 	return null;
 }
 
-function sanitizeMediatorRequestHeaders(request: Request): Record<string, string> {
+function sanitizeMediatorRequestHeaders(
+	request: Request,
+): Record<string, string> {
 	const sanitized: Record<string, string> = {};
 	const denylist = new Set([
 		"authorization",
@@ -442,7 +498,11 @@ function sanitizeMediatorRequestHeaders(request: Request): Record<string, string
 }
 
 function sanitizeMediatorResponseHeaders(headers: Headers) {
-	const denied = new Set(["x-rhapsody-mediator-secret", "x-vercel-forwarded-host", "vercel-forwarded-host"]);
+	const denied = new Set([
+		"x-rhapsody-mediator-secret",
+		"x-vercel-forwarded-host",
+		"vercel-forwarded-host",
+	]);
 	const sanitized: Record<string, string> = {};
 
 	for (const [key, value] of headers.entries()) {

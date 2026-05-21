@@ -8,7 +8,10 @@ type ClaimReleaseRequest = {
 	claimToken: string;
 };
 
-export async function POST(request: Request, context: { params: Promise<{ runId: string }> }) {
+export async function POST(
+	request: Request,
+	context: { params: Promise<{ runId: string }> },
+) {
 	const auth = requireAdminAuth(request);
 
 	if (!auth.ok) {

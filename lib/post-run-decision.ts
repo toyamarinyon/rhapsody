@@ -342,7 +342,9 @@ function validatePostRunDecisionConfig(config: PostRunDecisionConfig) {
 		typeof config.post_run.auto_merge_success_status !== "string" ||
 		!config.post_run.auto_merge_success_status.trim()
 	) {
-		issues.push("post_run.auto_merge_success_status must be a non-empty string.");
+		issues.push(
+			"post_run.auto_merge_success_status must be a non-empty string.",
+		);
 	}
 
 	if (

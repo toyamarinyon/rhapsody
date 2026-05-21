@@ -16,7 +16,10 @@ import {
 	createEvent,
 	markAttemptStarted,
 } from "@/lib/state";
-import { buildAttemptBranchName, parseWorkItemIssueNumber } from "@/lib/attempt-branch";
+import {
+	buildAttemptBranchName,
+	parseWorkItemIssueNumber,
+} from "@/lib/attempt-branch";
 import { type RunnerRouteContext } from "./types";
 
 const CODEX_LOCAL_SANDBOX_ID = "local_dev_codex";
@@ -32,7 +35,9 @@ type CodexLocalRequest = {
 	timeoutMs: number;
 };
 
-export async function runCodexLocalRunner(context: RunnerRouteContext): Promise<Response> {
+export async function runCodexLocalRunner(
+	context: RunnerRouteContext,
+): Promise<Response> {
 	const { client, request, runId, attemptId, detail, attempt } = context;
 	const body = await readJson(request);
 
@@ -46,8 +51,14 @@ export async function runCodexLocalRunner(context: RunnerRouteContext): Promise<
 		return Response.json({ error: parsed.error }, { status: 400 });
 	}
 
-	if (parsed.value.mode === "execute" && parsed.value.confirm !== "run-codex-local") {
-		return Response.json({ error: "confirm must be \"run-codex-local\" for execute mode." }, { status: 400 });
+	if (
+		parsed.value.mode === "execute" &&
+		parsed.value.confirm !== "run-codex-local"
+	) {
+		return Response.json(
+			{ error: 'confirm must be "run-codex-local" for execute mode.' },
+			{ status: 400 },
+		);
 	}
 
 	try {
@@ -83,7 +94,10 @@ export async function runCodexLocalRunner(context: RunnerRouteContext): Promise<
 			});
 		}
 
-		if (isTerminalRunStatus(detail.run.status) || isTerminalAttemptStatus(attempt.status)) {
+		if (
+			isTerminalRunStatus(detail.run.status) ||
+			isTerminalAttemptStatus(attempt.status)
+		) {
 			return Response.json({
 				idempotent: true,
 				runStatus: detail.run.status,
@@ -98,7 +112,9 @@ export async function runCodexLocalRunner(context: RunnerRouteContext): Promise<
 			attemptId,
 			gitBranchName: buildAttemptBranchName({
 				branchPrefix: config.repository.branchPrefix,
-				issueNumber: parseWorkItemIssueNumber({ workItemId: detail.run.workItemId }),
+				issueNumber: parseWorkItemIssueNumber({
+					workItemId: detail.run.workItemId,
+				}),
 				attemptNumber: attempt.attemptNumber,
 			}),
 			claimToken,
@@ -107,7 +123,10 @@ export async function runCodexLocalRunner(context: RunnerRouteContext): Promise<
 		});
 
 		if (!startResult.applied) {
-			return Response.json({ error: "Attempt could not be started.", startResult }, { status: 409 });
+			return Response.json(
+				{ error: "Attempt could not be started.", startResult },
+				{ status: 409 },
+			);
 		}
 
 		const beforeEvent = await createEvent(client, {
@@ -128,7 +147,8 @@ export async function runCodexLocalRunner(context: RunnerRouteContext): Promise<
 		const afterEvent = await createEvent(client, {
 			runId,
 			attemptId,
-			level: codexResult.exitCode === 0 && !codexResult.timedOut ? "info" : "error",
+			level:
+				codexResult.exitCode === 0 && !codexResult.timedOut ? "info" : "error",
 			type: "codex_local.execution_finished",
 			message: "Local Codex execution finished.",
 			data: codexSummary,
@@ -137,7 +157,11 @@ export async function runCodexLocalRunner(context: RunnerRouteContext): Promise<
 			runId,
 			attemptId,
 			claimToken,
-			executionStatus: codexResult.timedOut ? "timed_out" : codexResult.exitCode === 0 ? "completed" : "failed",
+			executionStatus: codexResult.timedOut
+				? "timed_out"
+				: codexResult.exitCode === 0
+					? "completed"
+					: "failed",
 			exitCode: codexResult.exitCode,
 			sandboxId: CODEX_LOCAL_SANDBOX_ID,
 			command: CODEX_LOCAL_COMMAND,
@@ -151,7 +175,10 @@ export async function runCodexLocalRunner(context: RunnerRouteContext): Promise<
 					prompt: promptSummary,
 					startResult,
 					codexResult: codexSummary,
-					events: { beforeEventId: beforeEvent.id, afterEventId: afterEvent.id },
+					events: {
+						beforeEventId: beforeEvent.id,
+						afterEventId: afterEvent.id,
+					},
 					callbackResult,
 				},
 				{ status: 409 },
@@ -185,7 +212,10 @@ function parseCodexLocalRequest(
 	const mode = value.mode === undefined ? "dry_run" : value.mode;
 
 	if (mode !== "dry_run" && mode !== "execute") {
-		return { ok: false, error: "mode must be \"dry_run\" or \"execute\" when provided." };
+		return {
+			ok: false,
+			error: 'mode must be "dry_run" or "execute" when provided.',
+		};
 	}
 
 	const timeoutMs = optionalTimeoutMs(value.timeoutMs);
@@ -212,7 +242,10 @@ function optionalTimeoutMs(
 	}
 
 	if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
-		return { ok: false, error: "timeoutMs must be a positive integer when provided." };
+		return {
+			ok: false,
+			error: "timeoutMs must be a positive integer when provided.",
+		};
 	}
 
 	return { ok: true, value: Math.min(value, MAX_TIMEOUT_MS) };
@@ -237,9 +270,21 @@ function previewOutput(value: string) {
 }
 
 function isTerminalRunStatus(status: string) {
-	return status === "completed" || status === "failed" || status === "canceled" || status === "timed_out" || status === "stale";
+	return (
+		status === "completed" ||
+		status === "failed" ||
+		status === "canceled" ||
+		status === "timed_out" ||
+		status === "stale"
+	);
 }
 
 function isTerminalAttemptStatus(status: string) {
-	return status === "completed" || status === "failed" || status === "canceled" || status === "timed_out" || status === "stale";
+	return (
+		status === "completed" ||
+		status === "failed" ||
+		status === "canceled" ||
+		status === "timed_out" ||
+		status === "stale"
+	);
 }

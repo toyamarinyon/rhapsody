@@ -152,7 +152,8 @@ export async function fetchProjectIssueWorkItems(
 
 		for (const item of page.items) {
 			const matchesRepository =
-				item.repository.owner === options.owner && item.repository.name === options.repository;
+				item.repository.owner === options.owner &&
+				item.repository.name === options.repository;
 			if (!matchesRepository) {
 				continue;
 			}
@@ -216,12 +217,17 @@ async function fetchProjectIssueWorkItemsPage(input: {
 	});
 
 	if (!response.ok) {
-		throw new Error(`GitHub GraphQL request failed with status ${response.status}.`);
+		throw new Error(
+			`GitHub GraphQL request failed with status ${response.status}.`,
+		);
 	}
 
 	const payload = (await response.json()) as GitHubProjectItemsGraphQLResponse;
 
-	if (!payload || (Array.isArray(payload.errors) && payload.errors.length > 0)) {
+	if (
+		!payload ||
+		(Array.isArray(payload.errors) && payload.errors.length > 0)
+	) {
 		throw new Error(
 			`GitHub GraphQL request returned errors: ${JSON.stringify(payload.errors?.map((error) => error.message))}`,
 		);
@@ -235,7 +241,9 @@ async function fetchProjectIssueWorkItemsPage(input: {
 		throw new Error("GitHub GraphQL response had unexpected shape.");
 	}
 
-	const normalizedItems = nodes.flatMap((node) => normalizeProjectIssueWorkItem(node, input.statusField));
+	const normalizedItems = nodes.flatMap((node) =>
+		normalizeProjectIssueWorkItem(node, input.statusField),
+	);
 
 	return {
 		items: normalizedItems,
@@ -266,12 +274,18 @@ async function fetchProjectIssueStatusTarget(
 	});
 
 	if (!response.ok) {
-		throw new Error(`GitHub GraphQL project status target request failed with status ${response.status}.`);
+		throw new Error(
+			`GitHub GraphQL project status target request failed with status ${response.status}.`,
+		);
 	}
 
-	const payload = (await response.json()) as GitHubProjectStatusTargetGraphQLResponse;
+	const payload =
+		(await response.json()) as GitHubProjectStatusTargetGraphQLResponse;
 
-	if (!payload || (Array.isArray(payload.errors) && payload.errors.length > 0)) {
+	if (
+		!payload ||
+		(Array.isArray(payload.errors) && payload.errors.length > 0)
+	) {
 		throw new Error(
 			`GitHub GraphQL project status target request returned errors: ${JSON.stringify(
 				payload.errors?.map((error) => error.message),
@@ -285,7 +299,9 @@ async function fetchProjectIssueStatusTarget(
 	const items = project?.items?.nodes;
 
 	if (!projectId || !Array.isArray(fields) || !Array.isArray(items)) {
-		throw new Error("GitHub GraphQL project status target response had unexpected shape.");
+		throw new Error(
+			"GitHub GraphQL project status target response had unexpected shape.",
+		);
 	}
 
 	const statusField = fields.find(
@@ -294,18 +310,26 @@ async function fetchProjectIssueStatusTarget(
 			safeString(field.name) === options.statusField,
 	);
 	const fieldId = safeString(statusField?.id);
-	const option = statusField?.options?.find((candidate) => safeString(candidate.name) === options.status);
+	const option = statusField?.options?.find(
+		(candidate) => safeString(candidate.name) === options.status,
+	);
 	const optionId = safeString(option?.id);
 
 	if (!fieldId || !optionId) {
-		throw new Error(`GitHub Project status option not found for ${options.statusField}=${options.status}.`);
+		throw new Error(
+			`GitHub Project status option not found for ${options.statusField}=${options.status}.`,
+		);
 	}
 
-	const item = items.find((candidate) => isMatchingIssueProjectItem(candidate, options));
+	const item = items.find((candidate) =>
+		isMatchingIssueProjectItem(candidate, options),
+	);
 	const itemId = safeString(item?.id);
 
 	if (!itemId) {
-		throw new Error(`GitHub Project item not found for ${options.owner}/${options.repository}#${options.issueNumber}.`);
+		throw new Error(
+			`GitHub Project item not found for ${options.owner}/${options.repository}#${options.issueNumber}.`,
+		);
 	}
 
 	return {
@@ -343,12 +367,18 @@ async function updateProjectV2ItemSingleSelect(input: {
 	});
 
 	if (!response.ok) {
-		throw new Error(`GitHub GraphQL project status update failed with status ${response.status}.`);
+		throw new Error(
+			`GitHub GraphQL project status update failed with status ${response.status}.`,
+		);
 	}
 
-	const payload = (await response.json()) as GitHubProjectStatusMutationResponse;
+	const payload =
+		(await response.json()) as GitHubProjectStatusMutationResponse;
 
-	if (!payload || (Array.isArray(payload.errors) && payload.errors.length > 0)) {
+	if (
+		!payload ||
+		(Array.isArray(payload.errors) && payload.errors.length > 0)
+	) {
 		throw new Error(
 			`GitHub GraphQL project status update returned errors: ${JSON.stringify(
 				payload.errors?.map((error) => error.message),
@@ -377,8 +407,14 @@ function normalizeProjectIssueWorkItem(
 	const issueTitle = safeString(content.title);
 	const issueUrl = safeString(content.url);
 	const issueState = safeString(content.state);
-	const issueBody = content.body === null || typeof content.body === "string" ? content.body : null;
-	const projectStatus = extractProjectStatus(node.fieldValues?.nodes, statusField);
+	const issueBody =
+		content.body === null || typeof content.body === "string"
+			? content.body
+			: null;
+	const projectStatus = extractProjectStatus(
+		node.fieldValues?.nodes,
+		statusField,
+	);
 
 	if (issueNumber === null || !issueTitle || !issueUrl || !issueState) {
 		return [];
@@ -415,7 +451,12 @@ function extractProjectStatus(
 	}
 
 	for (const value of values) {
-		if (typeof value !== "object" || value === null || !value.field || typeof value.field !== "object") {
+		if (
+			typeof value !== "object" ||
+			value === null ||
+			!value.field ||
+			typeof value.field !== "object"
+		) {
 			continue;
 		}
 
@@ -442,7 +483,9 @@ function extractProjectStatus(
 	return null;
 }
 
-function isGitHubIssueNode(node: unknown): node is GitHubProjectItemNode & { content: GitHubProjectItemContent } {
+function isGitHubIssueNode(
+	node: unknown,
+): node is GitHubProjectItemNode & { content: GitHubProjectItemContent } {
 	if (
 		typeof node !== "object" ||
 		node === null ||
@@ -458,7 +501,10 @@ function isGitHubIssueNode(node: unknown): node is GitHubProjectItemNode & { con
 
 function isMatchingIssueProjectItem(
 	node: unknown,
-	options: Pick<GitHubProjectStatusUpdateOptions, "owner" | "repository" | "issueNumber">,
+	options: Pick<
+		GitHubProjectStatusUpdateOptions,
+		"owner" | "repository" | "issueNumber"
+	>,
 ) {
 	if (typeof node !== "object" || node === null) {
 		return false;

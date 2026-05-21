@@ -10,7 +10,7 @@ type RegisteredRunner = {
 };
 
 const runners: Record<RunnerKey, RegisteredRunner> = {
-	"fake": {
+	fake: {
 		run: runFakeRunner,
 	},
 	"sandbox-fake": {
@@ -28,17 +28,26 @@ export function getRunner(runner: RunnerKey): Runner | null {
 	return runners[runner]?.run ?? null;
 }
 
-export async function runAttemptWithDetail(context: RunnerRouteContext): Promise<Response> {
+export async function runAttemptWithDetail(
+	context: RunnerRouteContext,
+): Promise<Response> {
 	const handler = getRunner(context.detail.run.runner);
 
 	if (!handler) {
-		return Response.json({ error: `Unknown runner: ${context.detail.run.runner}.` }, { status: 400 });
+		return Response.json(
+			{ error: `Unknown runner: ${context.detail.run.runner}.` },
+			{ status: 400 },
+		);
 	}
 
 	return handler(context);
 }
 
-export async function runAttempt(request: Request, runId: string, attemptId: string): Promise<Response> {
+export async function runAttempt(
+	request: Request,
+	runId: string,
+	attemptId: string,
+): Promise<Response> {
 	return runAttemptExecution({
 		request,
 		runId,
@@ -76,7 +85,9 @@ export async function runAttemptExecution(params: {
 			return Response.json({ error: "Run not found." }, { status: 404 });
 		}
 
-		const attempt = detail.attempts.find((candidate) => candidate.id === params.attemptId);
+		const attempt = detail.attempts.find(
+			(candidate) => candidate.id === params.attemptId,
+		);
 
 		if (!attempt) {
 			return Response.json({ error: "Attempt not found." }, { status: 404 });

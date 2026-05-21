@@ -107,7 +107,9 @@ export type ClaimedManualRunNotAcquired = {
 	claimExpiresAt: number;
 };
 
-export type CreateClaimedManualRunResult = ClaimedManualRunCreated | ClaimedManualRunNotAcquired;
+export type CreateClaimedManualRunResult =
+	| ClaimedManualRunCreated
+	| ClaimedManualRunNotAcquired;
 
 export type StateStoreRun = {
 	id: string;
@@ -177,7 +179,11 @@ export type StateSummary = {
 	recentEvents: StateStoreEvent[];
 };
 
-export type AttemptExecutionStatus = "completed" | "failed" | "timed_out" | "stopped";
+export type AttemptExecutionStatus =
+	| "completed"
+	| "failed"
+	| "timed_out"
+	| "stopped";
 
 export type AttemptStartInput = {
 	runId: string;
@@ -231,7 +237,9 @@ export type AttemptTransitionNotApplied = {
 	attemptStatus?: AttemptStatus;
 };
 
-export type AttemptTransitionResult = AttemptTransitionApplied | AttemptTransitionNotApplied;
+export type AttemptTransitionResult =
+	| AttemptTransitionApplied
+	| AttemptTransitionNotApplied;
 
 export type AttemptCallbackAcceptance =
 	| {
@@ -259,7 +267,10 @@ export type ClaimReleaseInput = {
 	eventId?: string;
 };
 
-export type ClaimReleaseNotAppliedReason = "run_not_found" | "claim_not_found" | "claim_mismatch";
+export type ClaimReleaseNotAppliedReason =
+	| "run_not_found"
+	| "claim_not_found"
+	| "claim_mismatch";
 
 export type ClaimReleaseResult =
 	| {
@@ -338,7 +349,10 @@ export type ReconcileStaleRunningAttemptResult =
 			attemptStatus?: AttemptStatus;
 	  };
 
-export async function getRunDetail(client: Client, runId: string): Promise<RunDetail | null> {
+export async function getRunDetail(
+	client: Client,
+	runId: string,
+): Promise<RunDetail | null> {
 	const runResult = await client.execute({
 		sql: `
 			SELECT
@@ -437,7 +451,12 @@ export async function getRunDetail(client: Client, runId: string): Promise<RunDe
 
 export async function validateAttemptCanReceiveCallback(
 	client: Client,
-	input: { runId: string; attemptId: string; claimToken: string; sandboxId?: string | null },
+	input: {
+		runId: string;
+		attemptId: string;
+		claimToken: string;
+		sandboxId?: string | null;
+	},
 ): Promise<AttemptCallbackAcceptance> {
 	const result = await client.execute({
 		sql: `
@@ -463,7 +482,10 @@ export async function validateAttemptCanReceiveCallback(
 
 	const runStatus = getString(row, "run_status") as RunStatus;
 	const claimToken = getString(row, "claim_token");
-	const attemptStatus = getNullableString(row, "attempt_status") as AttemptStatus | null;
+	const attemptStatus = getNullableString(
+		row,
+		"attempt_status",
+	) as AttemptStatus | null;
 	const attemptSandboxId = getNullableString(row, "attempt_sandbox_id");
 
 	if (!attemptStatus) {
@@ -474,7 +496,11 @@ export async function validateAttemptCanReceiveCallback(
 		return { ok: false, reason: "claim_mismatch", runStatus, attemptStatus };
 	}
 
-	if (input.sandboxId && attemptSandboxId && attemptSandboxId !== input.sandboxId) {
+	if (
+		input.sandboxId &&
+		attemptSandboxId &&
+		attemptSandboxId !== input.sandboxId
+	) {
 		return { ok: false, reason: "sandbox_mismatch", runStatus, attemptStatus };
 	}
 
@@ -656,17 +682,17 @@ export async function reconcileStaleRunningAttempt(
 
 		await tx.commit();
 
-			return {
-				applied: true,
-				runId: input.runId,
-				attemptId: input.attemptId,
-				runStatus: "timed_out",
-				attemptStatus: "timed_out",
-				runnerWorkflowRunId: getNullableString(row, "runner_workflow_run_id"),
-				claimReleased,
-				eventId,
-				updatedAt: now,
-			};
+		return {
+			applied: true,
+			runId: input.runId,
+			attemptId: input.attemptId,
+			runStatus: "timed_out",
+			attemptStatus: "timed_out",
+			runnerWorkflowRunId: getNullableString(row, "runner_workflow_run_id"),
+			claimReleased,
+			eventId,
+			updatedAt: now,
+		};
 	} catch (error) {
 		await tx.rollback();
 		throw error;
@@ -675,7 +701,10 @@ export async function reconcileStaleRunningAttempt(
 	}
 }
 
-export async function releaseClaimForRun(client: Client, input: ClaimReleaseInput): Promise<ClaimReleaseResult> {
+export async function releaseClaimForRun(
+	client: Client,
+	input: ClaimReleaseInput,
+): Promise<ClaimReleaseResult> {
 	const now = input.now ?? Date.now();
 	const eventId = input.eventId ?? createPrefixedId("evt");
 	const tx = await client.transaction("write");
@@ -709,7 +738,11 @@ export async function releaseClaimForRun(client: Client, input: ClaimReleaseInpu
 		const claimToken = getNullableString(row, "claim_token");
 		const claimRunId = getNullableString(row, "claim_run_id");
 
-		if (claimWorkItemId === null || claimToken === null || claimRunId === null) {
+		if (
+			claimWorkItemId === null ||
+			claimToken === null ||
+			claimRunId === null
+		) {
 			await tx.commit();
 			return { released: false, reason: "claim_not_found", runStatus };
 		}
@@ -745,8 +778,16 @@ export async function releaseClaimForRun(client: Client, input: ClaimReleaseInpu
 	}
 }
 
-export async function getStateSummary(client: Client, now = Date.now()): Promise<StateSummary> {
-	const [runCountsResult, attemptCountsResult, activeClaimsResult, recentEventsResult] = await Promise.all([
+export async function getStateSummary(
+	client: Client,
+	now = Date.now(),
+): Promise<StateSummary> {
+	const [
+		runCountsResult,
+		attemptCountsResult,
+		activeClaimsResult,
+		recentEventsResult,
+	] = await Promise.all([
 		client.execute(`
 			SELECT status, COUNT(*) AS count
 			FROM runs
@@ -899,11 +940,16 @@ export async function applyAttemptTerminalCallback(
 	const completedAt = input.completedAt ?? now;
 	const startedAt = input.startedAt ?? null;
 	const eventId = input.eventId ?? createPrefixedId("evt");
-	const { runStatus, attemptStatus } = evaluateTerminalStatus(input.executionStatus, input.exitCode ?? null);
+	const { runStatus, attemptStatus } = evaluateTerminalStatus(
+		input.executionStatus,
+		input.exitCode ?? null,
+	);
 	const tx = await client.transaction("write");
 
 	try {
-		const validation = await validateAttemptTransition(tx, input, now, { allowTerminalAttempt: true });
+		const validation = await validateAttemptTransition(tx, input, now, {
+			allowTerminalAttempt: true,
+		});
 
 		if (!validation.ok) {
 			await tx.commit();
@@ -960,7 +1006,13 @@ export async function applyAttemptTerminalCallback(
 					updated_at = ?
 				WHERE id = ?
 			`,
-			args: [runStatus, startedAt ?? completedAt, completedAt, now, input.runId],
+			args: [
+				runStatus,
+				startedAt ?? completedAt,
+				completedAt,
+				now,
+				input.runId,
+			],
 		});
 
 		await insertEvent(tx, {
@@ -1028,7 +1080,10 @@ export async function createClaimedManualRun(
 			await tx.commit();
 			return {
 				acquired: false,
-				existingRunId: typeof existingClaimRow.run_id === "string" ? existingClaimRow.run_id : null,
+				existingRunId:
+					typeof existingClaimRow.run_id === "string"
+						? existingClaimRow.run_id
+						: null,
 				claimExpiresAt: Number(existingClaimRow.claim_expires_at),
 			};
 		}
@@ -1136,7 +1191,11 @@ export async function createClaimedManualRun(
 				"info",
 				"manual_run.created",
 				"Manual run created.",
-				JSON.stringify({ workItemId: input.workItemId, claimedBy: input.claimedBy, runner: input.runner }),
+				JSON.stringify({
+					workItemId: input.workItemId,
+					claimedBy: input.claimedBy,
+					runner: input.runner,
+				}),
 				now,
 			],
 		});
@@ -1372,20 +1431,34 @@ async function validateAttemptTransition(
 		runClaimToken: getString(row, "run_claim_token"),
 		workItemId: getString(row, "work_item_id"),
 		attemptId: getNullableString(row, "attempt_id"),
-		attemptStatus: getNullableString(row, "attempt_status") as AttemptStatus | null,
+		attemptStatus: getNullableString(
+			row,
+			"attempt_status",
+		) as AttemptStatus | null,
 		claimToken: getNullableString(row, "claim_token"),
 		claimRunId: getNullableString(row, "claim_run_id"),
 		claimExpiresAt: getNullableNumber(row, "claim_expires_at"),
 	};
 
-	if (validationRow.attemptId === null || validationRow.attemptStatus === null) {
+	if (
+		validationRow.attemptId === null ||
+		validationRow.attemptStatus === null
+	) {
 		return {
 			ok: false,
-			result: { applied: false, reason: "attempt_not_found", runStatus: validationRow.runStatus },
+			result: {
+				applied: false,
+				reason: "attempt_not_found",
+				runStatus: validationRow.runStatus,
+			},
 		};
 	}
 
-	if (validationRow.claimToken === null || validationRow.claimRunId === null || validationRow.claimExpiresAt === null) {
+	if (
+		validationRow.claimToken === null ||
+		validationRow.claimRunId === null ||
+		validationRow.claimExpiresAt === null
+	) {
 		return {
 			ok: false,
 			result: {
@@ -1427,7 +1500,10 @@ async function validateAttemptTransition(
 
 	if (
 		isTerminalRunStatus(validationRow.runStatus) &&
-		!(options.allowTerminalAttempt && isTerminalAttemptStatus(validationRow.attemptStatus))
+		!(
+			options.allowTerminalAttempt &&
+			isTerminalAttemptStatus(validationRow.attemptStatus)
+		)
 	) {
 		return {
 			ok: false,
@@ -1440,7 +1516,10 @@ async function validateAttemptTransition(
 		};
 	}
 
-	if (isTerminalAttemptStatus(validationRow.attemptStatus) && !options.allowTerminalAttempt) {
+	if (
+		isTerminalAttemptStatus(validationRow.attemptStatus) &&
+		!options.allowTerminalAttempt
+	) {
 		return {
 			ok: false,
 			result: {
@@ -1455,7 +1534,10 @@ async function validateAttemptTransition(
 	return {
 		ok: true,
 		run: { id: validationRow.runId, status: validationRow.runStatus },
-		attempt: { id: validationRow.attemptId, status: validationRow.attemptStatus },
+		attempt: {
+			id: validationRow.attemptId,
+			status: validationRow.attemptStatus,
+		},
 	};
 }
 
@@ -1488,7 +1570,10 @@ type InsertEventInput = Required<Pick<CreateEventInput, "type">> & {
 	now: number;
 };
 
-async function insertEvent(client: Client | Transaction, input: InsertEventInput) {
+async function insertEvent(
+	client: Client | Transaction,
+	input: InsertEventInput,
+) {
 	await client.execute({
 		sql: `
 			INSERT INTO events (
@@ -1517,11 +1602,23 @@ async function insertEvent(client: Client | Transaction, input: InsertEventInput
 }
 
 function isTerminalRunStatus(status: RunStatus) {
-	return status === "completed" || status === "failed" || status === "canceled" || status === "timed_out" || status === "stale";
+	return (
+		status === "completed" ||
+		status === "failed" ||
+		status === "canceled" ||
+		status === "timed_out" ||
+		status === "stale"
+	);
 }
 
 function isTerminalAttemptStatus(status: AttemptStatus) {
-	return status === "completed" || status === "failed" || status === "canceled" || status === "timed_out" || status === "stale";
+	return (
+		status === "completed" ||
+		status === "failed" ||
+		status === "canceled" ||
+		status === "timed_out" ||
+		status === "stale"
+	);
 }
 
 function createPrefixedId(prefix: "claim" | "run" | "att" | "evt") {
@@ -1591,7 +1688,9 @@ function mapClaim(row: Row): StateStoreClaim {
 }
 
 function mapCountRows(rows: Row[]): Record<string, number> {
-	return Object.fromEntries(rows.map((row) => [getString(row, "status"), getNumber(row, "count")]));
+	return Object.fromEntries(
+		rows.map((row) => [getString(row, "status"), getNumber(row, "count")]),
+	);
 }
 
 function getString(row: Row | undefined, column: string): string {

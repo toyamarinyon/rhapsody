@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
 
-export type CodexCliSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
+export type CodexCliSandboxMode =
+	| "read-only"
+	| "workspace-write"
+	| "danger-full-access";
 export type CodexCliApprovalPolicy = "untrusted" | "on-request" | "never";
 
 export type CodexCliConfigValue = string | number | boolean | null;
@@ -39,7 +42,9 @@ export type CodexCliResult = {
 	error: string | null;
 };
 
-export function buildCodexExecCommand(options: CodexCliOptions): CodexCliCommand {
+export function buildCodexExecCommand(
+	options: CodexCliOptions,
+): CodexCliCommand {
 	const globalArgv: string[] = [];
 	const execArgv = ["exec", "--cd", options.cwd];
 
@@ -69,8 +74,8 @@ export function buildCodexExecCommand(options: CodexCliOptions): CodexCliCommand
 		execArgv.push("--sandbox", options.sandboxMode);
 	}
 
-	for (const [key, value] of Object.entries(options.configOverrides ?? {}).sort(([left], [right]) =>
-		left.localeCompare(right),
+	for (const [key, value] of Object.entries(options.configOverrides ?? {}).sort(
+		([left], [right]) => left.localeCompare(right),
 	)) {
 		execArgv.push("--config", `${key}=${formatConfigValue(value)}`);
 	}
@@ -85,7 +90,9 @@ export function buildCodexExecCommand(options: CodexCliOptions): CodexCliCommand
 	};
 }
 
-export async function runCodexExec(options: CodexCliOptions): Promise<CodexCliResult> {
+export async function runCodexExec(
+	options: CodexCliOptions,
+): Promise<CodexCliResult> {
 	const command = buildCodexExecCommand(options);
 	const startedAt = Date.now();
 

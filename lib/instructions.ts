@@ -6,8 +6,16 @@ import type { RunDetail, StateStoreAttempt } from "@/lib/state";
 
 export const RHAPSODY_INSTRUCTION_PATH = ".rhapsody/INSTRUCTIONS.md";
 
-export type InstructionValue = string | number | boolean | null | InstructionValue[] | InstructionContextObject;
-export type InstructionContextObject = { [key: string]: InstructionValue | undefined };
+export type InstructionValue =
+	| string
+	| number
+	| boolean
+	| null
+	| InstructionValue[]
+	| InstructionContextObject;
+export type InstructionContextObject = {
+	[key: string]: InstructionValue | undefined;
+};
 
 export type InstructionRenderContext = {
 	item: InstructionContextObject;
@@ -29,12 +37,16 @@ export class InstructionTemplateError extends Error {
 	}
 }
 
-export async function loadRepositoryInstructions(repositoryRoot = process.cwd()): Promise<LoadedInstructions> {
+export async function loadRepositoryInstructions(
+	repositoryRoot = process.cwd(),
+): Promise<LoadedInstructions> {
 	const instructionPath = path.join(repositoryRoot, RHAPSODY_INSTRUCTION_PATH);
 	const template = (await readFile(instructionPath, "utf8")).trim();
 
 	if (hasYamlFrontMatter(template)) {
-		throw new InstructionTemplateError("YAML front matter is not supported in Rhapsody instructions.");
+		throw new InstructionTemplateError(
+			"YAML front matter is not supported in Rhapsody instructions.",
+		);
 	}
 
 	return { template, instructionPath: RHAPSODY_INSTRUCTION_PATH };
@@ -54,27 +66,39 @@ export function renderRepositoryInstructions(input: {
 	return `${rendered.trim()}\n\n${RHAPSODY_HOST_CONSTRAINTS}`;
 }
 
-export function renderStrictTemplate(template: string, context: InstructionRenderContext): string {
-	return template.replaceAll(/\{\{([^}]*)\}\}/g, (_match, rawExpression: string) => {
-		const expression = rawExpression.trim();
+export function renderStrictTemplate(
+	template: string,
+	context: InstructionRenderContext,
+): string {
+	return template.replaceAll(
+		/\{\{([^}]*)\}\}/g,
+		(_match, rawExpression: string) => {
+			const expression = rawExpression.trim();
 
-		if (!expression) {
-			throw new InstructionTemplateError("Template variable expression cannot be empty.");
-		}
+			if (!expression) {
+				throw new InstructionTemplateError(
+					"Template variable expression cannot be empty.",
+				);
+			}
 
-		if (expression.includes("|")) {
-			throw new InstructionTemplateError(`Template filters are not supported: ${expression}`);
-		}
+			if (expression.includes("|")) {
+				throw new InstructionTemplateError(
+					`Template filters are not supported: ${expression}`,
+				);
+			}
 
-		const pathSegments = expression.split(".");
+			const pathSegments = expression.split(".");
 
-		if (!pathSegments.every(isTemplateIdentifier)) {
-			throw new InstructionTemplateError(`Invalid template variable expression: ${expression}`);
-		}
+			if (!pathSegments.every(isTemplateIdentifier)) {
+				throw new InstructionTemplateError(
+					`Invalid template variable expression: ${expression}`,
+				);
+			}
 
-		const value = resolveTemplateValue(context, pathSegments, expression);
-		return stringifyTemplateValue(value);
-	});
+			const value = resolveTemplateValue(context, pathSegments, expression);
+			return stringifyTemplateValue(value);
+		},
+	);
 }
 
 export function buildInstructionContext(input: {
@@ -86,12 +110,24 @@ export function buildInstructionContext(input: {
 	const snapshot = asInstructionObject(detail.run.workItemSnapshot);
 	const issue = asInstructionObject(snapshot.issue);
 	const snapshotRepository = asInstructionObject(snapshot.repository);
-	const identifier = stringFromSnapshot(issue.identifier) ?? stringFromSnapshot(snapshot.identifier) ?? detail.run.workItemId;
-	const title = stringFromSnapshot(issue.title) ?? stringFromSnapshot(snapshot.title) ?? detail.run.workItemTitle;
+	const identifier =
+		stringFromSnapshot(issue.identifier) ??
+		stringFromSnapshot(snapshot.identifier) ??
+		detail.run.workItemId;
+	const title =
+		stringFromSnapshot(issue.title) ??
+		stringFromSnapshot(snapshot.title) ??
+		detail.run.workItemTitle;
 	const body = stringFromSnapshot(issue.body);
-	const url = stringFromSnapshot(issue.htmlUrl) ?? stringFromSnapshot(issue.url) ?? stringFromSnapshot(snapshot.url) ?? detail.run.workItemUrl;
-	const owner = stringFromSnapshot(snapshotRepository.owner) ?? config.repository.owner;
-	const repositoryName = stringFromSnapshot(snapshotRepository.name) ?? config.repository.name;
+	const url =
+		stringFromSnapshot(issue.htmlUrl) ??
+		stringFromSnapshot(issue.url) ??
+		stringFromSnapshot(snapshot.url) ??
+		detail.run.workItemUrl;
+	const owner =
+		stringFromSnapshot(snapshotRepository.owner) ?? config.repository.owner;
+	const repositoryName =
+		stringFromSnapshot(snapshotRepository.name) ?? config.repository.name;
 
 	return {
 		item: {
@@ -159,14 +195,18 @@ function resolveTemplateValue(
 
 	for (const segment of pathSegments) {
 		if (!isInstructionObject(current) || !(segment in current)) {
-			throw new InstructionTemplateError(`Unknown template variable: ${expression}`);
+			throw new InstructionTemplateError(
+				`Unknown template variable: ${expression}`,
+			);
 		}
 
 		current = current[segment];
 	}
 
 	if (current === undefined) {
-		throw new InstructionTemplateError(`Unknown template variable: ${expression}`);
+		throw new InstructionTemplateError(
+			`Unknown template variable: ${expression}`,
+		);
 	}
 
 	return current;
@@ -196,7 +236,9 @@ function isTemplateIdentifier(value: string): boolean {
 	return /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
 }
 
-function isInstructionObject(value: unknown): value is InstructionContextObject {
+function isInstructionObject(
+	value: unknown,
+): value is InstructionContextObject {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -208,10 +250,14 @@ function asInstructionObject(value: unknown): InstructionContextObject {
 	return {};
 }
 
-function stringFromSnapshot(value: InstructionValue | undefined): string | null {
+function stringFromSnapshot(
+	value: InstructionValue | undefined,
+): string | null {
 	return typeof value === "string" ? value : null;
 }
 
-function numberFromSnapshot(value: InstructionValue | undefined): number | null {
+function numberFromSnapshot(
+	value: InstructionValue | undefined,
+): number | null {
 	return typeof value === "number" ? value : null;
 }

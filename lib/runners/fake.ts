@@ -9,17 +9,25 @@ import {
 	createEvent,
 	markAttemptStarted,
 } from "@/lib/state";
-import { buildAttemptBranchName, parseWorkItemIssueNumber } from "@/lib/attempt-branch";
+import {
+	buildAttemptBranchName,
+	parseWorkItemIssueNumber,
+} from "@/lib/attempt-branch";
 import { type RunnerRouteContext } from "./types";
 
 const FAKE_SANDBOX_ID = "fake_sandbox";
 const FAKE_COMMAND = "fake-runner";
 const PROMPT_PREVIEW_LENGTH = 500;
 
-export async function runFakeRunner(context: RunnerRouteContext): Promise<Response> {
+export async function runFakeRunner(
+	context: RunnerRouteContext,
+): Promise<Response> {
 	const { client, runId, attemptId, detail, attempt } = context;
 
-	if (isTerminalRunStatus(detail.run.status) || isTerminalAttemptStatus(attempt.status)) {
+	if (
+		isTerminalRunStatus(detail.run.status) ||
+		isTerminalAttemptStatus(attempt.status)
+	) {
 		return Response.json({
 			idempotent: true,
 			runStatus: detail.run.status,
@@ -54,7 +62,9 @@ export async function runFakeRunner(context: RunnerRouteContext): Promise<Respon
 		attemptId,
 		gitBranchName: buildAttemptBranchName({
 			branchPrefix: config.repository.branchPrefix,
-			issueNumber: parseWorkItemIssueNumber({ workItemId: detail.run.workItemId }),
+			issueNumber: parseWorkItemIssueNumber({
+				workItemId: detail.run.workItemId,
+			}),
 			attemptNumber: attempt.attemptNumber,
 		}),
 		claimToken,
@@ -101,9 +111,21 @@ export async function runFakeRunner(context: RunnerRouteContext): Promise<Respon
 }
 
 function isTerminalRunStatus(status: string) {
-	return status === "completed" || status === "failed" || status === "canceled" || status === "timed_out" || status === "stale";
+	return (
+		status === "completed" ||
+		status === "failed" ||
+		status === "canceled" ||
+		status === "timed_out" ||
+		status === "stale"
+	);
 }
 
 function isTerminalAttemptStatus(status: string) {
-	return status === "completed" || status === "failed" || status === "canceled" || status === "timed_out" || status === "stale";
+	return (
+		status === "completed" ||
+		status === "failed" ||
+		status === "canceled" ||
+		status === "timed_out" ||
+		status === "stale"
+	);
 }

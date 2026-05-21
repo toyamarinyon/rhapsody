@@ -519,7 +519,11 @@ async function mergePullRequestAndMarkDone(input: {
 
 			return {
 				action: "auto_merge_candidate",
-				pullRequestMerge: { attempted: true, merged: true, result: mergeResult },
+				pullRequestMerge: {
+					attempted: true,
+					merged: true,
+					result: mergeResult,
+				},
 				projectStatusUpdate: {
 					attempted: true,
 					updated: true,
@@ -548,7 +552,11 @@ async function mergePullRequestAndMarkDone(input: {
 
 			return {
 				action: "auto_merge_candidate",
-				pullRequestMerge: { attempted: true, merged: true, result: mergeResult },
+				pullRequestMerge: {
+					attempted: true,
+					merged: true,
+					result: mergeResult,
+				},
 				projectStatusUpdate: {
 					attempted: true,
 					updated: false,
@@ -635,14 +643,14 @@ async function moveProjectItemToHumanReview(input: {
 			runId: input.input.runId,
 			attemptId: input.input.attemptId,
 			level: "warn",
-				type: "sandbox_codex_runner.project_status_update_failed",
-				message: `Runner workflow could not move the Project item to ${input.status}.`,
-				data: {
-					issueNumber: input.issueNumber,
-					toStatus: input.status,
-					error: message,
-					pullRequestNumber: input.handoff.number,
-					reason: input.decision.reason,
+			type: "sandbox_codex_runner.project_status_update_failed",
+			message: `Runner workflow could not move the Project item to ${input.status}.`,
+			data: {
+				issueNumber: input.issueNumber,
+				toStatus: input.status,
+				error: message,
+				pullRequestNumber: input.handoff.number,
+				reason: input.decision.reason,
 			},
 		});
 

@@ -26,7 +26,11 @@ export type RhapsodySchedulerConfig = {
 	runningAttemptTimeoutMs?: number;
 };
 
-export type RhapsodyRunner = "fake" | "sandbox-fake" | "codex-local" | "sandbox-codex";
+export type RhapsodyRunner =
+	| "fake"
+	| "sandbox-fake"
+	| "codex-local"
+	| "sandbox-codex";
 
 export type RhapsodyProjectConfig = {
 	tracker: RhapsodyTrackerConfig;
@@ -54,7 +58,10 @@ export type RhapsodyServerEnv = {
 	VERCEL_TEAM_SLUG?: string;
 };
 
-export type RhapsodyStateStoreEnv = Pick<RhapsodyServerEnv, "TURSO_DATABASE_URL" | "TURSO_AUTH_TOKEN">;
+export type RhapsodyStateStoreEnv = Pick<
+	RhapsodyServerEnv,
+	"TURSO_DATABASE_URL" | "TURSO_AUTH_TOKEN"
+>;
 export type RhapsodyGitHubEnv = Pick<RhapsodyServerEnv, "GITHUB_TOKEN">;
 export type RhapsodyMediatorEnv = Pick<RhapsodyServerEnv, "MEDIATOR_SECRET">;
 export type RhapsodyAuthSecretEnv = Pick<RhapsodyServerEnv, "AUTH_SECRET">;
@@ -63,8 +70,14 @@ export type RhapsodyVercelOidcEnv = Pick<
 	RhapsodyServerEnv,
 	"VERCEL_OIDC_ISSUER" | "VERCEL_OIDC_AUDIENCE" | "VERCEL_TEAM_SLUG"
 >;
-export type RhapsodyProtectionBypassEnv = Pick<RhapsodyServerEnv, "VERCEL_PROTECTION_BYPASS_SECRET">;
-export type RhapsodySandboxEnv = Pick<RhapsodyServerEnv, "VERCEL_TOKEN" | "VERCEL_TEAM_ID" | "VERCEL_PROJECT_ID">;
+export type RhapsodyProtectionBypassEnv = Pick<
+	RhapsodyServerEnv,
+	"VERCEL_PROTECTION_BYPASS_SECRET"
+>;
+export type RhapsodySandboxEnv = Pick<
+	RhapsodyServerEnv,
+	"VERCEL_TOKEN" | "VERCEL_TEAM_ID" | "VERCEL_PROJECT_ID"
+>;
 export type RhapsodyCodexBaseSnapshotEnv = Pick<
 	RhapsodyServerEnv,
 	"RHAPSODY_CODEX_BASE_SNAPSHOT_ID"
@@ -91,11 +104,15 @@ const REQUIRED_STATE_STORE_ENV_KEYS = [
 	"TURSO_AUTH_TOKEN",
 ] as const satisfies readonly (keyof RhapsodyStateStoreEnv)[];
 
-const REQUIRED_GITHUB_ENV_KEYS = ["GITHUB_TOKEN"] as const satisfies readonly (keyof RhapsodyGitHubEnv)[];
+const REQUIRED_GITHUB_ENV_KEYS = [
+	"GITHUB_TOKEN",
+] as const satisfies readonly (keyof RhapsodyGitHubEnv)[];
 const REQUIRED_MEDIATOR_ENV_KEYS = [
 	"MEDIATOR_SECRET",
 ] as const satisfies readonly (keyof RhapsodyMediatorEnv)[];
-const REQUIRED_AUTH_SECRET_ENV_KEYS = ["AUTH_SECRET"] as const satisfies readonly (keyof RhapsodyAuthSecretEnv)[];
+const REQUIRED_AUTH_SECRET_ENV_KEYS = [
+	"AUTH_SECRET",
+] as const satisfies readonly (keyof RhapsodyAuthSecretEnv)[];
 const OPTIONAL_VERCEL_OIDC_ENV_KEYS = [
 	"VERCEL_OIDC_ISSUER",
 	"VERCEL_OIDC_AUDIENCE",
@@ -109,7 +126,9 @@ const SANDBOX_ENV_KEYS = [
 
 export class RhapsodyConfigError extends Error {
 	constructor(readonly issues: string[]) {
-		super(`Invalid Rhapsody configuration:\n${issues.map((issue) => `- ${issue}`).join("\n")}`);
+		super(
+			`Invalid Rhapsody configuration:\n${issues.map((issue) => `- ${issue}`).join("\n")}`,
+		);
 		this.name = "RhapsodyConfigError";
 	}
 }
@@ -120,7 +139,9 @@ export function loadRhapsodyConfig(): RhapsodyProjectConfig {
 		...projectConfig,
 		repository: {
 			...projectConfig.repository,
-			branchPrefix: normalizeBranchPrefix(projectConfig.repository.branchPrefix),
+			branchPrefix: normalizeBranchPrefix(
+				projectConfig.repository.branchPrefix,
+			),
 		},
 	};
 }
@@ -129,7 +150,9 @@ export function loadRhapsodyServerEnv(env = process.env): RhapsodyServerEnv {
 	return loadRequiredEnv(env, REQUIRED_ENV_KEYS);
 }
 
-export function loadRhapsodyStateStoreEnv(env = process.env): RhapsodyStateStoreEnv {
+export function loadRhapsodyStateStoreEnv(
+	env = process.env,
+): RhapsodyStateStoreEnv {
 	return loadRequiredEnv(env, REQUIRED_STATE_STORE_ENV_KEYS);
 }
 
@@ -137,11 +160,15 @@ export function loadRhapsodyGitHubEnv(env = process.env): RhapsodyGitHubEnv {
 	return loadRequiredEnv(env, REQUIRED_GITHUB_ENV_KEYS);
 }
 
-export function loadRhapsodyMediatorEnv(env = process.env): RhapsodyMediatorEnv {
+export function loadRhapsodyMediatorEnv(
+	env = process.env,
+): RhapsodyMediatorEnv {
 	return loadRequiredEnv(env, REQUIRED_MEDIATOR_ENV_KEYS);
 }
 
-export function loadRhapsodyAuthSecretEnv(env = process.env): RhapsodyAuthSecretEnv {
+export function loadRhapsodyAuthSecretEnv(
+	env = process.env,
+): RhapsodyAuthSecretEnv {
 	return loadRequiredEnv(env, REQUIRED_AUTH_SECRET_ENV_KEYS);
 }
 
@@ -149,23 +176,33 @@ export function loadRhapsodyCronEnv(env = process.env): RhapsodyCronEnv {
 	return loadOptionalEnv(env, ["CRON_SECRET"] as const);
 }
 
-export function loadRhapsodyVercelOidcEnv(env = process.env): RhapsodyVercelOidcEnv {
+export function loadRhapsodyVercelOidcEnv(
+	env = process.env,
+): RhapsodyVercelOidcEnv {
 	return loadOptionalEnv(env, OPTIONAL_VERCEL_OIDC_ENV_KEYS);
 }
 
-export function loadRhapsodyProtectionBypassEnv(env = process.env): RhapsodyProtectionBypassEnv {
+export function loadRhapsodyProtectionBypassEnv(
+	env = process.env,
+): RhapsodyProtectionBypassEnv {
 	return loadOptionalEnv(env, ["VERCEL_PROTECTION_BYPASS_SECRET"] as const);
 }
 
-export function loadRhapsodyCodexBaseSnapshotEnv(env = process.env): RhapsodyCodexBaseSnapshotEnv {
+export function loadRhapsodyCodexBaseSnapshotEnv(
+	env = process.env,
+): RhapsodyCodexBaseSnapshotEnv {
 	return loadOptionalEnv(env, ["RHAPSODY_CODEX_BASE_SNAPSHOT_ID"] as const);
 }
 
-export function loadRhapsodyCodexChatGPTEnv(env = process.env): RhapsodyCodexChatGPTEnv {
+export function loadRhapsodyCodexChatGPTEnv(
+	env = process.env,
+): RhapsodyCodexChatGPTEnv {
 	return loadOptionalEnv(env, ["INITIAL_CHATGPT_AUTH_JSON"] as const);
 }
 
-export function loadRhapsodySandboxEnv(env = process.env): RhapsodySandboxEnv | null {
+export function loadRhapsodySandboxEnv(
+	env = process.env,
+): RhapsodySandboxEnv | null {
 	const values = {} as RhapsodySandboxEnv;
 	const missing: string[] = [];
 	const present: string[] = [];
@@ -253,27 +290,83 @@ function validateProjectConfig(config: RhapsodyProjectConfig) {
 	const issues: string[] = [];
 
 	requireNonEmptyString(issues, "tracker.owner", config.tracker.owner);
-	requireNonEmptyString(issues, "tracker.repository", config.tracker.repository);
-	requirePositiveInteger(issues, "tracker.projectNumber", config.tracker.projectNumber);
-	requireNonEmptyString(issues, "tracker.statusField", config.tracker.statusField);
-	requireNonEmptyStringArray(issues, "tracker.activeStatuses", config.tracker.activeStatuses);
-	requireNonEmptyStringArray(issues, "tracker.terminalStatuses", config.tracker.terminalStatuses);
+	requireNonEmptyString(
+		issues,
+		"tracker.repository",
+		config.tracker.repository,
+	);
+	requirePositiveInteger(
+		issues,
+		"tracker.projectNumber",
+		config.tracker.projectNumber,
+	);
+	requireNonEmptyString(
+		issues,
+		"tracker.statusField",
+		config.tracker.statusField,
+	);
+	requireNonEmptyStringArray(
+		issues,
+		"tracker.activeStatuses",
+		config.tracker.activeStatuses,
+	);
+	requireNonEmptyStringArray(
+		issues,
+		"tracker.terminalStatuses",
+		config.tracker.terminalStatuses,
+	);
 	requireNonEmptyString(issues, "repository.owner", config.repository.owner);
 	requireNonEmptyString(issues, "repository.name", config.repository.name);
-	requireNonEmptyString(issues, "repository.defaultBranch", config.repository.defaultBranch);
-	requireNonEmptyString(issues, "repository.branchPrefix", config.repository.branchPrefix);
-	requirePositiveInteger(issues, "scheduler.maxConcurrentRuns", config.scheduler.maxConcurrentRuns);
-	requirePositiveInteger(issues, "scheduler.claimTtlMs", config.scheduler.claimTtlMs);
-	requirePositiveInteger(issues, "scheduler.maxRetryBackoffMs", config.scheduler.maxRetryBackoffMs);
-	requireOptionalPositiveInteger(issues, "scheduler.runningAttemptTimeoutMs", config.scheduler.runningAttemptTimeoutMs);
+	requireNonEmptyString(
+		issues,
+		"repository.defaultBranch",
+		config.repository.defaultBranch,
+	);
+	requireNonEmptyString(
+		issues,
+		"repository.branchPrefix",
+		config.repository.branchPrefix,
+	);
+	requirePositiveInteger(
+		issues,
+		"scheduler.maxConcurrentRuns",
+		config.scheduler.maxConcurrentRuns,
+	);
+	requirePositiveInteger(
+		issues,
+		"scheduler.claimTtlMs",
+		config.scheduler.claimTtlMs,
+	);
+	requirePositiveInteger(
+		issues,
+		"scheduler.maxRetryBackoffMs",
+		config.scheduler.maxRetryBackoffMs,
+	);
+	requireOptionalPositiveInteger(
+		issues,
+		"scheduler.runningAttemptTimeoutMs",
+		config.scheduler.runningAttemptTimeoutMs,
+	);
 
 	if (!isRhapsodyRunner(config.runner)) {
-		issues.push("runner must be one of: fake, sandbox-fake, codex-local, sandbox-codex");
+		issues.push(
+			"runner must be one of: fake, sandbox-fake, codex-local, sandbox-codex",
+		);
 	}
 
-	for (const [status, limit] of Object.entries(config.scheduler.maxConcurrentRunsByStatus)) {
-		requireNonEmptyString(issues, "scheduler.maxConcurrentRunsByStatus status", status);
-		requirePositiveInteger(issues, `scheduler.maxConcurrentRunsByStatus.${status}`, limit);
+	for (const [status, limit] of Object.entries(
+		config.scheduler.maxConcurrentRunsByStatus,
+	)) {
+		requireNonEmptyString(
+			issues,
+			"scheduler.maxConcurrentRunsByStatus status",
+			status,
+		);
+		requirePositiveInteger(
+			issues,
+			`scheduler.maxConcurrentRunsByStatus.${status}`,
+			limit,
+		);
 	}
 
 	if (issues.length > 0) {
@@ -296,7 +389,11 @@ function requireNonEmptyString(issues: string[], field: string, value: string) {
 	}
 }
 
-function requireNonEmptyStringArray(issues: string[], field: string, value: string[]) {
+function requireNonEmptyStringArray(
+	issues: string[],
+	field: string,
+	value: string[],
+) {
 	if (value.length === 0) {
 		issues.push(`${field} must include at least one value`);
 		return;
@@ -307,13 +404,21 @@ function requireNonEmptyStringArray(issues: string[], field: string, value: stri
 	}
 }
 
-function requirePositiveInteger(issues: string[], field: string, value: number) {
+function requirePositiveInteger(
+	issues: string[],
+	field: string,
+	value: number,
+) {
 	if (!Number.isInteger(value) || value <= 0) {
 		issues.push(`${field} must be a positive integer`);
 	}
 }
 
-function requireOptionalPositiveInteger(issues: string[], field: string, value: number | undefined) {
+function requireOptionalPositiveInteger(
+	issues: string[],
+	field: string,
+	value: number | undefined,
+) {
 	if (value === undefined) {
 		return;
 	}

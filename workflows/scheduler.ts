@@ -57,13 +57,12 @@ async function runSchedulerTickStep() {
 				return schedulerStartedRun;
 			}),
 		);
-		const runnerWorkflows: SchedulerRunnerLaunch[] = createdRunsWithWorkflow.map(
-			(createdRun) => ({
+		const runnerWorkflows: SchedulerRunnerLaunch[] =
+			createdRunsWithWorkflow.map((createdRun) => ({
 				runId: createdRun.runId,
 				attemptId: createdRun.attemptId,
 				workflowRunId: createdRun.runnerWorkflowRunId,
-			}),
-		);
+			}));
 
 		return {
 			ok: true,

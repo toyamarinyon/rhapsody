@@ -1,7 +1,15 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import {
+	createCipheriv,
+	createDecipheriv,
+	createHash,
+	randomBytes,
+} from "node:crypto";
 import type { Client, Row } from "@libsql/client";
 import { createStateStoreClient } from "@/lib/state";
-import { loadRhapsodyAuthSecretEnv, loadRhapsodyCodexChatGPTEnv } from "@/lib/config";
+import {
+	loadRhapsodyAuthSecretEnv,
+	loadRhapsodyCodexChatGPTEnv,
+} from "@/lib/config";
 
 const CREDENTIAL_ROW_ID = "default";
 const CREDENTIAL_ACCOUNT_ID_FALLBACK = "acct_dummy";
@@ -76,7 +84,9 @@ export async function seedMediatorCredentialStateFromEnv(): Promise<SeedMediator
 	};
 }
 
-export async function saveMediatorCredentialState(state: MediatorCredentialState): Promise<void> {
+export async function saveMediatorCredentialState(
+	state: MediatorCredentialState,
+): Promise<void> {
 	const client = createStateStoreClient();
 
 	try {
@@ -86,7 +96,9 @@ export async function saveMediatorCredentialState(state: MediatorCredentialState
 	}
 }
 
-async function loadMediatorCredentialStateFromDb(client: Client): Promise<MediatorCredentialState | null> {
+async function loadMediatorCredentialStateFromDb(
+	client: Client,
+): Promise<MediatorCredentialState | null> {
 	const result = await client.execute({
 		sql: `
 			SELECT
@@ -121,21 +133,29 @@ async function loadMediatorCredentialStateFromDb(client: Client): Promise<Mediat
 
 	const key = getEncryptionKey();
 	return {
-		accessToken: decryptValue({
-			data: parsed.encrypted_access_token,
-			iv: parsed.access_token_iv,
-			tag: parsed.access_token_tag,
-		}, key),
-		refreshToken: decryptValue({
-			data: parsed.encrypted_refresh_token,
-			iv: parsed.refresh_token_iv,
-			tag: parsed.refresh_token_tag,
-		}, key),
+		accessToken: decryptValue(
+			{
+				data: parsed.encrypted_access_token,
+				iv: parsed.access_token_iv,
+				tag: parsed.access_token_tag,
+			},
+			key,
+		),
+		refreshToken: decryptValue(
+			{
+				data: parsed.encrypted_refresh_token,
+				iv: parsed.refresh_token_iv,
+				tag: parsed.refresh_token_tag,
+			},
+			key,
+		),
 		accountId: parsed.account_id,
 	};
 }
 
-async function seedMediatorCredentialsFromEnv(client: Client): Promise<MediatorCredentialState | null> {
+async function seedMediatorCredentialsFromEnv(
+	client: Client,
+): Promise<MediatorCredentialState | null> {
 	let state: MediatorCredentialState;
 
 	try {
@@ -159,13 +179,17 @@ function readMediatorCredentialStateFromEnv(
 	return readMediatorCredentialStateFromAuthJson(env.INITIAL_CHATGPT_AUTH_JSON);
 }
 
-function readMediatorCredentialStateFromAuthJson(rawAuthJson: string): MediatorCredentialState {
+function readMediatorCredentialStateFromAuthJson(
+	rawAuthJson: string,
+): MediatorCredentialState {
 	let parsed: unknown;
 
 	try {
 		parsed = JSON.parse(rawAuthJson);
 	} catch (error) {
-		throw new Error(`INITIAL_CHATGPT_AUTH_JSON must be valid JSON: ${serializeErrorMessage(error)}`);
+		throw new Error(
+			`INITIAL_CHATGPT_AUTH_JSON must be valid JSON: ${serializeErrorMessage(error)}`,
+		);
 	}
 
 	if (!isRecord(parsed)) {
@@ -178,8 +202,14 @@ function readMediatorCredentialStateFromAuthJson(rawAuthJson: string): MediatorC
 		throw new Error("INITIAL_CHATGPT_AUTH_JSON must include a tokens object.");
 	}
 
-	const accessToken = nonEmptyString(tokens.access_token, "tokens.access_token");
-	const refreshToken = nonEmptyString(tokens.refresh_token, "tokens.refresh_token");
+	const accessToken = nonEmptyString(
+		tokens.access_token,
+		"tokens.access_token",
+	);
+	const refreshToken = nonEmptyString(
+		tokens.refresh_token,
+		"tokens.refresh_token",
+	);
 	const accountId =
 		optionalNonEmptyString(tokens.account_id) ??
 		parseAccountIdFromIdToken(optionalNonEmptyString(tokens.id_token)) ??
@@ -241,7 +271,10 @@ async function saveMediatorCredentialStateInDb(
 function encryptValue(value: string, key: Buffer): EncryptedValue {
 	const iv = randomBytes(AES_GCM_IV_LENGTH);
 	const cipher = createCipheriv("aes-256-gcm", key, iv);
-	const encrypted = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
+	const encrypted = Buffer.concat([
+		cipher.update(value, "utf8"),
+		cipher.final(),
+	]);
 	return {
 		data: encrypted.toString("base64"),
 		iv: iv.toString("base64"),
@@ -250,11 +283,16 @@ function encryptValue(value: string, key: Buffer): EncryptedValue {
 }
 
 function decryptValue(value: EncryptedValue, key: Buffer): string {
-	const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(value.iv, "base64"));
-	decipher.setAuthTag(Buffer.from(value.tag, "base64"));
-	return Buffer.concat([decipher.update(Buffer.from(value.data, "base64")), decipher.final()]).toString(
-		"utf8",
+	const decipher = createDecipheriv(
+		"aes-256-gcm",
+		key,
+		Buffer.from(value.iv, "base64"),
 	);
+	decipher.setAuthTag(Buffer.from(value.tag, "base64"));
+	return Buffer.concat([
+		decipher.update(Buffer.from(value.data, "base64")),
+		decipher.final(),
+	]).toString("utf8");
 }
 
 function getEncryptionKey(): Buffer {
@@ -277,7 +315,8 @@ export async function updateMediatorCredentialsFromOAuthResponse(
 	state: MediatorCredentialState,
 	upstream: Record<string, unknown>,
 ): Promise<MediatorCredentialState> {
-	const nextAccessToken = safeStringFromObject(upstream, "access_token") ?? state.accessToken;
+	const nextAccessToken =
+		safeStringFromObject(upstream, "access_token") ?? state.accessToken;
 	const nextRefreshToken =
 		safeStringFromObject(upstream, "refresh_token") ?? state.refreshToken;
 	const idToken = safeStringFromObject(upstream, "id_token");
@@ -299,7 +338,10 @@ export async function updateMediatorCredentialsFromOAuthResponse(
 	return updatedState;
 }
 
-function safeStringFromObject(payload: Record<string, unknown>, key: string): string | null {
+function safeStringFromObject(
+	payload: Record<string, unknown>,
+	key: string,
+): string | null {
 	const value = payload[key];
 
 	if (typeof value === "string" && value.trim()) {
@@ -318,7 +360,9 @@ function nonEmptyString(value: unknown, field: string): string {
 		return value;
 	}
 
-	throw new Error(`INITIAL_CHATGPT_AUTH_JSON ${field} must be a non-empty string.`);
+	throw new Error(
+		`INITIAL_CHATGPT_AUTH_JSON ${field} must be a non-empty string.`,
+	);
 }
 
 function optionalNonEmptyString(value: unknown): string | null {

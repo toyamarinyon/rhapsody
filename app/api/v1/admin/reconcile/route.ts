@@ -20,11 +20,17 @@ async function handleReconcile(request: Request) {
 	}
 
 	const url = new URL(request.url);
-	const maxRunningAttemptAgeMs = parsePositiveIntegerParam(url, "maxRunningAttemptAgeMs");
+	const maxRunningAttemptAgeMs = parsePositiveIntegerParam(
+		url,
+		"maxRunningAttemptAgeMs",
+	);
 	const limit = parsePositiveIntegerParam(url, "limit");
 
 	if (!maxRunningAttemptAgeMs.ok) {
-		return Response.json({ error: maxRunningAttemptAgeMs.error }, { status: 400 });
+		return Response.json(
+			{ error: maxRunningAttemptAgeMs.error },
+			{ status: 400 },
+		);
 	}
 
 	if (!limit.ok) {

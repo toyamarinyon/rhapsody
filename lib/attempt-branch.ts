@@ -10,7 +10,9 @@ export type ParseWorkItemIssueNumberInput = {
 	workItemId: string;
 };
 
-export function buildAttemptBranchName(input: BuildAttemptBranchNameInput): string {
+export function buildAttemptBranchName(
+	input: BuildAttemptBranchNameInput,
+): string {
 	const branchPrefix = normalizeBranchPrefix(input.branchPrefix);
 	const issuePart = buildIssueBranchPart(input.issueNumber);
 	const attemptPart = Math.max(1, Math.floor(input.attemptNumber || 0));
@@ -18,7 +20,9 @@ export function buildAttemptBranchName(input: BuildAttemptBranchNameInput): stri
 	return `${branchPrefix}/${issuePart}-${attemptPart}`;
 }
 
-export function parseWorkItemIssueNumber(input: ParseWorkItemIssueNumberInput): number | null {
+export function parseWorkItemIssueNumber(
+	input: ParseWorkItemIssueNumberInput,
+): number | null {
 	const value = input.workItemId.match(/#(\d+)$/);
 
 	if (!value) {
@@ -28,7 +32,9 @@ export function parseWorkItemIssueNumber(input: ParseWorkItemIssueNumberInput): 
 	return Number.parseInt(value[1], 10);
 }
 
-export function normalizeBranchPrefix(branchPrefix: string | undefined): string {
+export function normalizeBranchPrefix(
+	branchPrefix: string | undefined,
+): string {
 	const normalized = branchPrefix?.trim().replace(/\/+$/u, "") ?? "";
 
 	return normalized || ATTEMPT_BRANCH_PREFIX_DEFAULT;
@@ -49,6 +55,9 @@ function buildIssueBranchPart(issueNumber: number | string | null): string {
 }
 
 function normalizeBranchPart(value: string): string {
-	const normalized = value.trim().toLowerCase().replace(/[^a-z0-9._-]/gu, "-");
+	const normalized = value
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9._-]/gu, "-");
 	return normalized.replace(/(^[-.]+|[-.]+$)/g, "") || "unknown";
 }

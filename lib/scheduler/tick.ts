@@ -5,7 +5,11 @@ import {
 	type GitHubProjectIssueWorkItem,
 	updateProjectIssueStatus,
 } from "@/lib/github/project-items";
-import { createClaimedManualRun, createEvent, getStateSummary } from "@/lib/state";
+import {
+	createClaimedManualRun,
+	createEvent,
+	getStateSummary,
+} from "@/lib/state";
 import { loadRhapsodyConfig } from "@/lib/config";
 
 type SchedulerTickCreatedRun = {
@@ -64,13 +68,18 @@ export type SchedulerTickResult =
 const SCHEDULER_STATUS_FILTER = ["Todo"];
 const RUNNING_PROJECT_STATUS = "In Progress";
 
-export async function runSchedulerTick(client: Client): Promise<SchedulerTickResult> {
+export async function runSchedulerTick(
+	client: Client,
+): Promise<SchedulerTickResult> {
 	const config = loadRhapsodyConfig();
 
 	try {
 		const stateSummary = await getStateSummary(client);
 		const maxConcurrentRuns = config.scheduler.maxConcurrentRuns;
-		const availableSlots = Math.max(0, maxConcurrentRuns - stateSummary.activeClaimCount);
+		const availableSlots = Math.max(
+			0,
+			maxConcurrentRuns - stateSummary.activeClaimCount,
+		);
 
 		let projectItems: GitHubProjectIssueWorkItem[];
 
@@ -92,7 +101,9 @@ export async function runSchedulerTick(client: Client): Promise<SchedulerTickRes
 			};
 		}
 
-		const eligibleItems = projectItems.filter((item) => SCHEDULER_STATUS_FILTER.includes(item.projectStatus ?? ""));
+		const eligibleItems = projectItems.filter((item) =>
+			SCHEDULER_STATUS_FILTER.includes(item.projectStatus ?? ""),
+		);
 		let remainingSlots = availableSlots;
 		const createdRuns: SchedulerTickCreatedRun[] = [];
 		const skippedIssues: SchedulerTickSkippedIssue[] = [];
@@ -121,12 +132,15 @@ export async function runSchedulerTick(client: Client): Promise<SchedulerTickRes
 			});
 
 			if (result.acquired) {
-				const projectStatusUpdate = await moveProjectIssueToRunningStatus(client, {
-					config,
-					item,
-					runId: result.runId,
-					attemptId: result.attemptId,
-				});
+				const projectStatusUpdate = await moveProjectIssueToRunningStatus(
+					client,
+					{
+						config,
+						item,
+						runId: result.runId,
+						attemptId: result.attemptId,
+					},
+				);
 
 				createdRuns.push({
 					workItemId,
@@ -159,7 +173,8 @@ export async function runSchedulerTick(client: Client): Promise<SchedulerTickRes
 				executed: false,
 				execution: {
 					triggered: false,
-					reason: "Execution deferred. Use existing run endpoint or scheduler worker for async execution.",
+					reason:
+						"Execution deferred. Use existing run endpoint or scheduler worker for async execution.",
 				},
 				limits: {
 					maxConcurrentRuns,
@@ -256,7 +271,8 @@ async function moveProjectIssueToRunningStatus(
 			attemptId: input.attemptId,
 			level: "warn",
 			type: "scheduler.project_status_update_failed",
-			message: "Scheduler could not move the Project item to the running status.",
+			message:
+				"Scheduler could not move the Project item to the running status.",
 			data: {
 				issueNumber: input.item.issueNumber,
 				fromStatus: input.item.projectStatus,

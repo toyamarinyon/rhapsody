@@ -3,7 +3,10 @@ import { createStateStoreClient, getRunDetail } from "@/lib/state";
 
 export const runtime = "nodejs";
 
-export async function GET(request: Request, context: { params: Promise<{ runId: string }> }) {
+export async function GET(
+	request: Request,
+	context: { params: Promise<{ runId: string }> },
+) {
 	const auth = requireAdminAuth(request);
 
 	if (!auth.ok) {

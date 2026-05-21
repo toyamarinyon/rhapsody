@@ -92,72 +92,56 @@ async function runInspectionCommands(
 	sandbox: RhapsodyVercelSandbox,
 ): Promise<CommandResult[]> {
 	return Promise.all([
-		runInspectionCommand(
-			sandbox,
-			"filesystem",
+		runInspectionCommand(sandbox, "filesystem", [
+			"-lc",
 			[
-				"-lc",
-				[
-					"pwd",
-					"echo '--- /vercel'",
-					"ls -la /vercel || true",
-					"echo '--- /vercel/sandbox'",
-					"ls -la /vercel/sandbox || true",
-					`echo '--- ${OUTPUT_PATH}'`,
-					`ls -la ${OUTPUT_PATH} || true`,
-					`echo '--- ${REPOSITORY_PATH}'`,
-					`ls -la ${REPOSITORY_PATH} || true`,
-				].join("\n"),
-			],
-		),
-		runInspectionCommand(
-			sandbox,
-			"metadata",
-			["-lc", `if [ -f ${shellQuote(METADATA_PATH)} ]; then cat ${shellQuote(METADATA_PATH)}; fi`],
-		),
-		runInspectionCommand(
-			sandbox,
-			"pr_spec",
-			["-lc", `if [ -f ${shellQuote(PR_SPEC_PATH)} ]; then cat ${shellQuote(PR_SPEC_PATH)}; fi`],
-		),
-		runInspectionCommand(
-			sandbox,
-			"prompt",
-			["-lc", `if [ -f ${shellQuote(PROMPT_PATH)} ]; then cat ${shellQuote(PROMPT_PATH)}; fi`],
-		),
-		runInspectionCommand(
-			sandbox,
-			"git_status",
-			["-lc", `git -C ${shellQuote(REPOSITORY_PATH)} status --branch --porcelain=v2`],
-		),
-		runInspectionCommand(
-			sandbox,
-			"git_branches",
-			["-lc", `git -C ${shellQuote(REPOSITORY_PATH)} branch -vv`],
-		),
-		runInspectionCommand(
-			sandbox,
-			"git_log",
-			[
-				"-lc",
-				`git -C ${shellQuote(REPOSITORY_PATH)} log --oneline --decorate --graph -n 20`,
-			],
-		),
-		runInspectionCommand(
-			sandbox,
-			"git_remote",
-			["-lc", `git -C ${shellQuote(REPOSITORY_PATH)} remote -v`],
-		),
-		runInspectionCommand(
-			sandbox,
-			"git_head",
-			["-lc", `git -C ${shellQuote(REPOSITORY_PATH)} rev-parse HEAD && git -C ${shellQuote(REPOSITORY_PATH)} rev-parse --abbrev-ref HEAD`],
-		),
-		runInspectionCommand(
-			sandbox,
-			"git_diff_name_status",
-			["-lc", `git -C ${shellQuote(REPOSITORY_PATH)} diff --name-status`],
-		),
+				"pwd",
+				"echo '--- /vercel'",
+				"ls -la /vercel || true",
+				"echo '--- /vercel/sandbox'",
+				"ls -la /vercel/sandbox || true",
+				`echo '--- ${OUTPUT_PATH}'`,
+				`ls -la ${OUTPUT_PATH} || true`,
+				`echo '--- ${REPOSITORY_PATH}'`,
+				`ls -la ${REPOSITORY_PATH} || true`,
+			].join("\n"),
+		]),
+		runInspectionCommand(sandbox, "metadata", [
+			"-lc",
+			`if [ -f ${shellQuote(METADATA_PATH)} ]; then cat ${shellQuote(METADATA_PATH)}; fi`,
+		]),
+		runInspectionCommand(sandbox, "pr_spec", [
+			"-lc",
+			`if [ -f ${shellQuote(PR_SPEC_PATH)} ]; then cat ${shellQuote(PR_SPEC_PATH)}; fi`,
+		]),
+		runInspectionCommand(sandbox, "prompt", [
+			"-lc",
+			`if [ -f ${shellQuote(PROMPT_PATH)} ]; then cat ${shellQuote(PROMPT_PATH)}; fi`,
+		]),
+		runInspectionCommand(sandbox, "git_status", [
+			"-lc",
+			`git -C ${shellQuote(REPOSITORY_PATH)} status --branch --porcelain=v2`,
+		]),
+		runInspectionCommand(sandbox, "git_branches", [
+			"-lc",
+			`git -C ${shellQuote(REPOSITORY_PATH)} branch -vv`,
+		]),
+		runInspectionCommand(sandbox, "git_log", [
+			"-lc",
+			`git -C ${shellQuote(REPOSITORY_PATH)} log --oneline --decorate --graph -n 20`,
+		]),
+		runInspectionCommand(sandbox, "git_remote", [
+			"-lc",
+			`git -C ${shellQuote(REPOSITORY_PATH)} remote -v`,
+		]),
+		runInspectionCommand(sandbox, "git_head", [
+			"-lc",
+			`git -C ${shellQuote(REPOSITORY_PATH)} rev-parse HEAD && git -C ${shellQuote(REPOSITORY_PATH)} rev-parse --abbrev-ref HEAD`,
+		]),
+		runInspectionCommand(sandbox, "git_diff_name_status", [
+			"-lc",
+			`git -C ${shellQuote(REPOSITORY_PATH)} diff --name-status`,
+		]),
 		runInspectionCommand(sandbox, "codex_version", ["-lc", "codex --version"]),
 	]);
 }

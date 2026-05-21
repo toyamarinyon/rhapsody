@@ -375,7 +375,10 @@ async function runOperation(
 		cwd: tempWorkdir,
 	});
 	commands.push({
-		command: GIT_SMOKE_CLONE_OPERATION.replace("<repositoryUrl>", repositoryUrl),
+		command: GIT_SMOKE_CLONE_OPERATION.replace(
+			"<repositoryUrl>",
+			repositoryUrl,
+		),
 		summary: clone,
 	});
 	if (clone.exitCode !== 0) {
@@ -409,7 +412,10 @@ async function runOperation(
 		args: ["checkout", "-B", branchName],
 		cwd: repoPath,
 	});
-	commands.push({ command: `git checkout -B ${branchName}`, summary: checkout });
+	commands.push({
+		command: `git checkout -B ${branchName}`,
+		summary: checkout,
+	});
 	if (checkout.exitCode !== 0) {
 		return { command: checkout, commands };
 	}
@@ -417,10 +423,7 @@ async function runOperation(
 	const smokePath = `.rhapsody-smoke/${Date.now()}.txt`;
 	const writeSmokeFile = await runVercelSandboxCommand(sandbox, {
 		cmd: "sh",
-		args: [
-			"-lc",
-			`mkdir -p .rhapsody-smoke && date +%FT%TZ > ${smokePath}`,
-		],
+		args: ["-lc", `mkdir -p .rhapsody-smoke && date +%FT%TZ > ${smokePath}`],
 		cwd: repoPath,
 	});
 	commands.push({

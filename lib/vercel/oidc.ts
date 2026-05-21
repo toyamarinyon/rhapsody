@@ -33,9 +33,7 @@ type VerifyVercelSandboxOidcTokenOptions = {
 export async function verifyVercelSandboxOidcToken(
 	token: string,
 	options: VerifyVercelSandboxOidcTokenOptions,
-): Promise<
-	{ payload: VercelSandboxOidcPayload } | null
-> {
+): Promise<{ payload: VercelSandboxOidcPayload } | null> {
 	if (!token?.trim()) {
 		return null;
 	}
@@ -67,19 +65,19 @@ export async function verifyVercelSandboxOidcToken(
 			return null;
 		}
 
-			if (
-				audienceSource.teamId &&
-				payload.owner_id !== undefined &&
-				String(payload.owner_id).trim() !== audienceSource.teamId
-			) {
+		if (
+			audienceSource.teamId &&
+			payload.owner_id !== undefined &&
+			String(payload.owner_id).trim() !== audienceSource.teamId
+		) {
 			return null;
 		}
 
-			if (
-				audienceSource.teamId &&
-				payload.team_id !== undefined &&
-				String(payload.team_id).trim() !== audienceSource.teamId
-			) {
+		if (
+			audienceSource.teamId &&
+			payload.team_id !== undefined &&
+			String(payload.team_id).trim() !== audienceSource.teamId
+		) {
 			return null;
 		}
 
@@ -116,7 +114,9 @@ function resolveIssuer(
 	return undefined;
 }
 
-export function extractSafeOidcClaimSnapshot(payload: VercelSandboxOidcPayload) {
+export function extractSafeOidcClaimSnapshot(
+	payload: VercelSandboxOidcPayload,
+) {
 	const keys = [
 		"iss",
 		"aud",
@@ -132,7 +132,11 @@ export function extractSafeOidcClaimSnapshot(payload: VercelSandboxOidcPayload) 
 	const snapshot: Record<string, unknown> = {};
 
 	for (const key of Object.keys(payload)) {
-		if (key.includes("sandbox") || key.includes("session") || key.includes("id")) {
+		if (
+			key.includes("sandbox") ||
+			key.includes("session") ||
+			key.includes("id")
+		) {
 			snapshot[key] = payload[key];
 		}
 	}

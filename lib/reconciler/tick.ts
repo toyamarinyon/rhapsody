@@ -57,7 +57,9 @@ export type ReconcilerWorkflowCancellationResult =
 			error: { name: string; message: string };
 	  };
 
-export async function runReconcilerTick(input: ReconcilerTickInput = {}): Promise<ReconcilerTickResponse> {
+export async function runReconcilerTick(
+	input: ReconcilerTickInput = {},
+): Promise<ReconcilerTickResponse> {
 	const client = input.client ?? createStateStoreClient();
 
 	try {
@@ -81,7 +83,10 @@ async function runReconcilerTickWithClient(
 		DEFAULT_RUNNING_ATTEMPT_TIMEOUT_MS;
 	const limit = input.limit ?? DEFAULT_RECONCILER_LIMIT;
 	const cutoff = now - maxRunningAttemptAgeMs;
-	const staleAttempts = await listStaleRunningAttempts(client, { cutoff, limit });
+	const staleAttempts = await listStaleRunningAttempts(client, {
+		cutoff,
+		limit,
+	});
 	const results: ReconcileStaleRunningAttemptResult[] = [];
 	const workflowCancellations: ReconcilerWorkflowCancellationResult[] = [];
 
@@ -94,7 +99,9 @@ async function runReconcilerTickWithClient(
 			maxRunningAttemptAgeMs,
 		});
 		results.push(result);
-		workflowCancellations.push(await cancelRunnerWorkflowForReconciledAttempt(result));
+		workflowCancellations.push(
+			await cancelRunnerWorkflowForReconciledAttempt(result),
+		);
 	}
 
 	const reconciled = results.filter((result) => result.applied).length;

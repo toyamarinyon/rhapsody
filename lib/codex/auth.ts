@@ -12,7 +12,9 @@ export type CodexAuthPayload = {
 	last_refresh: string;
 };
 
-export function buildCodexChatGPTDummyAuthFile(accountId: string | undefined): CodexAuthPayload {
+export function buildCodexChatGPTDummyAuthFile(
+	accountId: string | undefined,
+): CodexAuthPayload {
 	const resolvedAccountId = accountId?.trim() || "acct_dummy";
 	const now = Math.floor(Date.now() / 1000);
 	const nextHour = now + 60 * 60;
@@ -46,7 +48,9 @@ function buildDummyIdToken(accountId: string) {
 			},
 		}),
 	);
-	const signature = base64UrlEncode(`${accountId}.id.${DUMMY_CHATGPT_REFRESH_TOKEN}`);
+	const signature = base64UrlEncode(
+		`${accountId}.id.${DUMMY_CHATGPT_REFRESH_TOKEN}`,
+	);
 
 	return `${header}.${payload}.${signature}`;
 }
@@ -61,7 +65,9 @@ function buildDummyAccessToken(accountId: string, exp: number) {
 			scope: "chatgpt_api",
 		}),
 	);
-	const signature = base64UrlEncode(`${accountId}.access.${DUMMY_CHATGPT_REFRESH_TOKEN}`);
+	const signature = base64UrlEncode(
+		`${accountId}.access.${DUMMY_CHATGPT_REFRESH_TOKEN}`,
+	);
 
 	return `${header}.${payload}.${signature}`;
 }

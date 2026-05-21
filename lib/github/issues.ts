@@ -26,7 +26,9 @@ export class GitHubIssueFetchError extends Error {
 		readonly repository: string,
 		readonly issueNumber: number,
 	) {
-		super(`GitHub issue fetch failed with status ${status} for ${owner}/${repository}#${issueNumber}.`);
+		super(
+			`GitHub issue fetch failed with status ${status} for ${owner}/${repository}#${issueNumber}.`,
+		);
 		this.name = "GitHubIssueFetchError";
 	}
 }
@@ -49,7 +51,12 @@ export async function fetchGitHubIssue(
 	);
 
 	if (!response.ok) {
-		throw new GitHubIssueFetchError(response.status, input.owner, input.repository, input.issueNumber);
+		throw new GitHubIssueFetchError(
+			response.status,
+			input.owner,
+			input.repository,
+			input.issueNumber,
+		);
 	}
 
 	return normalizeIssue(await response.json());
@@ -72,7 +79,9 @@ function normalizeIssue(value: unknown): GitHubIssue {
 	};
 }
 
-function normalizeLabel(value: GitHubIssueResponse["labels"][number]): GitHubIssueLabel[] {
+function normalizeLabel(
+	value: GitHubIssueResponse["labels"][number],
+): GitHubIssueLabel[] {
 	if (typeof value === "string") {
 		return [];
 	}

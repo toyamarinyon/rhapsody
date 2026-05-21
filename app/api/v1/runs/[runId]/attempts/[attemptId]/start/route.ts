@@ -1,7 +1,14 @@
 import { requireAdminAuth } from "@/lib/server/admin-auth";
 import { isRecord, optionalString, readJson } from "@/lib/server/json";
-import { createStateStoreClient, getRunDetail, markAttemptStarted } from "@/lib/state";
-import { buildAttemptBranchName, parseWorkItemIssueNumber } from "@/lib/attempt-branch";
+import {
+	createStateStoreClient,
+	getRunDetail,
+	markAttemptStarted,
+} from "@/lib/state";
+import {
+	buildAttemptBranchName,
+	parseWorkItemIssueNumber,
+} from "@/lib/attempt-branch";
 import { loadRhapsodyConfig } from "@/lib/config";
 
 export const runtime = "nodejs";
@@ -39,15 +46,19 @@ export async function POST(
 	const client = createStateStoreClient();
 	const config = loadRhapsodyConfig();
 	const detail = await getRunDetail(client, runId);
-	const attempt = detail?.attempts.find((candidate) => candidate.id === attemptId);
-	const issueNumber = detail ? parseWorkItemIssueNumber({ workItemId: detail.run.workItemId }) : null;
+	const attempt = detail?.attempts.find(
+		(candidate) => candidate.id === attemptId,
+	);
+	const issueNumber = detail
+		? parseWorkItemIssueNumber({ workItemId: detail.run.workItemId })
+		: null;
 	const gitBranchName =
 		detail && attempt
 			? buildAttemptBranchName({
-				branchPrefix: config.repository.branchPrefix,
-				issueNumber,
-				attemptNumber: attempt.attemptNumber,
-			})
+					branchPrefix: config.repository.branchPrefix,
+					issueNumber,
+					attemptNumber: attempt.attemptNumber,
+				})
 			: undefined;
 
 	try {
@@ -87,13 +98,19 @@ function parseAttemptStartRequest(
 	const sandboxId = optionalString(value.sandboxId);
 
 	if (sandboxId === undefined && "sandboxId" in value) {
-		return { ok: false, error: "sandboxId must be a string or null when provided." };
+		return {
+			ok: false,
+			error: "sandboxId must be a string or null when provided.",
+		};
 	}
 
 	const command = optionalString(value.command);
 
 	if (command === undefined && "command" in value) {
-		return { ok: false, error: "command must be a string or null when provided." };
+		return {
+			ok: false,
+			error: "command must be a string or null when provided.",
+		};
 	}
 
 	const startedAt = optionalTimestamp(value.startedAt, "startedAt");
@@ -113,7 +130,10 @@ function parseAttemptStartRequest(
 	};
 }
 
-function requiredString(value: unknown, field: string): { ok: true; value: string } | { ok: false; error: string } {
+function requiredString(
+	value: unknown,
+	field: string,
+): { ok: true; value: string } | { ok: false; error: string } {
 	if (typeof value !== "string" || !value.trim()) {
 		return { ok: false, error: `${field} must be a non-empty string.` };
 	}
@@ -124,7 +144,9 @@ function requiredString(value: unknown, field: string): { ok: true; value: strin
 function optionalTimestamp(
 	value: unknown,
 	field: string,
-): { ok: true; value: number | null | undefined } | { ok: false; error: string } {
+):
+	| { ok: true; value: number | null | undefined }
+	| { ok: false; error: string } {
 	if (value === undefined || value === null) {
 		return { ok: true, value };
 	}
@@ -141,5 +163,8 @@ function optionalTimestamp(
 		}
 	}
 
-	return { ok: false, error: `${field} must be an epoch millisecond number, ISO timestamp, or null when provided.` };
+	return {
+		ok: false,
+		error: `${field} must be an epoch millisecond number, ISO timestamp, or null when provided.`,
+	};
 }

@@ -30,7 +30,9 @@ export async function GET(
 			return Response.json({ error: "Run not found." }, { status: 404 });
 		}
 
-		const attempt = detail.attempts.find((candidate) => candidate.id === attemptId);
+		const attempt = detail.attempts.find(
+			(candidate) => candidate.id === attemptId,
+		);
 
 		if (!attempt) {
 			return Response.json({ error: "Attempt not found." }, { status: 404 });
@@ -43,7 +45,10 @@ export async function GET(
 			context: buildInstructionContext({ detail, attempt, config }),
 		});
 
-		return Response.json({ prompt, instructionPath: instructions.instructionPath });
+		return Response.json({
+			prompt,
+			instructionPath: instructions.instructionPath,
+		});
 	} catch (error) {
 		if (error instanceof InstructionTemplateError) {
 			return Response.json({ error: error.message }, { status: 422 });

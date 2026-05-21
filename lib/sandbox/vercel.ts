@@ -1,4 +1,8 @@
-import { Sandbox, type NetworkPolicy, type NetworkPolicyRule } from "@vercel/sandbox";
+import {
+	Sandbox,
+	type NetworkPolicy,
+	type NetworkPolicyRule,
+} from "@vercel/sandbox";
 
 import { loadRhapsodySandboxEnv } from "@/lib/config";
 
@@ -66,7 +70,9 @@ const DEFAULT_SANDBOX_RUNTIME = "node24";
 // are actually applied to commands running inside the sandbox.
 const NETWORK_POLICY_PROPAGATION_DELAY_MS = 8_000;
 
-export function mergeNetworkPolicies(...policies: NetworkPolicy[]): NetworkPolicy {
+export function mergeNetworkPolicies(
+	...policies: NetworkPolicy[]
+): NetworkPolicy {
 	if (policies.some((policy) => policy === "allow-all")) {
 		return "allow-all";
 	}
@@ -142,7 +148,9 @@ export function buildVercelSandboxGitHubNetworkPolicy(args: {
 	};
 }
 
-function buildAuthorizationTransformRule(authorizationValue: string): NetworkPolicyRule[] {
+function buildAuthorizationTransformRule(
+	authorizationValue: string,
+): NetworkPolicyRule[] {
 	return [
 		{
 			transform: [
@@ -156,7 +164,10 @@ function buildAuthorizationTransformRule(authorizationValue: string): NetworkPol
 	];
 }
 
-function buildTokenAuthorizationHeader(prefix: "token" | "bearer" | "basic", githubToken: string) {
+function buildTokenAuthorizationHeader(
+	prefix: "token" | "bearer" | "basic",
+	githubToken: string,
+) {
 	if (prefix === "basic") {
 		return `Basic ${Buffer.from(`x-access-token:${githubToken}`, "utf8").toString("base64")}`;
 	}
@@ -215,7 +226,9 @@ export function buildVercelSandboxCodexNetworkPolicy(args: {
 	};
 }
 
-export async function createVercelSandbox(input: CreateVercelSandboxInput = {}) {
+export async function createVercelSandbox(
+	input: CreateVercelSandboxInput = {},
+) {
 	const env = loadRhapsodySandboxEnv();
 	const credentials = env
 		? {
@@ -227,7 +240,9 @@ export async function createVercelSandbox(input: CreateVercelSandboxInput = {}) 
 
 	const sandbox = await Sandbox.create({
 		...credentials,
-		...(input.source ? { source: input.source } : { runtime: input.runtime ?? DEFAULT_SANDBOX_RUNTIME }),
+		...(input.source
+			? { source: input.source }
+			: { runtime: input.runtime ?? DEFAULT_SANDBOX_RUNTIME }),
 		timeout: input.timeout,
 		env: input.env,
 		networkPolicy: input.networkPolicy ? "allow-all" : undefined,
@@ -245,7 +260,10 @@ function delay(ms: number) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function writeVercelSandboxFiles(sandbox: RhapsodyVercelSandbox, files: VercelSandboxFile[]) {
+export async function writeVercelSandboxFiles(
+	sandbox: RhapsodyVercelSandbox,
+	files: VercelSandboxFile[],
+) {
 	await sandbox.writeFiles(files);
 }
 
@@ -260,7 +278,10 @@ export async function runVercelSandboxCommand(
 			cwd: input.cwd,
 			env: input.env,
 		});
-		const [stdout, stderr] = await Promise.all([command.stdout(), command.stderr()]);
+		const [stdout, stderr] = await Promise.all([
+			command.stdout(),
+			command.stderr(),
+		]);
 
 		return {
 			commandId: command.cmdId,
@@ -287,7 +308,10 @@ export async function runVercelSandboxCommand(
 	try {
 		const finished = await command.wait({ signal: abortController.signal });
 		clearTimeout(timeout);
-		const [stdout, stderr] = await Promise.all([finished.stdout(), finished.stderr()]);
+		const [stdout, stderr] = await Promise.all([
+			finished.stdout(),
+			finished.stderr(),
+		]);
 
 		return {
 			commandId: finished.cmdId,
@@ -342,7 +366,9 @@ export function getVercelSandboxId(sandbox: RhapsodyVercelSandbox) {
 	return sandbox.name;
 }
 
-export async function createVercelSandboxSnapshot(sandbox: RhapsodyVercelSandbox) {
+export async function createVercelSandboxSnapshot(
+	sandbox: RhapsodyVercelSandbox,
+) {
 	const snapshot = await sandbox.snapshot();
 
 	return {

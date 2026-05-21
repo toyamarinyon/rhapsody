@@ -1,4 +1,8 @@
-import { isRhapsodyRunner, loadRhapsodyConfig, type RhapsodyRunner } from "@/lib/config";
+import {
+	isRhapsodyRunner,
+	loadRhapsodyConfig,
+	type RhapsodyRunner,
+} from "@/lib/config";
 import { fetchGitHubIssue, GitHubIssueFetchError } from "@/lib/github/issues";
 import { requireAdminAuth } from "@/lib/server/admin-auth";
 import { isRecord, optionalString, readJson } from "@/lib/server/json";
@@ -62,7 +66,10 @@ export async function POST(request: Request) {
 		});
 
 		if (!result.acquired) {
-			return Response.json({ acquired: false, existingRunId: result.existingRunId }, { status: 409 });
+			return Response.json(
+				{ acquired: false, existingRunId: result.existingRunId },
+				{ status: 409 },
+			);
 		}
 
 		return Response.json(result, { status: 201 });
@@ -71,7 +78,9 @@ export async function POST(request: Request) {
 	}
 }
 
-function parseManualRunRequest(value: unknown): { ok: true; value: RunRequest } | { ok: false; error: string } {
+function parseManualRunRequest(
+	value: unknown,
+): { ok: true; value: RunRequest } | { ok: false; error: string } {
 	if (!isRecord(value)) {
 		return { ok: false, error: "Request body must be a JSON object." };
 	}
@@ -91,13 +100,19 @@ function parseManualRunRequest(value: unknown): { ok: true; value: RunRequest } 
 	const workItemUrl = optionalString(value.workItemUrl);
 
 	if (workItemUrl === undefined && "workItemUrl" in value) {
-		return { ok: false, error: "workItemUrl must be a string or null when provided." };
+		return {
+			ok: false,
+			error: "workItemUrl must be a string or null when provided.",
+		};
 	}
 
 	const workItemStatus = optionalString(value.workItemStatus);
 
 	if (workItemStatus === undefined && "workItemStatus" in value) {
-		return { ok: false, error: "workItemStatus must be a string or null when provided." };
+		return {
+			ok: false,
+			error: "workItemStatus must be a string or null when provided.",
+		};
 	}
 
 	const claimedBy = optionalString(value.claimedBy);
@@ -107,7 +122,10 @@ function parseManualRunRequest(value: unknown): { ok: true; value: RunRequest } 
 	}
 
 	if (claimedBy !== undefined && !claimedBy.trim()) {
-		return { ok: false, error: "claimedBy must be a non-empty string when provided." };
+		return {
+			ok: false,
+			error: "claimedBy must be a non-empty string when provided.",
+		};
 	}
 
 	const runner = parseRunner(value.runner);
@@ -135,7 +153,11 @@ function parseGitHubIssueRunRequest(
 ): { ok: true; value: GitHubIssueRunRequest } | { ok: false; error: string } {
 	const issueNumber = value.issueNumber;
 
-	if (typeof issueNumber !== "number" || !Number.isInteger(issueNumber) || issueNumber <= 0) {
+	if (
+		typeof issueNumber !== "number" ||
+		!Number.isInteger(issueNumber) ||
+		issueNumber <= 0
+	) {
 		return { ok: false, error: "issueNumber must be a positive integer." };
 	}
 
@@ -146,7 +168,10 @@ function parseGitHubIssueRunRequest(
 	}
 
 	if (claimedBy !== undefined && !claimedBy.trim()) {
-		return { ok: false, error: "claimedBy must be a non-empty string when provided." };
+		return {
+			ok: false,
+			error: "claimedBy must be a non-empty string when provided.",
+		};
 	}
 
 	const runner = parseRunner(value.runner);
@@ -165,7 +190,9 @@ function parseGitHubIssueRunRequest(
 	};
 }
 
-function parseRunner(value: unknown): { ok: true; value?: RhapsodyRunner } | { ok: false; error: string } {
+function parseRunner(
+	value: unknown,
+): { ok: true; value?: RhapsodyRunner } | { ok: false; error: string } {
 	if (value === undefined) {
 		return { ok: true };
 	}
@@ -173,7 +200,8 @@ function parseRunner(value: unknown): { ok: true; value?: RhapsodyRunner } | { o
 	if (!isRhapsodyRunner(value)) {
 		return {
 			ok: false,
-			error: "runner must be one of: fake, sandbox-fake, codex-local, sandbox-codex.",
+			error:
+				"runner must be one of: fake, sandbox-fake, codex-local, sandbox-codex.",
 		};
 	}
 
@@ -204,7 +232,12 @@ async function resolveRunInput(
 			return {
 				ok: false,
 				response: Response.json(
-					{ error: error.status === 404 ? "GitHub issue not found." : "GitHub issue fetch failed." },
+					{
+						error:
+							error.status === 404
+								? "GitHub issue not found."
+								: "GitHub issue fetch failed.",
+					},
 					{ status: error.status === 404 ? 404 : 502 },
 				),
 			};

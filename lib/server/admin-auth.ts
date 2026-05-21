@@ -1,12 +1,18 @@
 export type AdminAuthResult = { ok: true } | { ok: false; response: Response };
 
-export function requireAdminAuth(request: Request, env = process.env): AdminAuthResult {
+export function requireAdminAuth(
+	request: Request,
+	env = process.env,
+): AdminAuthResult {
 	const rootPassword = env.ROOT_PASSWORD;
 
 	if (!rootPassword?.trim()) {
 		return {
 			ok: false,
-			response: Response.json({ error: "Admin auth is not configured." }, { status: 500 }),
+			response: Response.json(
+				{ error: "Admin auth is not configured." },
+				{ status: 500 },
+			),
 		};
 	}
 
