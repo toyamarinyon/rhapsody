@@ -1,0 +1,22 @@
+Implement the wrapper/typecheck refactor in /Users/toyamarinyon/Documents/rhapsody.
+
+Goal:
+- Stop generating the sandbox Codex wrapper as a large JS template string in lib/runners/sandbox-codex.ts.
+- Extract it to a real CommonJS file, e.g. lib/runners/sandbox-codex-wrapper/wrapper.cjs.
+- Keep runtime behavior equivalent: wrapper reads metadata/prompt, runs Codex, performs postflight, sends callback.
+- Avoid injecting run-specific values through JS source strings. Put values such as prompt path, metadata path, PR spec path, output preview length, codex timeout, etc. in metadata/env where reasonable.
+- Update lib/runners/sandbox-codex.ts to read/upload the wrapper file instead of buildWrapperSource(). Ensure this works in Vercel production bundle; if needed, add Next output file tracing includes for the wrapper file and existing .rhapsody/config.toml config file.
+- Add package.json script `typecheck` that runs `tsc --noEmit` and `node --check lib/runners/sandbox-codex-wrapper/wrapper.cjs`.
+- Keep `build` as just Next build if it already is; do not make build responsible for typecheck.
+- Remove buildWrapperSource() if no longer needed.
+- Run verification: pnpm typecheck, pnpm lint, and ideally pnpm build if feasible.
+
+Important constraints:
+- There are many unrelated dirty files in this workspace. Do not revert or modify unrelated files.
+- Keep edits narrowly scoped to this refactor.
+- Use existing code style. Prefer readable human-maintainable code.
+- After implementation, report files changed and verification results.
+
+---
+
+Status check: please report current progress, files changed so far, and any blocker. If the full refactor is taking too long, prioritize the smallest safe version: extract wrapper.cjs, upload it by reading the file, add typecheck script, update tracing includes, and run pnpm typecheck/lint.

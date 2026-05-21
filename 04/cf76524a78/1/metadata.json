@@ -1,0 +1,59 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "04cf76524a78",
+  "session_id": "019e4814-b746-7690-9598-3cd5771d381e",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-21T02:17:46.475786Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "lib/runners/sandbox-codex.ts",
+    "next.config.ts",
+    "package.json"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "a40fa3439d9f",
+  "token_usage": {
+    "input_tokens": 78514,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2775552,
+    "output_tokens": 19699,
+    "api_call_count": 47
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-21T02:17:46.464359Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 2,
+    "human_removed": 374,
+    "total_committed": 5,
+    "total_lines_changed": 376,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 431,
+      "user_lines_removed": 374,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "lib/runners/sandbox-codex-wrapper/wrapper.cjs": 406,
+        "lib/runners/sandbox-codex.ts": 18,
+        "next.config.ts": 5,
+        "package.json": 2
+      },
+      "user_removed_per_file": {
+        "lib/runners/sandbox-codex.ts": 372,
+        "next.config.ts": 1,
+        "package.json": 1
+      }
+    }
+  ]
+}
