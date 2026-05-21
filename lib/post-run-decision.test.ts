@@ -5,7 +5,7 @@ import {
 	parsePostRunDecisionConfig,
 	evaluatePostRunDecision,
 	type PostRunDecisionConfig,
-} from "./post-run-decision";
+} from "./post-run-decision.ts";
 
 const baseDecisionConfig: PostRunDecisionConfig = {
 	post_run: {
