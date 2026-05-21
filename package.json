@@ -7,6 +7,7 @@
 		"build": "next build",
 		"start": "next start",
 		"lint": "eslint",
+		"format:check": "biome format .",
 		"format": "biome format --write .",
 		"typecheck": "tsc --noEmit && node --check lib/runners/sandbox-codex-wrapper/wrapper.cjs"
 	},
