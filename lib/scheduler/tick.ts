@@ -8,11 +8,18 @@ import {
 import {
 	createClaimedManualRun,
 	createDecision,
+	createEvent,
 	createLink,
 	createWorkerRun,
-	createEvent,
 	getStateSummary,
+	listWorkItemGraph,
 } from "@/lib/state";
+import {
+	findPullRequestArtifactFromArtifacts,
+	runIntakeCurator as runIntakeCuratorNode,
+	linkIntakeToBuilder,
+	runPostPrCurator,
+} from "@/lib/workers/curator";
 import { loadRhapsodyConfig } from "@/lib/config";
 
 type SchedulerTickCreatedRun = {
@@ -68,8 +75,7 @@ export type SchedulerTickResult =
 	| { ok: true; value: SchedulerTickResponse }
 	| { ok: false; status: number; value: SchedulerTickErrorResponse };
 
-// MVP decision: only auto-schedule Todo items, even though tracker.activeStatuses may include additional values.
-const SCHEDULER_STATUS_FILTER = ["Todo"];
+const ACTIVE_STATUSES = ["Todo", "In Progress"];
 const RUNNING_PROJECT_STATUS = "In Progress";
 
 export async function runSchedulerTick(
@@ -105,8 +111,11 @@ export async function runSchedulerTick(
 			};
 		}
 
+		const schedulerStatuses = Array.from(
+			new Set([...ACTIVE_STATUSES, ...config.tracker.activeStatuses]),
+		);
 		const eligibleItems = projectItems.filter((item) =>
-			SCHEDULER_STATUS_FILTER.includes(item.projectStatus ?? ""),
+			schedulerStatuses.includes(item.projectStatus ?? ""),
 		);
 		let remainingSlots = availableSlots;
 		const createdRuns: SchedulerTickCreatedRun[] = [];
@@ -114,12 +123,56 @@ export async function runSchedulerTick(
 
 		for (const item of eligibleItems) {
 			const workItemId = `github_issue:${item.repository.owner}/${item.repository.name}#${item.issueNumber}`;
+			const projectStatus = item.projectStatus ?? "";
+			const isTodo = projectStatus === "Todo";
+			const isInProgress = projectStatus === "In Progress";
+
+			if (isInProgress) {
+				const postPrHandled = await runPostPrCuratorForInProgress(
+					client,
+					config,
+					item,
+					workItemId,
+				);
+
+				if (!postPrHandled.handled) {
+					skippedIssues.push({
+						workItemId,
+						issueNumber: item.issueNumber,
+						reason: postPrHandled.skipReason,
+					});
+				}
+
+				continue;
+			}
+
+			if (!isTodo) {
+				continue;
+			}
 
 			if (remainingSlots <= 0) {
 				skippedIssues.push({
 					workItemId,
 					issueNumber: item.issueNumber,
 					reason: "concurrencyLimit",
+				});
+				continue;
+			}
+
+			const graph = await listWorkItemGraph(client, workItemId);
+			const intakeResult = await runIntakeCuratorNode(
+				client,
+				item,
+				workItemId,
+				{
+					existingDecisions: graph.decisions,
+				},
+			);
+			if (!intakeResult.shouldStartBuilder) {
+				skippedIssues.push({
+					workItemId,
+					issueNumber: item.issueNumber,
+					reason: "ask_human",
 				});
 				continue;
 			}
@@ -145,6 +198,14 @@ export async function runSchedulerTick(
 					attemptId: result.attemptId,
 					claimToken: result.claimToken,
 				});
+				if (builderWorkerRunId && intakeResult.decisionId) {
+					await linkIntakeToBuilder(
+						client,
+						workItemId,
+						intakeResult.decisionId,
+						builderWorkerRunId,
+					);
+				}
 				const projectStatusUpdate = await moveProjectIssueToRunningStatus(
 					client,
 					{
@@ -194,7 +255,7 @@ export async function runSchedulerTick(
 					maxConcurrentRuns,
 					activeClaimCount: stateSummary.activeClaimCount,
 					availableSlots,
-					schedulerStatuses: SCHEDULER_STATUS_FILTER,
+					schedulerStatuses,
 					configuredActiveStatuses: config.tracker.activeStatuses,
 				},
 				createdRuns,
@@ -397,6 +458,60 @@ async function createBuilderWorkerRun(
 		});
 
 		return null;
+	}
+}
+
+async function runPostPrCuratorForInProgress(
+	client: Client,
+	config: ReturnType<typeof loadRhapsodyConfig>,
+	item: GitHubProjectIssueWorkItem,
+	workItemId: string,
+) {
+	try {
+		const graph = await listWorkItemGraph(client, workItemId);
+		const pullRequestArtifact = findPullRequestArtifactFromArtifacts(
+			graph.artifacts,
+		);
+
+		if (!pullRequestArtifact) {
+			return {
+				handled: false,
+				skipReason: "missing_pr_artifact",
+			};
+		}
+
+		await runPostPrCurator(client, {
+			workItem: item,
+			workItemId,
+			owner: config.repository.owner,
+			repository: config.repository.name,
+			pullRequestNumber: pullRequestArtifact.number,
+			pullRequestUrl: pullRequestArtifact.url ?? "",
+			existingDecisions: graph.decisions,
+		});
+
+		return {
+			handled: true,
+			skipReason: "",
+		};
+	} catch (error) {
+		await createEvent(client, {
+			level: "warn",
+			type: "scheduler.post_pr_curator_failed",
+			runId: null,
+			attemptId: null,
+			message: "Scheduler could not run post-PR curator.",
+			data: {
+				workItemId,
+				issueNumber: item.issueNumber,
+				error: serializeError(error),
+			},
+		});
+
+		return {
+			handled: false,
+			skipReason: "post_pr_graph_error",
+		};
 	}
 }
 
