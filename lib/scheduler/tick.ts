@@ -7,6 +7,9 @@ import {
 } from "@/lib/github/project-items";
 import {
 	createClaimedManualRun,
+	createDecision,
+	createLink,
+	createWorkerRun,
 	createEvent,
 	getStateSummary,
 } from "@/lib/state";
@@ -17,6 +20,7 @@ type SchedulerTickCreatedRun = {
 	runId: string;
 	attemptId: string;
 	issueNumber: number;
+	builderWorkerRunId: string | null;
 	acquired: boolean;
 	claimExpiresAt: number;
 	projectStatusUpdate: {
@@ -132,6 +136,15 @@ export async function runSchedulerTick(
 			});
 
 			if (result.acquired) {
+				const builderWorkerRunId = await createBuilderWorkerRun({
+					client,
+					config,
+					workItemId,
+					workItem: item,
+					runId: result.runId,
+					attemptId: result.attemptId,
+					claimToken: result.claimToken,
+				});
 				const projectStatusUpdate = await moveProjectIssueToRunningStatus(
 					client,
 					{
@@ -147,6 +160,7 @@ export async function runSchedulerTick(
 					runId: result.runId,
 					attemptId: result.attemptId,
 					issueNumber: item.issueNumber,
+					builderWorkerRunId,
 					acquired: true,
 					claimExpiresAt: result.claimExpiresAt,
 					projectStatusUpdate,
@@ -287,6 +301,102 @@ async function moveProjectIssueToRunningStatus(
 			updated: false,
 			error: detail,
 		};
+	}
+}
+
+type BuilderRunInputs = {
+	client: Client;
+	config: ReturnType<typeof loadRhapsodyConfig>;
+	workItemId: string;
+	workItem: GitHubProjectIssueWorkItem;
+	runId: string;
+	attemptId: string;
+	claimToken: string;
+};
+
+async function createBuilderWorkerRun(
+	input: BuilderRunInputs,
+): Promise<string | null> {
+	try {
+		const builderRun = await createWorkerRun(input.client, {
+			workItemId: input.workItemId,
+			kind: "builder",
+			status: "pending",
+			claimToken: input.claimToken,
+			metadata: {
+				legacyRunId: input.runId,
+				legacyAttemptId: input.attemptId,
+				issueNumber: input.workItem.issueNumber,
+				runner: input.config.runner,
+			},
+			workItemSnapshot: buildWorkItemSnapshot(input.config, input.workItem),
+		});
+		const schedulerDecisionId = await createDecision(input.client, {
+			workItemId: input.workItemId,
+			workerRunId: builderRun.id,
+			phase: "dispatch",
+			outcome: "start_builder",
+			deterministic: true,
+			evidence: {
+				projectStatus: input.workItem.projectStatus,
+				configuredMaxConcurrentRuns: input.config.scheduler.maxConcurrentRuns,
+			},
+			nextWorkerKind: "builder",
+		});
+
+		await Promise.all([
+			createLink(input.client, {
+				workItemId: input.workItemId,
+				fromNodeType: "decision",
+				fromNodeId: schedulerDecisionId,
+				toNodeType: "worker_run",
+				toNodeId: builderRun.id,
+				relation: "starts",
+				metadata: {
+					legacyRunId: input.runId,
+				},
+			}),
+			createLink(input.client, {
+				workItemId: input.workItemId,
+				fromNodeType: "worker_run",
+				fromNodeId: builderRun.id,
+				toNodeType: "legacy_run",
+				toNodeId: input.runId,
+				relation: "executes_legacy_run",
+				metadata: {
+					legacyRunKind: "legacy_runs",
+				},
+			}),
+			createLink(input.client, {
+				workItemId: input.workItemId,
+				fromNodeType: "worker_run",
+				fromNodeId: builderRun.id,
+				toNodeType: "legacy_attempt",
+				toNodeId: input.attemptId,
+				relation: "executes_legacy_attempt",
+				metadata: {
+					legacyRunId: input.runId,
+				},
+			}),
+		]);
+
+		return builderRun.id;
+	} catch (error) {
+		await createEvent(input.client, {
+			runId: input.runId,
+			attemptId: input.attemptId,
+			level: "warn",
+			type: "scheduler.builder_worker_graph_failed",
+			message:
+				"Scheduler could not persist builder worker graph records; continuing with legacy runner dispatch.",
+			data: {
+				error: serializeError(error),
+				issueNumber: input.workItem.issueNumber,
+				workItemId: input.workItemId,
+			},
+		});
+
+		return null;
 	}
 }
 

@@ -9,6 +9,7 @@ type SchedulerStartedRun = {
 	runId: string;
 	attemptId: string;
 	issueNumber: number;
+	builderWorkerRunId: string | null;
 	acquired: boolean;
 	claimExpiresAt: number;
 	runnerWorkflowRunId: string;
@@ -44,6 +45,9 @@ async function runSchedulerTickStep() {
 						runId: createdRun.runId,
 						attemptId: createdRun.attemptId,
 						startedBy: "scheduler",
+						...(createdRun.builderWorkerRunId
+							? { builderWorkerRunId: createdRun.builderWorkerRunId }
+							: {}),
 					},
 				]);
 				await setRunnerWorkflowRunId(client, {
