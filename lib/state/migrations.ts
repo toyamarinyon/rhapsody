@@ -196,6 +196,103 @@ export const stateStoreMigrations = [
 				ADD COLUMN runner_workflow_run_id TEXT;
 		`,
 	},
+	{
+		id: "0006_worker_graph_foundation",
+		sql: `
+			CREATE TABLE worker_runs (
+				id TEXT PRIMARY KEY,
+				work_item_id TEXT NOT NULL,
+				kind TEXT NOT NULL,
+				status TEXT NOT NULL CHECK (
+					status IN ('pending', 'running', 'completed', 'failed', 'canceled', 'timed_out', 'stale')
+				),
+				claim_token TEXT,
+				metadata_json TEXT NOT NULL DEFAULT '{}',
+				work_item_snapshot_json TEXT NOT NULL DEFAULT '{}',
+				created_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL,
+				started_at INTEGER,
+				finished_at INTEGER
+			);
+
+			CREATE INDEX worker_runs_work_item_status_kind_idx
+				ON worker_runs (work_item_id, status, kind);
+
+			CREATE INDEX worker_runs_kind_status_idx
+				ON worker_runs (kind, status);
+
+			CREATE TABLE decisions (
+				id TEXT PRIMARY KEY,
+				work_item_id TEXT NOT NULL,
+				worker_run_id TEXT NOT NULL REFERENCES worker_runs (id) ON DELETE CASCADE,
+				phase TEXT NOT NULL,
+				outcome TEXT NOT NULL,
+				deterministic INTEGER NOT NULL CHECK (deterministic IN (0, 1)),
+				policy_version TEXT,
+				policy_rule_id TEXT,
+				evidence_json TEXT,
+				next_worker_kind TEXT,
+				next_action TEXT,
+				created_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL
+			);
+
+			CREATE INDEX decisions_work_item_phase_idx
+				ON decisions (work_item_id, phase);
+
+			CREATE INDEX decisions_worker_run_id_idx
+				ON decisions (worker_run_id);
+
+			CREATE INDEX decisions_work_item_outcome_idx
+				ON decisions (work_item_id, outcome);
+
+			CREATE TABLE artifacts (
+				id TEXT PRIMARY KEY,
+				work_item_id TEXT NOT NULL,
+				worker_run_id TEXT REFERENCES worker_runs (id) ON DELETE SET NULL,
+				kind TEXT NOT NULL,
+				external_id TEXT,
+				external_url TEXT,
+				snapshot_json TEXT,
+				metadata_json TEXT NOT NULL DEFAULT '{}',
+				created_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL
+			);
+
+			CREATE INDEX artifacts_work_item_kind_idx
+				ON artifacts (work_item_id, kind);
+
+			CREATE INDEX artifacts_worker_run_id_idx
+				ON artifacts (worker_run_id);
+
+			CREATE INDEX artifacts_external_id_idx
+				ON artifacts (external_id);
+
+			CREATE TABLE links (
+				id TEXT PRIMARY KEY,
+				work_item_id TEXT NOT NULL,
+				from_node_type TEXT NOT NULL,
+				from_node_id TEXT NOT NULL,
+				to_node_type TEXT NOT NULL,
+				to_node_id TEXT NOT NULL,
+				relation TEXT NOT NULL,
+				metadata_json TEXT NOT NULL DEFAULT '{}',
+				created_at INTEGER NOT NULL
+			);
+
+			CREATE INDEX links_work_item_idx
+				ON links (work_item_id);
+
+			CREATE INDEX links_from_node_idx
+				ON links (from_node_type, from_node_id);
+
+			CREATE INDEX links_to_node_idx
+				ON links (to_node_type, to_node_id);
+
+			CREATE INDEX links_relation_idx
+				ON links (relation);
+		`,
+	},
 ] as const satisfies readonly StateStoreMigration[];
 
 export async function migrateStateStore(
