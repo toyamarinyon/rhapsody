@@ -1,0 +1,188 @@
+[toyamarinyon/rhapsody#49](https://github.com/toyamarinyon/rhapsody/pull/49) これ、rhapsodyでpull request作れて大満足なんですが、CIで落ちています。それは素晴らしいことなのですが、これを自動hearingする仕組みをrhapsodyに追加したいです。どんな方法があるかディスカッションしましょう。
+
+---
+
+runnerでもないと思うんですよね。runnerは、コード書いてpush, pull request作成までが責務。
+それとは別のworkerを用意して、in-progress issueに紐づくpull requestを確認するschedulerがあって、checkを確認、失敗していたら、原因をdeterministicに判定して修正できそうなら修正workerを起動、無限ループにならないように、N回修正できるようにして、Nの場合はcommentして人間にエスカレーション
+
+---
+
+CI Healingというか今runnerでやっているpost-*の処理もこっちに持ってきた方がいいかもしれないですね。
+runnerはbuilderという位置付で、push + pull requestまでが責務
+その後、human reviewかどうかや、checksの確認・修正、agent reviewなどは次のworker（いい名前が欲しい）がやる
+
+---
+
+いいですね。Schedulerは一つでいいかもしれないですね。
+todoを見て、空きスロットがあればbuilder起動
+in-progressを見て、curator起動
+みたな
+
+---
+
+ほんとはBuilderの前段にもCurator的なのがいて、issueに書いてあることで迷いなく実装ができない場合は、起票者をメンションして質問するようにしたいと思っています。
+
+---
+
+いいですね。これって、Workflow SDKのStepで、分岐できますかね。
+
+---
+
+graph構造になっているじゃないですか。これをうまく表現できるといいですよね。ダッシュボードから、それぞれどういう意思決定をして何が動いたかをたどりたい。
+
+---
+
+とても良い気がしますね。ただ、これ実装難易度もそれなりに高そう。
+
+---
+
+小さく始めるのがいいのか、薄く全体を作る方がいいのかは難しいところですが、これは小さく作り始めると全体像が見えづらくなるので、最初に薄く全体を作った方がいいんじゃないかと思います。
+
+---
+
+極端な話、今のデータ全部捨てて、この構成に最適化するならどんな可能性がありますか？
+
+---
+
+良さそうですね。まずはADRを書きましょう。
+
+---
+
+Builder 、Intake/Post-PR Curator、Repairer、Reviewer の他にもworkerが増えせるといいのですがそういう拡張性も考慮できていますか？
+
+---
+
+良いと思います。実装どんな感じで進めていきましょう？
+
+---
+
+> ADR 0014 を accepted にするか、SPEC から参照する。
+
+これはやりましょう。
+
+---
+
+phase4まで進めてみましょう。全部自分でやると大変なので実装は [@builder](subagent://builder) に依頼して、あなたはアウトプットの評価し、十分な水準になるまでフィードバックを続けてください。フェーズの区切りにcommitしてください。最終的なアウトプットに責任を持って進めてください。
+
+---
+
+You are implementing Phase 1 of Rhapsody's worker graph rollout in /Users/toyamarinyon/Documents/rhapsody. You are not alone in the codebase; do not revert or overwrite unrelated edits, and adapt to existing changes.
+
+Context: ADR 0014 has been accepted and SPEC now describes a worker graph model. Phase 1 should add graph foundation only, without changing runtime behavior.
+
+Scope you own:
+- lib/state/migrations.ts
+- lib/state/worker-graph.ts (new)
+- lib/state/index.ts
+- tests only if there is an obvious existing pattern; otherwise keep code type-safe and simple.
+
+Requirements:
+1. Add a new migration after 0005 that creates graph-oriented tables compatible with ADR 0014:
+   - worker_runs
+   - decisions
+   - artifacts
+   - links
+   Use SQLite/libSQL-friendly DDL. Keep it pragmatic and type-safe; include indexes for work_item_id/status/kind and graph traversal where appropriate.
+2. Add a small store API in lib/state/worker-graph.ts with exported TypeScript types and helpers to create/read the basics:
+   - createWorkerRun
+   - updateWorkerRunStatus (or completeWorkerRun if simpler)
+   - createDecision
+   - createArtifact
+   - createLink
+   - listWorkItemGraph or getWorkItemGraph
+   Keep JSON fields encoded/decoded consistently, similar to existing store.ts style.
+3. Export the new API from lib/state/index.ts.
+4. Do not wire scheduler/runner behavior yet. No app behavior change in Phase 1.
+5. Run at least: pnpm format:check and pnpm typecheck if available. If typecheck fails for unrelated existing reasons, report clearly.
+
+Please edit files directly. Final response should list changed files, verification commands, and any caveats.
+
+---
+
+Review feedback for Phase 1. Please fix these issues in your patch:
+
+1. `updateWorkerRunStatus` has a SQL placeholder/args mismatch. Count the placeholders in the UPDATE statement and fix the args. Also ensure `started_at` coalesces with the intended started value, not `finishedAt`.
+2. Please rename the graph foreign key concept from `run_id` to `worker_run_id` in the new graph tables/API for clarity. This applies to `decisions`, `artifacts`, TypeScript types, create inputs, mappers, and listWorkItemGraph. Avoid colliding conceptually with the existing legacy `runs` table.
+3. Consider using a distinct ID prefix for worker runs such as `wrn_` instead of reusing `run_`, so graph worker run IDs are visually distinct from legacy run IDs.
+4. Re-run `pnpm format:check` and `pnpm typecheck`.
+
+Please edit files directly and report changed files plus verification results.
+
+---
+
+Phase 2 task: wrap the existing runner flow as a `builder` worker in the worker graph. You are not alone in the codebase; do not revert unrelated edits. Phase 1 is committed as `ba2b119 Add worker graph state foundation`.
+
+Goal: preserve existing runtime behavior while recording graph state for scheduler dispatch and builder handoff.
+
+Scope you own:
+- lib/scheduler/tick.ts
+- workflows/scheduler.ts
+- workflows/runner.ts
+- lib/state/worker-graph.ts only if a tiny helper is needed, but avoid schema/migration changes unless necessary.
+
+Requirements:
+1. When scheduler successfully claims/creates a legacy run, create a `worker_runs` row with `kind = "builder"`, status initially `pending`, same `workItemId`, same claimToken, and metadata linking legacy `runId`, `attemptId`, issue number, and runner key.
+2. Record a scheduler decision for starting builder, e.g. phase `dispatch`, outcome `start_builder`, deterministic true, evidence with status/concurrency inputs, nextWorkerKind `builder`.
+3. Create links connecting decision -> worker_run and worker_run -> legacy run/attempt using clear node types/relations. Keep this pragmatic.
+4. Include `builderWorkerRunId` in the scheduler tick response for created runs, and pass it into `runnerWorkflow` from `workflows/scheduler.ts`.
+5. Extend `RunnerWorkflowInput` with optional `builderWorkerRunId`. If present:
+   - mark the worker run `running` when the runner launches.
+   - on handoff completion, record artifacts for branch and pull request if available.
+   - record a builder decision such as `pr_created`, `no_pr_handoff`, or `builder_failed`.
+   - mark the worker run completed/failed/timed_out consistently with finalization/handoff.
+   Avoid changing post-run behavior for now.
+6. If `builderWorkerRunId` is absent, runner should behave exactly as before.
+7. Run `pnpm format:check` and `pnpm typecheck`.
+
+Please edit files directly. Final response should list changed files, verification results, and any caveats.
+
+---
+
+Phase 3 task: add thin curator implementation. Phase 1 and 2 are committed (`ba2b119`, `ecd271b`). You are not alone in the codebase; do not revert unrelated changes.
+
+Goal: create the first thin vertical slice of Curator behavior, without introducing automatic repair yet.
+
+Preferred shape:
+- Keep this pragmatic. Curator can run as deterministic helper code from scheduler tick for now, but it must record worker graph rows as `intake_curator` and `post_pr_curator` worker runs with decisions. We can promote it to separate Workflow SDK workflows later.
+
+Scope you own:
+- lib/scheduler/tick.ts
+- new helper modules if useful, e.g. lib/workers/curator.ts or lib/github/checks.ts
+- lib/github/pull-requests.ts if a small read helper is needed
+- workflows/scheduler.ts only if response types need updating
+- avoid changing migrations unless absolutely necessary
+
+Requirements:
+1. Intake curator for Todo items before builder dispatch:
+   - Create/complete an `intake_curator` worker run.
+   - If issue title/body has enough minimal content, record decision phase `intake`, outcome `buildable`, deterministic true, nextWorkerKind `builder`.
+   - If too empty/ambiguous by a simple deterministic rule (e.g. missing title or body), record outcome `ask_human` with nextAction text; do not start builder for that item.
+   - Link intake decision -> builder worker if builder is started because of that decision.
+   - Keep behavior conservative but not over-smart.
+2. Post-PR curator for In Progress items with known PR artifacts:
+   - Scheduler should also consider configured active/In Progress items, not only Todo.
+   - Find PR artifacts from worker graph for each In Progress work item. If none, skip with a graph/scheduler skip reason as appropriate.
+   - Add a GitHub helper to read PR check/status rollup if feasible using GitHub API. Keep it small. If GraphQL is easier, use it. Need enough to classify: `checks_pending`, `checks_success`, `ci_failed`, or `checks_unknown`.
+   - Record a `post_pr_curator` worker run and decision phase `post_pr` with evidence including PR number/url and check summary.
+   - Do not trigger repair yet.
+3. Preserve existing builder dispatch for buildable Todo items, except it should now be preceded by intake curator decision.
+4. Best-effort graph writes should not break legacy scheduling where reasonable.
+5. Run `pnpm format:check` and `pnpm typecheck`.
+
+Please edit files directly. Final response: changed files, verification, caveats, and a short note about how post-PR checks are classified.
+
+---
+
+Phase 3 review feedback. Please refine the implementation before we commit:
+
+1. `lib/github/checks.ts` currently uses the combined commit status endpoint only. That often misses GitHub Actions check runs. Please update it to inspect GitHub check runs for the PR head SHA, preferably via REST `GET /repos/{owner}/{repo}/commits/{ref}/check-runs` after fetching the PR head SHA. You may keep commit status as fallback if there are no check runs or the check-run response is unknown. The summary evidence should include enough detail for future repair: check run name/status/conclusion/detailsUrl (trimmed list is fine), headSha, classification.
+
+Classification guidance:
+- any queued/in_progress/requested/waiting/pending check => `checks_pending`
+- any completed check with failure/error/timed_out/cancelled/action_required => `ci_failed`
+- all completed success/skipped/neutral => `checks_success`
+- no usable signals or parse/API failure => `checks_unknown` (or fallback to combined status if available)
+
+2. Avoid creating duplicate post-PR curator decisions every scheduler tick for the same PR head/classification. Add a freshness/dedup guard. A simple rule is fine: if the graph already has a latest `post_pr` decision whose evidence has the same pull request number, head SHA, and classification, skip creating a new curator run and report handled/skipped accordingly.
+
+3. Keep typecheck/format clean. Do not add repair yet.
