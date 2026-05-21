@@ -1,6 +1,10 @@
 {
 	"crons": [
 		{
+			"path": "/api/v1/admin/scheduler/tick",
+			"schedule": "* * * * *"
+		},
+		{
 			"path": "/api/v1/admin/reconcile",
 			"schedule": "*/5 * * * *"
 		}

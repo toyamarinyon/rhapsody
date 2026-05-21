@@ -1,3 +1,4 @@
+import { loadRhapsodyCronEnv } from "@/lib/config";
 import { requireAdminAuth } from "@/lib/server/admin-auth";
 import { getRun, start } from "workflow/api";
 
@@ -6,22 +7,17 @@ import { schedulerWorkflow } from "@/workflows/scheduler";
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-	const auth = requireAdminAuth(request);
+	const auth = requireCronOrAdminAuth(request);
 
 	if (!auth.ok) {
 		return auth.response;
 	}
 
-	const workflowRun = await start(schedulerWorkflow, []);
-
-	return Response.json({
-		started: true,
-		workflowRunId: workflowRun.runId,
-	});
+	return startSchedulerTickWorkflow();
 }
 
 export async function GET(request: Request) {
-	const auth = requireAdminAuth(request);
+	const auth = requireCronOrAdminAuth(request);
 
 	if (!auth.ok) {
 		return auth.response;
@@ -31,7 +27,7 @@ export async function GET(request: Request) {
 	const runId = url.searchParams.get("runId");
 
 	if (!runId) {
-		return Response.json({ error: "Missing runId." }, { status: 400 });
+		return startSchedulerTickWorkflow();
 	}
 
 	const run = getRun(runId);
@@ -51,4 +47,24 @@ export async function GET(request: Request) {
 	}
 
 	return Response.json(response);
+}
+
+async function startSchedulerTickWorkflow() {
+	const workflowRun = await start(schedulerWorkflow, []);
+
+	return Response.json({
+		started: true,
+		workflowRunId: workflowRun.runId,
+	});
+}
+
+function requireCronOrAdminAuth(request: Request) {
+	const cronSecret = loadRhapsodyCronEnv().CRON_SECRET;
+	const authorization = request.headers.get("authorization");
+
+	if (cronSecret?.trim() && authorization === `Bearer ${cronSecret}`) {
+		return { ok: true } as const;
+	}
+
+	return requireAdminAuth(request);
 }
