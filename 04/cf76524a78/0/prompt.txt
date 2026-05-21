@@ -321,3 +321,7 @@ typecheckをscriptに追加して、tsc --noEmitと一緒にnode --check lib/...
 ---
 
 `next build`が、内部でtypecheckしてると思うんです。
+
+---
+
+これで問題なく動くか、テスト用のissueを作ってtickして試しましょう。
