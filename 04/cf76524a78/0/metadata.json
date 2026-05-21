@@ -1,0 +1,122 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "04cf76524a78",
+  "session_id": "019e4451-f2df-7eb2-9f8e-60f1575cf2f8",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-21T02:17:46.139651Z",
+  "branch": "main",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "lib/runners/sandbox-codex.ts",
+    "next.config.ts",
+    "package.json"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "bf411de811a6",
+  "token_usage": {
+    "input_tokens": 12456093,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 460978304,
+    "output_tokens": 687718,
+    "api_call_count": 4847
+  },
+  "session_metrics": {
+    "turn_count": 63
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-21T02:17:45.276366Z",
+    "agent_lines": 12,
+    "agent_removed": 370,
+    "human_added": 392,
+    "human_modified": 18,
+    "human_removed": 0,
+    "total_committed": 420,
+    "total_lines_changed": 792,
+    "agent_percentage": 48.23232323232323,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 38,
+      "user_lines_removed": 38,
+      "agent_lines_added": 1129,
+      "agent_lines_removed": 353,
+      "user_added_per_file": {
+        ".codex/hooks.json": 38
+      },
+      "user_removed_per_file": {
+        ".codex/hooks.json": 38
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 38,
+      "user_lines_removed": 38,
+      "agent_lines_added": 1129,
+      "agent_lines_removed": 353,
+      "user_added_per_file": {
+        ".codex/hooks.json": 38
+      },
+      "user_removed_per_file": {
+        ".codex/hooks.json": 38
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 38,
+      "user_lines_removed": 38,
+      "agent_lines_added": 1129,
+      "agent_lines_removed": 353,
+      "user_added_per_file": {
+        ".codex/hooks.json": 38
+      },
+      "user_removed_per_file": {
+        ".codex/hooks.json": 38
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 38,
+      "user_lines_removed": 38,
+      "agent_lines_added": 1129,
+      "agent_lines_removed": 353,
+      "user_added_per_file": {
+        ".codex/hooks.json": 38
+      },
+      "user_removed_per_file": {
+        ".codex/hooks.json": 38
+      }
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 431,
+      "agent_lines_removed": 374
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 16,
+      "user_lines_removed": 16,
+      "agent_lines_added": 436,
+      "agent_lines_removed": 374,
+      "user_added_per_file": {
+        "lib/runners/sandbox-codex-wrapper/wrapper.cjs": 14,
+        "lib/runners/sandbox-codex.ts": 2
+      },
+      "user_removed_per_file": {
+        "lib/runners/sandbox-codex-wrapper/wrapper.cjs": 14,
+        "lib/runners/sandbox-codex.ts": 2
+      }
+    }
+  ]
+}

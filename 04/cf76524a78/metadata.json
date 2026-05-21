@@ -1,0 +1,27 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "04cf76524a78",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "lib/runners/sandbox-codex.ts",
+    "next.config.ts",
+    "package.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/04/cf76524a78/0/metadata.json",
+      "transcript": "/04/cf76524a78/0/full.jsonl",
+      "content_hash": "/04/cf76524a78/0/content_hash.txt",
+      "prompt": "/04/cf76524a78/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 12456093,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 460978304,
+    "output_tokens": 687718,
+    "api_call_count": 4847
+  }
+}
