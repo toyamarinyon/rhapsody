@@ -194,9 +194,15 @@ and ambiguous behavior changes may require human review or a reviewer worker bef
 ## Initial Intake Classifier Implementation
 
 The first pre-build intake implementation treats explicit blockers as a deterministic gate before
-any model judgment. When a configured `blocked_by`/`Blocked by` Project field points at one or more
-open or unknown blockers, intake records a `blocked` decision, comments on the issue, and does not
-start the builder. Closed blockers do not stop intake.
+any model judgment. Intake resolves issue dependencies from the native GitHub issue dependency
+API first (`GET /repos/{owner}/{repo}/issues/{issue_number}/dependencies/blocked_by`).
+
+Only blockers with `state` not equal to `closed` are treated as active. `closed` dependencies do
+not stop intake.
+
+If native dependency lookup fails, intake falls back to the configured `blocked_by`/`Blocked by`
+Project field when available. If no fallback is available, intake emits a conservative
+`ask_human` decision and does not start the builder.
 
 When there is no active blocker, intake asks Codex to classify the issue with a schema-constrained
 final response. The classifier output is validated again in trusted Rhapsody code with Zod before

@@ -1,10 +1,10 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { type Client, createClient } from "@libsql/client";
 import { expect, test, vi } from "vitest";
-import { createClient, type Client } from "@libsql/client";
-
-import { runSchedulerTick, type SchedulerTickDependencies } from "./tick";
+import type { PullRequestCheckSummary } from "@/lib/github/checks";
+import type { GitHubProjectIssueWorkItem } from "@/lib/github/project-items";
 import {
 	createArtifact,
 	createClaimedManualRun,
@@ -13,14 +13,13 @@ import {
 	listWorkItemGraph,
 	migrateStateStore,
 } from "@/lib/state";
-import type { GitHubProjectIssueWorkItem } from "@/lib/github/project-items";
+import { runIntakeCurator } from "@/lib/workers/intake-curator";
 import {
 	buildFailureFingerprint,
 	buildRepairExecutionKey,
 	runRepairerPlanner,
 } from "@/lib/workers/repairer";
-import type { PullRequestCheckSummary } from "@/lib/github/checks";
-import { runIntakeCurator } from "@/lib/workers/intake-curator";
+import { runSchedulerTick, type SchedulerTickDependencies } from "./tick";
 
 const baseConfig: SchedulerTickDependencies["config"] = {
 	tracker: {
@@ -1106,6 +1105,10 @@ const runBuildableIntakeCurator: typeof runIntakeCurator = (
 ) =>
 	runIntakeCurator(client, workItem, workItemId, {
 		...options,
+		dependencies: {
+			...options?.dependencies,
+			fetchBlockedBy: async () => [],
+		},
 		classify: async () => ({
 			classification: {
 				decision: "buildable",
@@ -1132,6 +1135,10 @@ const runAskHumanIntakeCurator: typeof runIntakeCurator = (
 ) =>
 	runIntakeCurator(client, workItem, workItemId, {
 		...options,
+		dependencies: {
+			...options?.dependencies,
+			fetchBlockedBy: async () => [],
+		},
 		classify: async () => ({
 			classification: {
 				decision: "ask_human",

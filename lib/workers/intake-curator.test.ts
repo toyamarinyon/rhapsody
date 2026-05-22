@@ -1,8 +1,8 @@
-import { expect, test, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createClient, type Client } from "@libsql/client";
+import { type Client, createClient } from "@libsql/client";
+import { expect, test, vi } from "vitest";
 
 import {
 	createDecision,
@@ -12,13 +12,14 @@ import {
 } from "@/lib/state";
 import {
 	buildIntakeInputFingerprint,
-	intakeClassificationSchema,
-	intakeClassificationJsonSchema,
-	runIntakeCurator,
+	type IntakeClassification,
 	type IntakeClassifierRunner,
 	type IntakeCuratorWorkItem,
+	intakeClassificationJsonSchema,
+	intakeClassificationSchema,
+	isIntakeBuildable,
+	runIntakeCurator,
 } from "@/lib/workers/intake-curator";
-import { isIntakeBuildable } from "@/lib/workers/intake-curator";
 
 type MockComment = {
 	owner: string;
@@ -77,6 +78,18 @@ function mockCommentCapture(list: MockComment[]): ReturnType<typeof vi.fn> {
 			htmlUrl: `https://github.com/toyamarinyon/rhapsody/issues/${comment.issueNumber}#issuecomment-${list.length}`,
 		};
 	});
+}
+
+const noNativeDependenciesFetcher = async () => [];
+
+function buildClassifierResult(
+	classification: IntakeClassification,
+): Awaited<ReturnType<IntakeClassifierRunner>> {
+	return {
+		classification,
+		raw: "{}",
+		command: "mock",
+	};
 }
 
 test("intake classification schema validates decision-specific requirements", () => {
@@ -150,16 +163,16 @@ test("runIntakeCurator dedupes by fingerprint and reuses decision", async () => 
 		});
 
 		const result = await runIntakeCurator(client, workItem, workItemId, {
-			classify: async () => ({
-				classification: {
+			dependencies: {
+				fetchBlockedBy: noNativeDependenciesFetcher,
+			},
+			classify: async () =>
+				buildClassifierResult({
 					decision: "buildable",
 					summary: "Ready.",
 					implementation_plan: "Use previous context.",
 					comment: "Proceeding with the cached plan.",
-				},
-				raw: "{}",
-				command: "mock",
-			}),
+				}),
 			existingDecisions: [
 				{
 					id: decisionId,
@@ -222,16 +235,16 @@ test("runIntakeCurator does not reuse stale fingerprint decisions", async () => 
 		});
 
 		const result = await runIntakeCurator(client, workItem, workItemId, {
-			classify: async () => ({
-				classification: {
+			dependencies: {
+				fetchBlockedBy: noNativeDependenciesFetcher,
+			},
+			classify: async () =>
+				buildClassifierResult({
 					decision: "buildable",
 					summary: "Ready.",
 					implementation_plan: "Implement the small request.",
 					comment: "Proceeding with implementation.",
-				},
-				raw: "{}",
-				command: "mock",
-			}),
+				}),
 			existingDecisions: [
 				{
 					id: "dec_stale",
@@ -276,17 +289,19 @@ test("runIntakeCurator records open blocker as blocked", async () => {
 
 	try {
 		const result = await runIntakeCurator(client, workItem, workItemId, {
+			dependencies: {
+				fetchBlockedBy: async () => {
+					throw new Error("fallback to project field");
+				},
+			},
 			comment: mockCommentCapture(posted),
-			classify: async () => ({
-				classification: {
+			classify: async () =>
+				buildClassifierResult({
 					decision: "buildable",
 					summary: "Closed blocker no longer blocks.",
 					implementation_plan: "Proceed with the requested implementation.",
 					comment: "The blocker is closed, so I will proceed.",
-				},
-				raw: "{}",
-				command: "mock",
-			}),
+				}),
 		});
 
 		expect(result.outcome).toBe("blocked");
@@ -310,6 +325,188 @@ test("runIntakeCurator records open blocker as blocked", async () => {
 	}
 });
 
+test("native open blocker blocks and skips classifier", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItem = buildProjectItem({
+		issueNumber: 218,
+		issueTitle: "Native blocker",
+		issueBody: "Implement after dependent issue.",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#218";
+	const posted: MockComment[] = [];
+	const classify: IntakeClassifierRunner = vi.fn(async () =>
+		buildClassifierResult({
+			decision: "buildable",
+			summary: "Should not run for native blocker",
+			implementation_plan: "Proceed anyway.",
+			comment: "Should not run for native blocker.",
+		}),
+	);
+
+	try {
+		const result = await runIntakeCurator(client, workItem, workItemId, {
+			dependencies: {
+				fetchBlockedBy: async () => [
+					{
+						id: "I_blocker_open",
+						nodeId: "node_open",
+						number: 33,
+						title: "Open dependency",
+						htmlUrl: "https://github.com/toyamarinyon/rhapsody/issues/33",
+						repositoryUrl: "https://api.github.com/repos/toyamarinyon/rhapsody",
+						state: "open",
+						repository: {
+							owner: "toyamarinyon",
+							name: "rhapsody",
+						},
+					},
+				],
+			},
+			comment: mockCommentCapture(posted),
+			classify,
+		});
+
+		expect(result.outcome).toBe("blocked");
+		expect(result.shouldStartBuilder).toBe(false);
+		expect(result.commentPosted).toBe(true);
+		expect(classify).not.toHaveBeenCalled();
+		expect(posted).toHaveLength(1);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("native closed blocker does not block and classifier runs", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItem = buildProjectItem({
+		issueNumber: 219,
+		issueTitle: "Native closed blocker",
+		issueBody:
+			"This can be handled while blocker is already closed in dependency graph.",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#219";
+	const posted: MockComment[] = [];
+
+	try {
+		const result = await runIntakeCurator(client, workItem, workItemId, {
+			dependencies: {
+				fetchBlockedBy: async () => [
+					{
+						id: "I_blocker_closed",
+						nodeId: "node_closed",
+						number: 34,
+						title: "Closed dependency",
+						htmlUrl: "https://github.com/toyamarinyon/rhapsody/issues/34",
+						repositoryUrl: "https://api.github.com/repos/toyamarinyon/rhapsody",
+						state: "closed",
+						repository: {
+							owner: "toyamarinyon",
+							name: "rhapsody",
+						},
+					},
+				],
+			},
+			comment: mockCommentCapture(posted),
+			classify: async () =>
+				buildClassifierResult({
+					decision: "buildable",
+					summary: "No active blockers.",
+					implementation_plan: "Proceed because dependency is closed.",
+					comment: "Proceed with implementation.",
+					next_action: "start_builder",
+				}),
+		});
+
+		expect(result.outcome).toBe("buildable");
+		expect(result.shouldStartBuilder).toBe(true);
+		expect(result.commentPosted).toBe(true);
+		expect(posted).toHaveLength(1);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("native empty dependencies proceeds to classifier", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItem = buildProjectItem({
+		issueNumber: 220,
+		issueTitle: "No blockers",
+		issueBody:
+			"Classifier should run even when native dependencies endpoint returns empty list.",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#220";
+	const posted: MockComment[] = [];
+
+	try {
+		const result = await runIntakeCurator(client, workItem, workItemId, {
+			dependencies: {
+				fetchBlockedBy: async () => [],
+			},
+			comment: mockCommentCapture(posted),
+			classify: async () =>
+				buildClassifierResult({
+					decision: "skip",
+					summary: "External waiting.",
+					reason: "No automatic work needed now.",
+					comment: "Skip for now.",
+				}),
+		});
+
+		expect(result.outcome).toBe("skip");
+		expect(result.shouldStartBuilder).toBe(false);
+		expect(result.commentPosted).toBe(true);
+		expect(posted).toHaveLength(1);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("native fetch failure falls back to project text blockers", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItem = buildProjectItem({
+		issueNumber: 221,
+		issueTitle: "Failed dependency lookup",
+		issueBody: "Use project text fallback when native lookup fails.",
+		blockedBy: [{ id: "toyamarinyon/rhapsody#300", state: "open" }],
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#221";
+	const posted: MockComment[] = [];
+	const classify: IntakeClassifierRunner = vi.fn(async () =>
+		buildClassifierResult({
+			decision: "buildable",
+			summary: "Should not run on fallback block.",
+			implementation_plan: "Nope",
+			comment: "Nope",
+		}),
+	);
+
+	try {
+		const result = await runIntakeCurator(client, workItem, workItemId, {
+			dependencies: {
+				fetchBlockedBy: async () => {
+					throw new Error("blocked dependencies endpoint unavailable");
+				},
+			},
+			comment: mockCommentCapture(posted),
+			classify,
+		});
+
+		expect(result.outcome).toBe("blocked");
+		expect(classify).not.toHaveBeenCalled();
+		expect(posted).toHaveLength(1);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
 test("runIntakeCurator does not block when blocker is closed", async () => {
 	const database = await createTestDatabase();
 	const client = database.client;
@@ -324,17 +521,19 @@ test("runIntakeCurator does not block when blocker is closed", async () => {
 
 	try {
 		const result = await runIntakeCurator(client, workItem, workItemId, {
+			dependencies: {
+				fetchBlockedBy: async () => {
+					throw new Error("fallback to project field");
+				},
+			},
 			comment: mockCommentCapture(posted),
-			classify: async () => ({
-				classification: {
+			classify: async () =>
+				buildClassifierResult({
 					decision: "buildable",
 					summary: "Closed blocker no longer blocks.",
 					implementation_plan: "Proceed with the requested implementation.",
 					comment: "The blocker is closed, so I will proceed.",
-				},
-				raw: "{}",
-				command: "mock",
-			}),
+				}),
 		});
 
 		expect(result.outcome).toBe("buildable");
@@ -360,19 +559,19 @@ test("runIntakeCurator records ask_human for short body", async () => {
 	try {
 		const posted: MockComment[] = [];
 		const result = await runIntakeCurator(client, workItem, workItemId, {
+			dependencies: {
+				fetchBlockedBy: noNativeDependenciesFetcher,
+			},
 			comment: mockCommentCapture(posted),
-			classify: async () => ({
-				classification: {
+			classify: async () =>
+				buildClassifierResult({
 					decision: "ask_human",
 					summary: "The issue needs more detail.",
 					question: "What should Rhapsody change?",
 					comment:
 						"Please provide a clear description, constraints, and expected outcome.",
 					next_action: "add_context_and_acceptance_criteria",
-				},
-				raw: "{}",
-				command: "mock",
-			}),
+				}),
 		});
 
 		expect(result.outcome).toBe("ask_human");
@@ -401,19 +600,19 @@ test("runIntakeCurator posts comment for buildable items", async () => {
 
 	try {
 		const result = await runIntakeCurator(client, workItem, workItemId, {
+			dependencies: {
+				fetchBlockedBy: noNativeDependenciesFetcher,
+			},
 			comment: mockCommentCapture(posted),
-			classify: async () => ({
-				classification: {
+			classify: async () =>
+				buildClassifierResult({
 					decision: "buildable",
 					summary: "Ready to build.",
 					implementation_plan:
 						"Implement the requested change with a focused patch.",
 					comment: "I will implement this with a focused patch.",
 					next_action: "start_builder",
-				},
-				raw: "{}",
-				command: "mock",
-			}),
+				}),
 		});
 
 		expect(result.outcome).toBe("buildable");
@@ -440,33 +639,28 @@ test("runIntakeCurator heals once and then succeeds", async () => {
 	const runner: IntakeClassifierRunner = async () => {
 		attempts += 1;
 		if (attempts === 1) {
-			return {
-				classification: {
-					decision: "ask_human",
-					summary: "Needs details.",
-					question: "", // fail business validation
-					comment: "Needs details",
-				},
-				raw: "{}",
-				command: "mock",
-			};
+			return buildClassifierResult({
+				decision: "ask_human",
+				summary: "Needs details.",
+				question: "", // fail business validation
+				comment: "Needs details",
+			});
 		}
 
-		return {
-			classification: {
-				decision: "buildable",
-				summary: "Ready now.",
-				implementation_plan: "Implement the requested change.",
-				comment: "Implementation plan exists.",
-				next_action: "build",
-			},
-			raw: "{}",
-			command: "mock",
-		};
+		return buildClassifierResult({
+			decision: "buildable",
+			summary: "Ready now.",
+			implementation_plan: "Implement the requested change.",
+			comment: "Implementation plan exists.",
+			next_action: "build",
+		});
 	};
 
 	try {
 		const result = await runIntakeCurator(client, workItem, workItemId, {
+			dependencies: {
+				fetchBlockedBy: noNativeDependenciesFetcher,
+			},
 			classify: runner,
 		});
 
@@ -490,19 +684,19 @@ test("primary+healing invalid runs fallback ask_human", async () => {
 	});
 	const workItemId = "github_issue:toyamarinyon/rhapsody#217";
 	const posted: MockComment[] = [];
-	const runner: IntakeClassifierRunner = async () => ({
-		classification: {
+	const runner: IntakeClassifierRunner = async () =>
+		buildClassifierResult({
 			decision: "buildable",
 			summary: "Invalid.",
 			implementation_plan: "",
 			comment: "",
-		},
-		raw: "{}",
-		command: "mock",
-	});
+		});
 
 	try {
 		const result = await runIntakeCurator(client, workItem, workItemId, {
+			dependencies: {
+				fetchBlockedBy: noNativeDependenciesFetcher,
+			},
 			classify: runner,
 			comment: mockCommentCapture(posted),
 		});

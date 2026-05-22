@@ -1,24 +1,26 @@
 import { createHash } from "node:crypto";
 import { mkdtempSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { readFile, writeFile } from "node:fs/promises";
-
+import type { Client } from "@libsql/client";
 import { z } from "zod";
-
+import { buildCodexExecCommand, runCodexExec } from "@/lib/codex/cli";
+import {
+	createIssueComment,
+	fetchIssueDependenciesBlockedBy,
+	type GitHubBlockedByDependency,
+} from "@/lib/github/issues";
+import type { GitHubProjectIssueWorkItem } from "@/lib/github/project-items";
 import {
 	createArtifact,
 	createDecision,
 	createLink,
 	createWorkerRun,
+	type Decision,
 	listWorkItemGraph,
 	updateWorkerRunStatus,
-	type Decision,
 } from "@/lib/state";
-import { createIssueComment } from "@/lib/github/issues";
-import { buildCodexExecCommand, runCodexExec } from "@/lib/codex/cli";
-import type { GitHubProjectIssueWorkItem } from "@/lib/github/project-items";
-import type { Client } from "@libsql/client";
 
 export type IntakeBlockerState = "open" | "closed" | "unknown";
 
@@ -33,6 +35,15 @@ export type IntakeCuratorWorkItem = Omit<
 > & {
 	blockedBy?: Array<string | IntakeBlockerInput>;
 	projectMetadata?: Record<string, unknown>;
+};
+
+type IntakeResolvedBlocker = {
+	id: string;
+	state: IntakeBlockerState;
+	dependencyNumber?: number;
+	dependencyRepository?: string;
+	dependencyTitle?: string;
+	dependencyHtmlUrl?: string;
 };
 
 export type IntakeCuratorOutcome =
@@ -157,6 +168,12 @@ export type IntakeClassifierRunner = (input: {
 	command: string;
 }>;
 
+export type IntakeBlockedByDependencyFetcher = (input: {
+	owner: string;
+	repository: string;
+	issueNumber: number;
+}) => Promise<GitHubBlockedByDependency[]>;
+
 export type IssueCommenter = (input: {
 	owner: string;
 	repository: string;
@@ -170,6 +187,9 @@ export type IntakeCuratorOptions = {
 	nowMs?: number;
 	comment?: IssueCommenter;
 	schemaFilePath?: string;
+	dependencies?: {
+		fetchBlockedBy?: IntakeBlockedByDependencyFetcher;
+	};
 };
 
 const DEFAULT_CLASSIFIER_MODEL = "gpt-5.4-mini";
@@ -181,8 +201,17 @@ export async function runIntakeCurator(
 	workItemId: string,
 	options: IntakeCuratorOptions = {},
 ): Promise<IntakeCuratorResult> {
-	const inputFingerprint = buildIntakeInputFingerprint(workItem);
-	const deterministic = inferDeterministicClassification(workItem);
+	const resolvedBlockers = await resolveBlockersForItem({
+		workItem,
+		fetchBlockedBy: options.dependencies?.fetchBlockedBy,
+	});
+	const inputFingerprint = buildIntakeInputFingerprint(
+		workItem,
+		resolvedBlockers.blockers,
+	);
+	const deterministic = inferDeterministicClassificationFromResolved(
+		resolvedBlockers.blockers,
+	);
 	const freshDecision = findFreshIntakeDecision({
 		decisions: options.existingDecisions ?? [],
 		inputFingerprint,
@@ -210,15 +239,24 @@ export async function runIntakeCurator(
 		};
 	}
 
-	const classification = deterministic
+	const finalClassification = deterministic
 		? deterministic
-		: await classifyWithHealing(workItem, {
-				runner: options.classify ?? runCodexIntakeClassification,
-				schemaFilePath: options.schemaFilePath,
-				nowMs: options.nowMs,
-			});
+		: resolvedBlockers.requiresHumanFallback
+			? ({
+					decision: "ask_human",
+					summary: "Rhapsody could not verify issue dependencies from GitHub.",
+					question:
+						"Please confirm dependency relationships in the issue so we can safely proceed.",
+					comment:
+						"Dependency resolution failed; confirm blockers and issue linkage before continuing.",
+					next_action: "confirm_dependency_relationships",
+				} satisfies IntakeWorkerClassification)
+			: await classifyWithHealing(workItem, resolvedBlockers.blockers, {
+					runner: options.classify ?? runCodexIntakeClassification,
+					schemaFilePath: options.schemaFilePath,
+					nowMs: options.nowMs,
+				});
 
-	const normalizedBlockedBy = normalizeBlockedBy(workItem.blockedBy);
 	const workerRun = await createWorkerRun(client, {
 		workItemId,
 		kind: "intake_curator",
@@ -234,13 +272,18 @@ export async function runIntakeCurator(
 		issueTitle: workItem.issueTitle,
 		issueNumber: workItem.issueNumber,
 		projectStatus: workItem.projectStatus ?? null,
-		blockedBy: normalizedBlockedBy,
+		blockedBy: resolvedBlockers.blockers,
+		blockerSource: resolvedBlockers.source,
+		requiresHumanDependencyConfirmation: resolvedBlockers.requiresHumanFallback,
 		projectMetadata: workItem.projectMetadata ?? null,
-		summary: classification.summary,
-		reason: getClassificationReason(classification),
-		nextAction: pickNextAction(classification),
-		comment: classification.comment ?? null,
-		policyRuleId: computePolicyRuleId(classification.decision, deterministic),
+		summary: finalClassification.summary,
+		reason: getClassificationReason(finalClassification),
+		nextAction: pickNextAction(finalClassification),
+		comment: finalClassification.comment ?? null,
+		policyRuleId: computePolicyRuleId(
+			finalClassification.decision,
+			deterministic,
+		),
 	};
 
 	const decisionId = await createDecision(client, {
@@ -250,8 +293,9 @@ export async function runIntakeCurator(
 		deterministic: deterministic !== null,
 		policyVersion: "v1",
 		policyRuleId: decisionEvidence.policyRuleId,
-		outcome: classification.decision,
-		nextWorkerKind: classification.decision === "buildable" ? "builder" : null,
+		outcome: finalClassification.decision,
+		nextWorkerKind:
+			finalClassification.decision === "buildable" ? "builder" : null,
 		evidence: decisionEvidence,
 		nextAction: decisionEvidence.nextAction ?? undefined,
 	});
@@ -263,7 +307,7 @@ export async function runIntakeCurator(
 
 	let commentPosted = false;
 	if (
-		classification.comment.trim() &&
+		finalClassification.comment.trim() &&
 		!(await hasExistingIntakeCommentForFingerprint({
 			client,
 			workItemId,
@@ -275,7 +319,8 @@ export async function runIntakeCurator(
 			workItem,
 			workerRunId: workerRun.id,
 			workItemId,
-			classification,
+			classification: finalClassification,
+			resolvedBlockers: resolvedBlockers.blockers,
 			commenter: options.comment ?? createIssueComment,
 			inputFingerprint,
 		});
@@ -284,13 +329,13 @@ export async function runIntakeCurator(
 	return {
 		decisionId,
 		workerRunId: workerRun.id,
-		outcome: classification.decision,
+		outcome: finalClassification.decision,
 		nextAction: decisionEvidence.nextAction ?? undefined,
-		shouldStartBuilder: classification.decision === "buildable",
+		shouldStartBuilder: finalClassification.decision === "buildable",
 		skippedFreshDuplicate: false,
 		inputFingerprint,
 		commentPosted,
-		classificationReason: getClassificationReason(classification),
+		classificationReason: getClassificationReason(finalClassification),
 	};
 }
 
@@ -341,12 +386,13 @@ export function isIntakeBuildable(item: {
 
 export function buildIntakeInputFingerprint(
 	workItem: IntakeCuratorWorkItem,
+	resolvedBlockers?: IntakeResolvedBlocker[],
 ): string {
 	const normalized = {
 		issueTitle: (workItem.issueTitle ?? "").trim(),
 		issueBody: (workItem.issueBody ?? "").trim(),
 		issueNumber: workItem.issueNumber,
-		blockedBy: normalizeBlockedBy(workItem.blockedBy),
+		blockedBy: resolvedBlockers ?? normalizeBlockedBy(workItem.blockedBy),
 		projectStatus: workItem.projectStatus ?? null,
 	};
 
@@ -355,6 +401,7 @@ export function buildIntakeInputFingerprint(
 
 async function classifyWithHealing(
 	workItem: IntakeCuratorWorkItem,
+	blockedBy: IntakeResolvedBlocker[],
 	options: {
 		runner: IntakeClassifierRunner;
 		nowMs?: number;
@@ -363,7 +410,7 @@ async function classifyWithHealing(
 ): Promise<IntakeClassification> {
 	for (let attempt = 1; attempt <= 2; attempt += 1) {
 		try {
-			const prompt = buildIntakeClassificationPrompt(workItem);
+			const prompt = buildIntakeClassificationPrompt(workItem, blockedBy);
 			const schemaFilePath = await ensureSchemaFile(options.schemaFilePath);
 			const outputMessagePath = buildOutputMessagePath(options.nowMs, attempt);
 			const result = await options.runner({
@@ -429,12 +476,63 @@ async function runCodexIntakeClassification(
 	};
 }
 
-function inferDeterministicClassification(
-	workItem: IntakeCuratorWorkItem,
+type BlockerResolutionResult = {
+	source: "native" | "project_text" | "none";
+	blockers: IntakeResolvedBlocker[];
+	requiresHumanFallback: boolean;
+};
+
+async function resolveBlockersForItem(input: {
+	workItem: IntakeCuratorWorkItem;
+	fetchBlockedBy?: IntakeBlockedByDependencyFetcher;
+}): Promise<BlockerResolutionResult> {
+	const fetcher =
+		input.fetchBlockedBy ??
+		((args) =>
+			fetchIssueDependenciesBlockedBy({
+				owner: args.owner,
+				repository: args.repository,
+				issueNumber: args.issueNumber,
+			}));
+
+	const projectBlockedBy = normalizeBlockedBy(input.workItem.blockedBy);
+	try {
+		const dependencies = await fetcher({
+			owner: input.workItem.repository.owner,
+			repository: input.workItem.repository.name,
+			issueNumber: input.workItem.issueNumber,
+		});
+
+		const blockers = dependencies.map((dependency) =>
+			normalizeBlockedByDependency(dependency, input.workItem.repository),
+		);
+
+		return {
+			source: "native",
+			blockers,
+			requiresHumanFallback: false,
+		};
+	} catch {
+		if (projectBlockedBy.length > 0) {
+			return {
+				source: "project_text",
+				blockers: projectBlockedBy,
+				requiresHumanFallback: false,
+			};
+		}
+
+		return {
+			source: "none",
+			blockers: [],
+			requiresHumanFallback: true,
+		};
+	}
+}
+
+function inferDeterministicClassificationFromResolved(
+	blockers: IntakeResolvedBlocker[],
 ): IntakeWorkerClassification | null {
-	const activeBlockers = getBlockingBlockers(
-		normalizeBlockedBy(workItem.blockedBy),
-	);
+	const activeBlockers = getBlockingBlockers(blockers);
 	if (activeBlockers.length > 0) {
 		return {
 			decision: "blocked",
@@ -449,6 +547,29 @@ function inferDeterministicClassification(
 	}
 
 	return null;
+}
+
+function normalizeBlockedByDependency(
+	dependency: GitHubBlockedByDependency,
+	issueRepository: {
+		owner: string;
+		name: string;
+	},
+): IntakeResolvedBlocker {
+	const repositoryId =
+		dependency.repository.owner === issueRepository.owner &&
+		dependency.repository.name === issueRepository.name
+			? `#${dependency.number}`
+			: `${dependency.repository.owner}/${dependency.repository.name}#${dependency.number}`;
+
+	return {
+		id: repositoryId,
+		state: parseBlockerState(dependency.state.toLowerCase()),
+		dependencyNumber: dependency.number,
+		dependencyRepository: `${dependency.repository.owner}/${dependency.repository.name}`,
+		dependencyTitle: dependency.title,
+		dependencyHtmlUrl: dependency.htmlUrl,
+	};
 }
 
 function parseClassifierOutput(raw: string): IntakeClassification {
@@ -521,10 +642,15 @@ async function postIntakeComment(input: {
 	workerRunId: string;
 	workItemId: string;
 	classification: IntakeWorkerClassification;
+	resolvedBlockers: IntakeResolvedBlocker[];
 	commenter: IssueCommenter;
 	inputFingerprint: string;
 }): Promise<boolean> {
-	const comment = buildIntakeIssueComment(input.workItem, input.classification);
+	const comment = buildIntakeIssueComment(
+		input.workItem,
+		input.classification,
+		input.resolvedBlockers,
+	);
 
 	let commentResult: { id: number; htmlUrl: string };
 	try {
@@ -572,8 +698,9 @@ async function postIntakeComment(input: {
 function buildIntakeIssueComment(
 	workItem: IntakeCuratorWorkItem,
 	classification: IntakeWorkerClassification,
+	resolvedBlockers: IntakeResolvedBlocker[],
 ): string {
-	const blockers = getBlockingBlockers(normalizeBlockedBy(workItem.blockedBy));
+	const blockers = getBlockingBlockers(resolvedBlockers);
 	const lines = [
 		`Rhapsody intake classification: ${classification.decision} for #${workItem.issueNumber}`,
 		`Summary: ${classification.summary}`,
@@ -612,8 +739,8 @@ function buildIntakeIssueComment(
 
 function buildIntakeClassificationPrompt(
 	workItem: IntakeCuratorWorkItem,
+	blockedBy: IntakeResolvedBlocker[],
 ): string {
-	const blockedBy = normalizeBlockedBy(workItem.blockedBy);
 	const blockedByText =
 		blockedBy.length > 0
 			? `Known blockers:\n${blockedBy

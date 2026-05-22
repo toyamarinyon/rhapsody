@@ -19,15 +19,30 @@ export type GitHubIssue = {
 	labels: GitHubIssueLabel[];
 };
 
+export type GitHubBlockedByDependency = {
+	id: string;
+	nodeId: string;
+	number: number;
+	title: string;
+	htmlUrl: string;
+	state: string;
+	repositoryUrl: string;
+	repository: {
+		owner: string;
+		name: string;
+	};
+};
+
 export class GitHubIssueFetchError extends Error {
 	constructor(
 		readonly status: number,
 		readonly owner: string,
 		readonly repository: string,
 		readonly issueNumber: number,
+		readonly resource: string = "issue",
 	) {
 		super(
-			`GitHub issue fetch failed with status ${status} for ${owner}/${repository}#${issueNumber}.`,
+			`GitHub ${resource} fetch failed with status ${status} for ${owner}/${repository}#${issueNumber}.`,
 		);
 		this.name = "GitHubIssueFetchError";
 	}
@@ -134,6 +149,47 @@ export async function createIssueComment(
 	};
 }
 
+export async function fetchIssueDependenciesBlockedBy(
+	input: { owner: string; repository: string; issueNumber: number },
+	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
+): Promise<GitHubBlockedByDependency[]> {
+	const response = await fetch(
+		`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}/issues/${input.issueNumber}/dependencies/blocked_by`,
+		{
+			headers: {
+				Accept: "application/vnd.github+json",
+				Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+				"X-GitHub-Api-Version": "2026-03-10",
+			},
+		},
+	);
+
+	if (!response.ok) {
+		throw new GitHubIssueFetchError(
+			response.status,
+			input.owner,
+			input.repository,
+			input.issueNumber,
+			"issue dependencies endpoint",
+		);
+	}
+
+	const payload = await response.json();
+	const entries = Array.isArray(payload?.nodes)
+		? payload.nodes
+		: Array.isArray(payload)
+			? payload
+			: null;
+
+	if (!Array.isArray(entries)) {
+		throw new Error(
+			"GitHub issue dependencies endpoint returned an unexpected response shape.",
+		);
+	}
+
+	return entries.map((entry) => normalizeIssueDependency(entry, input));
+}
+
 function normalizeIssue(value: unknown): GitHubIssue {
 	if (!isGitHubIssueResponse(value)) {
 		throw new Error("GitHub issue response had an unexpected shape.");
@@ -206,6 +262,79 @@ function isGitHubIssueResponse(value: unknown): value is GitHubIssueResponse {
 		typeof issue.state === "string" &&
 		Array.isArray(issue.labels)
 	);
+}
+
+type GitHubBlockedByDependencyResponse = {
+	id: number;
+	node_id: string;
+	number: number;
+	title: string;
+	html_url: string;
+	state: string;
+	repository_url: string;
+};
+
+function normalizeIssueDependency(
+	value: unknown,
+	fallbackRepository: { owner: string; repository: string },
+): GitHubBlockedByDependency {
+	if (!isGitHubBlockedByDependencyResponse(value)) {
+		throw new Error("GitHub issue dependency response had unexpected shape.");
+	}
+
+	const repository = parseRepositoryUrl(value.repository_url) ?? {
+		owner: fallbackRepository.owner,
+		name: fallbackRepository.repository,
+	};
+
+	return {
+		id: String(value.id),
+		nodeId: value.node_id,
+		number: value.number,
+		title: value.title,
+		htmlUrl: value.html_url,
+		repositoryUrl: value.repository_url,
+		state: value.state,
+		repository,
+	};
+}
+
+function isGitHubBlockedByDependencyResponse(
+	value: unknown,
+): value is GitHubBlockedByDependencyResponse {
+	if (typeof value !== "object" || value === null) {
+		return false;
+	}
+
+	const issue = value as Partial<GitHubBlockedByDependencyResponse>;
+
+	return (
+		typeof issue.id === "number" &&
+		typeof issue.node_id === "string" &&
+		typeof issue.number === "number" &&
+		typeof issue.title === "string" &&
+		typeof issue.html_url === "string" &&
+		typeof issue.state === "string" &&
+		typeof issue.repository_url === "string"
+	);
+}
+
+function parseRepositoryUrl(
+	value: string,
+): { owner: string; name: string } | null {
+	try {
+		const url = new URL(value);
+		const parts = url.pathname.split("/").filter(Boolean);
+		if (parts[0] !== "repos" || !parts[1] || !parts[2]) {
+			return null;
+		}
+		return {
+			owner: parts[1],
+			name: parts[2],
+		};
+	} catch {
+		return null;
+	}
 }
 
 async function safeResponseText(response: Response): Promise<string> {
