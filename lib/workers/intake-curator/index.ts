@@ -171,6 +171,57 @@ export type IntakeClassifierRunner = (input: {
 	command: string;
 }>;
 
+export type IntakeClassifierOutputFailureMetadata = {
+	rawOutput: {
+		available: boolean;
+		preview?: string;
+	};
+	command?: string;
+};
+
+export class IntakeClassifierOutputError extends Error {
+	readonly errorMetadata: IntakeClassifierOutputFailureMetadata;
+	readonly outputStage: IntakeClassifierAttemptCategory;
+	constructor(
+		message: string,
+		errorMetadata: IntakeClassifierOutputFailureMetadata,
+		outputStage: "parse_error" | "schema_error",
+	) {
+		super(message);
+		this.name = "IntakeClassifierOutputError";
+		this.errorMetadata = errorMetadata;
+		this.outputStage = outputStage;
+	}
+}
+
+type IntakeClassifierAttemptCategory =
+	| "runner_error"
+	| "parse_error"
+	| "schema_error"
+	| "validation_error"
+	| "unknown_error";
+
+type IntakeClassifierAttemptDiagnostic = {
+	attempt: number;
+	stage: IntakeClassifierAttemptCategory;
+	errorMessage: string;
+	rawOutput: {
+		available: boolean;
+		preview?: string;
+	};
+	command?: string;
+};
+
+type IntakeClassifierDiagnostics = {
+	fallbackUsed: boolean;
+	failedAttempts: IntakeClassifierAttemptDiagnostic[];
+};
+
+type IntakeClassifierHealingResult = {
+	classification: IntakeClassification;
+	diagnostics: IntakeClassifierDiagnostics;
+};
+
 export type IntakeBlockedByDependencyFetcher = (input: {
 	owner: string;
 	repository: string;
@@ -256,28 +307,35 @@ export async function runIntakeCurator(
 		};
 	}
 
-	const finalClassification = deterministic
-		? deterministic
-		: resolvedBlockers.requiresHumanFallback
-			? ({
-					decision: "ask_human",
-					summary: "Rhapsody could not verify issue dependencies from GitHub.",
-					question:
-						"Please confirm dependency relationships in the issue so we can safely proceed.",
-					comment:
-						"Dependency resolution failed; confirm blockers and issue linkage before continuing.",
-					next_action: "confirm_dependency_relationships",
-				} satisfies IntakeWorkerClassification)
-			: await classifyWithHealing(
-					workItem,
-					resolvedBlockers.blockers,
-					humanReplies,
-					{
-						runner: options.classify ?? runCodexIntakeClassification,
-						schemaFilePath: options.schemaFilePath,
-						nowMs: options.nowMs,
-					},
-				);
+	let finalClassification: IntakeWorkerClassification;
+	let classifierDiagnostics: IntakeClassifierDiagnostics | null = null;
+
+	if (deterministic) {
+		finalClassification = deterministic;
+	} else if (resolvedBlockers.requiresHumanFallback) {
+		finalClassification = {
+			decision: "ask_human",
+			summary: "Rhapsody could not verify issue dependencies from GitHub.",
+			question:
+				"Please confirm dependency relationships in the issue so we can safely proceed.",
+			comment:
+				"Dependency resolution failed; confirm blockers and issue linkage before continuing.",
+			next_action: "confirm_dependency_relationships",
+		};
+	} else {
+		const healingResult = await classifyWithHealing(
+			workItem,
+			resolvedBlockers.blockers,
+			humanReplies,
+			{
+				runner: options.classify ?? runCodexIntakeClassification,
+				schemaFilePath: options.schemaFilePath,
+				nowMs: options.nowMs,
+			},
+		);
+		finalClassification = healingResult.classification;
+		classifierDiagnostics = healingResult.diagnostics;
+	}
 
 	const workerRun = await createWorkerRun(client, {
 		workItemId,
@@ -289,7 +347,27 @@ export async function runIntakeCurator(
 		},
 	});
 
-	const decisionEvidence = {
+	const decisionEvidence: {
+		inputFingerprint: string;
+		issueTitle: string;
+		issueNumber: number;
+		projectStatus: string | null;
+		blockedBy: IntakeResolvedBlocker[];
+		blockerSource: "native" | "project_text" | "none";
+		requiresHumanDependencyConfirmation: boolean;
+		projectMetadata: Record<string, unknown> | null;
+		summary: string;
+		reason: string;
+		nextAction: string | null;
+		comment: string | null;
+		humanReplies: Array<{
+			id: number;
+			updatedAt: string;
+			body: string | null;
+		}>;
+		policyRuleId: string | null;
+		classifierDiagnostics?: IntakeClassifierDiagnostics;
+	} = {
 		inputFingerprint,
 		issueTitle: workItem.issueTitle,
 		issueNumber: workItem.issueNumber,
@@ -312,6 +390,10 @@ export async function runIntakeCurator(
 			deterministic,
 		),
 	};
+
+	if (classifierDiagnostics) {
+		decisionEvidence.classifierDiagnostics = classifierDiagnostics;
+	}
 
 	const decisionId = await createDecision(client, {
 		workItemId,
@@ -440,8 +522,12 @@ async function classifyWithHealing(
 		nowMs?: number;
 		schemaFilePath?: string;
 	},
-): Promise<IntakeClassification> {
+): Promise<IntakeClassifierHealingResult> {
+	const failedAttempts: IntakeClassifierAttemptDiagnostic[] = [];
+
 	for (let attempt = 1; attempt <= 2; attempt += 1) {
+		let raw: string | undefined;
+		let command: string | undefined;
 		try {
 			const prompt = buildIntakeClassificationPrompt(
 				workItem,
@@ -457,20 +543,83 @@ async function classifyWithHealing(
 				workItem,
 				attempt,
 			});
-			return intakeClassificationSchema.parse(result.classification);
-		} catch {
-			// Fall through to a single healing attempt, then deterministic fallback.
+			raw = result.raw;
+			command = result.command;
+			const classification = intakeClassificationSchema.parse(
+				result.classification,
+			);
+			return {
+				classification,
+				diagnostics: {
+					fallbackUsed: false,
+					failedAttempts,
+				},
+			};
+		} catch (error) {
+			const message = errorMessage(error);
+			const normalizedMessage = message.toLowerCase();
+			const metadata =
+				error instanceof IntakeClassifierOutputError
+					? error.errorMetadata
+					: null;
+			const rawOutputFromMetadata = metadata?.rawOutput;
+			const outputPreviewFromError = metadata?.rawOutput.preview;
+			const boundedMetadataPreview = outputPreviewFromError
+				? boundedErrorMessage(outputPreviewFromError, 320)
+				: undefined;
+			const commandFromError =
+				metadata?.command ?? (command ? command : undefined);
+			let stage: IntakeClassifierAttemptCategory = "runner_error";
+			if (error instanceof IntakeClassifierOutputError) {
+				stage = error.outputStage;
+			} else if (error instanceof z.ZodError) {
+				stage = "schema_error";
+			} else if (
+				normalizedMessage.includes("validation") ||
+				normalizedMessage.includes("invalid")
+			) {
+				stage = "validation_error";
+			} else if (
+				normalizedMessage.includes("parse") ||
+				normalizedMessage.includes("parseable")
+			) {
+				stage = "parse_error";
+			}
+
+			failedAttempts.push({
+				attempt,
+				stage,
+				errorMessage: boundedErrorMessage(message),
+				rawOutput: {
+					available: rawOutputFromMetadata
+						? rawOutputFromMetadata.available
+						: Boolean(raw),
+					preview:
+						boundedMetadataPreview ??
+						(raw ? safeTextPreview(raw, 320) : undefined),
+				},
+				command:
+					commandFromError && isSafeCommand(commandFromError)
+						? commandFromError
+						: undefined,
+			});
 		}
 	}
 
 	return {
-		decision: "ask_human",
-		summary: "Rhapsody could not safely classify this issue automatically.",
-		question:
-			"Could you clarify the expected change and acceptance criteria before Rhapsody starts implementation?",
-		comment:
-			"Please clarify remaining scope and constraints so Rhapsody can proceed safely.",
-		next_action: "add_context_and_acceptance_criteria",
+		classification: {
+			decision: "ask_human",
+			summary: "Rhapsody could not safely classify this issue automatically.",
+			question:
+				"Could you clarify the expected change and acceptance criteria before Rhapsody starts implementation?",
+			comment:
+				"Please clarify remaining scope and constraints so Rhapsody can proceed safely.",
+			next_action: "add_context_and_acceptance_criteria",
+		},
+		diagnostics: {
+			fallbackUsed: true,
+			failedAttempts,
+		},
 	};
 }
 
@@ -506,8 +655,41 @@ async function runCodexIntakeClassification(
 	}
 
 	const raw = await readFile(outputMessagePath, "utf8");
+	let parsed: IntakeClassification;
+	try {
+		parsed = parseClassifierOutput(raw);
+	} catch (error) {
+		if (error instanceof z.ZodError) {
+			throw new IntakeClassifierOutputError(
+				"Classifier output did not match expected intake schema.",
+				{
+					rawOutput: {
+						available: true,
+						preview: safeTextPreview(raw, 320),
+					},
+					command: command.argv.join(" "),
+				},
+				"schema_error",
+			);
+		}
+
+		throw new IntakeClassifierOutputError(
+			error instanceof Error
+				? error.message
+				: "Classifier output could not be parsed.",
+			{
+				rawOutput: {
+					available: true,
+					preview: safeTextPreview(raw, 320),
+				},
+				command: command.argv.join(" "),
+			},
+			"parse_error",
+		);
+	}
+
 	return {
-		classification: parseClassifierOutput(raw),
+		classification: parsed,
 		raw,
 		command: command.argv.join(" "),
 	};
@@ -641,6 +823,36 @@ function parseClassifierOutput(raw: string): IntakeClassification {
 	}
 
 	return intakeClassificationSchema.parse(parsed);
+}
+
+function errorMessage(error: unknown): string {
+	if (error instanceof Error) {
+		return error.message || "Unknown classifier error.";
+	}
+
+	return "Unknown classifier error.";
+}
+
+function boundedErrorMessage(message: string, maxCharacters = 360): string {
+	const trimmed = message.trim();
+	if (trimmed.length <= maxCharacters) {
+		return trimmed;
+	}
+
+	return `${trimmed.slice(0, maxCharacters - 1)}…`;
+}
+
+function safeTextPreview(text: string, maxCharacters: number): string {
+	const normalized = text.replace(/\\s+/g, " ").trim();
+	if (normalized.length <= maxCharacters) {
+		return normalized;
+	}
+
+	return `${normalized.slice(0, maxCharacters - 1)}…`;
+}
+
+function isSafeCommand(command: string): boolean {
+	return !/secret|token|api[_-]?key|password|credential/i.test(command);
 }
 
 function tryParseJson(raw: string): unknown {

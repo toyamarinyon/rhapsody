@@ -14,6 +14,8 @@ import {
 import {
 	buildIntakeInputFingerprint,
 	type IntakeClassification,
+	IntakeClassifierOutputError,
+	type IntakeClassifierOutputFailureMetadata,
 	type IntakeClassifierRunner,
 	type IntakeCuratorWorkItem,
 	intakeClassificationJsonSchema,
@@ -21,6 +23,28 @@ import {
 	isIntakeBuildable,
 	runIntakeCurator,
 } from "@/lib/workers/intake-curator";
+
+type ClassifierDiagnosticAttemptEvidence = {
+	attempt: number;
+	stage: string;
+	errorMessage: string;
+	rawOutput?: {
+		available: boolean;
+		preview?: string;
+	};
+};
+
+type ClassifierEvidence = {
+	classifierDiagnostics?: {
+		fallbackUsed: boolean;
+		failedAttempts: ClassifierDiagnosticAttemptEvidence[];
+	};
+	humanReplies?: Array<{
+		id: number;
+		updatedAt: string;
+		body: string;
+	}>;
+};
 
 type MockComment = {
 	owner: string;
@@ -983,6 +1007,16 @@ test("runIntakeCurator heals once and then succeeds", async () => {
 		expect(attempts).toBe(2);
 		expect(result.outcome).toBe("buildable");
 		expect(result.classificationReason).toBe("Implement the requested change.");
+		const graph = await listWorkItemGraph(client, workItemId);
+		const latestDecision = graph.decisions.find(
+			(entry) => entry.phase === "intake",
+		);
+		const evidence = latestDecision?.evidence as ClassifierEvidence | undefined;
+		expect(evidence?.classifierDiagnostics?.fallbackUsed).toBe(false);
+		expect(evidence?.classifierDiagnostics?.failedAttempts).toHaveLength(1);
+		expect(evidence?.classifierDiagnostics?.failedAttempts?.[0]?.stage).toBe(
+			"schema_error",
+		);
 	} finally {
 		client.close();
 		database.cleanup();
@@ -1023,6 +1057,314 @@ test("primary+healing invalid runs fallback ask_human", async () => {
 		);
 		expect(result.commentPosted).toBe(true);
 		expect(posted).toHaveLength(1);
+
+		const graph = await listWorkItemGraph(client, workItemId);
+		const latestDecision = graph.decisions.find(
+			(entry) => entry.workItemId === workItemId && entry.phase === "intake",
+		);
+		const evidence = latestDecision?.evidence as ClassifierEvidence | undefined;
+		expect(evidence?.classifierDiagnostics?.fallbackUsed).toBe(true);
+		expect(evidence?.classifierDiagnostics?.failedAttempts).toHaveLength(2);
+		expect(
+			evidence?.classifierDiagnostics?.failedAttempts?.map(
+				(attempt) => attempt.stage,
+			),
+		).toEqual(["schema_error", "schema_error"]);
+		expect(
+			evidence?.classifierDiagnostics?.failedAttempts[0]?.errorMessage,
+		).toContain("too_small");
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("runIntakeCurator records raw output metadata when runner parse fails twice", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItem = buildProjectItem({
+		issueNumber: 218,
+		issueTitle: "Malformed output title",
+		issueBody:
+			"This request includes enough context for the classifier to try again.",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#218";
+	const metadata: IntakeClassifierOutputFailureMetadata = {
+		rawOutput: {
+			available: true,
+			preview: `${"x".repeat(500)}`,
+		},
+		command: "codex exec --safe-run",
+	};
+	const failure = new IntakeClassifierOutputError(
+		"Classifier output was not parseable JSON.",
+		metadata,
+		"parse_error",
+	);
+	let attempt = 0;
+	const runner: IntakeClassifierRunner = async () => {
+		attempt += 1;
+		throw failure;
+	};
+
+	try {
+		const result = await runIntakeCurator(client, workItem, workItemId, {
+			dependencies: {
+				fetchBlockedBy: noNativeDependenciesFetcher,
+			},
+			classify: runner,
+		});
+
+		expect(result.outcome).toBe("ask_human");
+		expect(attempt).toBe(2);
+
+		const graph = await listWorkItemGraph(client, workItemId);
+		const latestDecision = graph.decisions.find(
+			(entry) => entry.phase === "intake",
+		);
+		const evidence = latestDecision?.evidence as
+			| {
+					classifierDiagnostics?: {
+						fallbackUsed: boolean;
+						failedAttempts: Array<ClassifierDiagnosticAttemptEvidence>;
+					};
+			  }
+			| undefined;
+
+		expect(evidence?.classifierDiagnostics?.fallbackUsed).toBe(true);
+		expect(
+			evidence?.classifierDiagnostics?.failedAttempts[0]?.rawOutput?.available,
+		).toBe(true);
+		expect(
+			evidence?.classifierDiagnostics?.failedAttempts[0]?.rawOutput?.preview
+				?.length,
+		).toBeLessThanOrEqual(320);
+		expect(
+			evidence?.classifierDiagnostics?.failedAttempts[0]?.rawOutput?.preview,
+		).toBe(`${"x".repeat(319)}…`);
+		expect(
+			evidence?.classifierDiagnostics?.failedAttempts[1]?.rawOutput?.available,
+		).toBe(true);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("#62-like: human reply reclassification still logs classifier fallback diagnostics", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItem = buildProjectItem({
+		issueNumber: 505,
+		issueTitle: "Needs follow-up context",
+		issueBody: "Short body that still needs clarification and reply.",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#505";
+	const oldFingerprint = buildIntakeInputFingerprint(workItem);
+	const workerRun = await createWorkerRun(client, {
+		id: "wrn_issue_505",
+		workItemId,
+		kind: "intake_curator",
+		status: "completed",
+	});
+
+	try {
+		await createArtifact(client, {
+			id: "art_issue_505",
+			workItemId,
+			workerRunId: workerRun.id,
+			kind: "intake_comment",
+			externalId: "505",
+			externalUrl: "https://github.com/toyamarinyon/rhapsody/issues/505",
+			now: 1_000_000,
+			metadata: {
+				inputFingerprint: oldFingerprint,
+			},
+		});
+		await createDecision(client, {
+			id: "dec_issue_505",
+			workItemId,
+			workerRunId: workerRun.id,
+			phase: "intake",
+			outcome: "ask_human",
+			evidence: {
+				inputFingerprint: oldFingerprint,
+				reason: "Need more detail.",
+			},
+		});
+		const classify: IntakeClassifierRunner = async (input) => {
+			if (input.attempt === 1) {
+				return {
+					classification: {
+						decision: "buildable",
+						summary: "Ready",
+						implementation_plan: "",
+						comment: "",
+					} as IntakeClassification,
+					raw: "{malformed}",
+					command: `codex exec --attempt-${input.attempt}`,
+				};
+			}
+			throw new Error("Classifier output was not parseable JSON.");
+		};
+
+		const result = await runIntakeCurator(client, workItem, workItemId, {
+			existingDecisions: [
+				{
+					id: "dec_issue_505",
+					workItemId,
+					workerRunId: workerRun.id,
+					phase: "intake",
+					outcome: "ask_human",
+					deterministic: false,
+					policyVersion: null,
+					policyRuleId: null,
+					evidence: {
+						inputFingerprint: oldFingerprint,
+						reason: "Need more detail.",
+					},
+					nextWorkerKind: null,
+					nextAction: null,
+					createdAt: 1,
+					updatedAt: 1,
+				},
+			],
+			dependencies: {
+				fetchBlockedBy: noNativeDependenciesFetcher,
+				fetchIssueComments: async () => [
+					buildIssueCommentPayload({
+						id: 2001,
+						body: "Human clarified expected behavior and success criteria.",
+						updatedAt: "1970-01-01T00:20:00Z",
+					}),
+				],
+			},
+			classify,
+		});
+
+		expect(result.outcome).toBe("ask_human");
+
+		const graph = await listWorkItemGraph(client, workItemId);
+		const latestDecision = graph.decisions.find(
+			(entry) => entry.phase === "intake",
+		);
+		const evidence = latestDecision?.evidence as ClassifierEvidence | undefined;
+
+		expect(evidence?.humanReplies).toEqual([
+			{
+				id: 2001,
+				updatedAt: "1970-01-01T00:20:00Z",
+				body: "Human clarified expected behavior and success criteria.",
+			},
+		]);
+		expect(evidence?.classifierDiagnostics?.fallbackUsed).toBe(true);
+		expect(evidence?.classifierDiagnostics?.failedAttempts?.length).toBe(2);
+		expect(
+			evidence?.classifierDiagnostics?.failedAttempts?.map(
+				(entry) => entry.attempt,
+			),
+		).toEqual([1, 2]);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("successful reclassification after human reply does not mark classifier fallback", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItem = buildProjectItem({
+		issueNumber: 506,
+		issueTitle: "Needs clarification once more",
+		issueBody: "Still detailed enough for an updated buildable classification.",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#506";
+	const oldFingerprint = buildIntakeInputFingerprint(workItem);
+	const workerRun = await createWorkerRun(client, {
+		id: "wrn_issue_506",
+		workItemId,
+		kind: "intake_curator",
+		status: "completed",
+	});
+
+	try {
+		await createArtifact(client, {
+			id: "art_issue_506",
+			workItemId,
+			workerRunId: workerRun.id,
+			kind: "intake_comment",
+			externalId: "506",
+			externalUrl: "https://github.com/toyamarinyon/rhapsody/issues/506",
+			now: 1_000_000,
+			metadata: {
+				inputFingerprint: oldFingerprint,
+			},
+		});
+		await createDecision(client, {
+			id: "dec_issue_506",
+			workItemId,
+			workerRunId: workerRun.id,
+			phase: "intake",
+			outcome: "ask_human",
+			evidence: {
+				inputFingerprint: oldFingerprint,
+				reason: "Need more detail.",
+			},
+		});
+
+		const result = await runIntakeCurator(client, workItem, workItemId, {
+			existingDecisions: [
+				{
+					id: "dec_issue_506",
+					workItemId,
+					workerRunId: workerRun.id,
+					phase: "intake",
+					outcome: "ask_human",
+					deterministic: false,
+					policyVersion: null,
+					policyRuleId: null,
+					evidence: {
+						inputFingerprint: oldFingerprint,
+						reason: "Need more detail.",
+					},
+					nextWorkerKind: null,
+					nextAction: null,
+					createdAt: 1,
+					updatedAt: 1,
+				},
+			],
+			dependencies: {
+				fetchBlockedBy: noNativeDependenciesFetcher,
+				fetchIssueComments: async () => [
+					buildIssueCommentPayload({
+						id: 2060,
+						body: "Clarification and acceptance criteria provided.",
+						updatedAt: "1970-01-01T00:20:00Z",
+					}),
+				],
+			},
+			classify: async () =>
+				buildClassifierResult({
+					decision: "buildable",
+					summary: "Ready.",
+					implementation_plan: "Implement requested change.",
+					comment: "I can start now.",
+					next_action: "start_builder",
+				}),
+		});
+
+		expect(result.outcome).toBe("buildable");
+		expect(result.shouldStartBuilder).toBe(true);
+		const graph = await listWorkItemGraph(client, workItemId);
+		const latestDecision = graph.decisions.find(
+			(entry) => entry.phase === "intake",
+		);
+		const evidence = latestDecision?.evidence as
+			| {
+					classifierDiagnostics?: { fallbackUsed: boolean };
+			  }
+			| undefined;
+		expect(evidence?.classifierDiagnostics?.fallbackUsed).toBe(false);
 	} finally {
 		client.close();
 		database.cleanup();
