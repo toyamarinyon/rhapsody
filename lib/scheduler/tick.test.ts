@@ -7,6 +7,7 @@ import { createClient, type Client } from "@libsql/client";
 import { runSchedulerTick, type SchedulerTickDependencies } from "./tick";
 import {
 	createArtifact,
+	createClaimedManualRun,
 	createWorkerRun,
 	listWorkItemGraph,
 	migrateStateStore,
@@ -237,6 +238,105 @@ test("scheduler runs post-PR curator and repairer planner for failed format chec
 			),
 		).toBe(true);
 		expect(graph.workerRuns.some((run) => run.kind === "repairer")).toBe(true);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("scheduler skips Todo items when concurrency limit is exhausted", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const item = buildProjectItem({
+		issueNumber: 105,
+		projectStatus: "Todo",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#105";
+
+	await createClaimedManualRun(client, {
+		workItemId: `${workItemId}-other`,
+		workItemTitle: "Other claim",
+		claimedBy: "scheduler",
+		workItemStatus: "OPEN",
+		runner: "sandbox-codex",
+		claimTtlMs: 60_000,
+		claimToken: "active-token",
+		runId: "run_other",
+		attemptId: "attempt_other",
+	});
+
+	try {
+		const result = await runSchedulerTick(client, {
+			config: {
+				...baseConfig,
+				scheduler: {
+					...baseConfig.scheduler,
+					maxConcurrentRuns: 0,
+				},
+			},
+			fetchProjectIssueWorkItems: async () => [item],
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) {
+			return;
+		}
+
+		expect(result.value.created).toBe(0);
+		expect(result.value.skippedIssues).toEqual([
+			{
+				workItemId,
+				issueNumber: 105,
+				reason: "concurrencyLimit",
+			},
+		]);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("scheduler skips Todo items with an active claim on same work item", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const item = buildProjectItem({
+		issueNumber: 106,
+		projectStatus: "Todo",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#106";
+	const existingRunId = "run_existing";
+	await createClaimedManualRun(client, {
+		workItemId,
+		workItemTitle: "Claimed issue",
+		claimedBy: "other",
+		workItemStatus: "OPEN",
+		runner: "sandbox-codex",
+		claimTtlMs: 60_000,
+		claimToken: "claim-existing",
+		runId: existingRunId,
+		attemptId: "attempt_existing",
+	});
+
+	try {
+		const result = await runSchedulerTick(client, {
+			config: baseConfig,
+			fetchProjectIssueWorkItems: async () => [item],
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) {
+			return;
+		}
+
+		expect(result.value.created).toBe(0);
+		expect(result.value.skippedIssues).toEqual([
+			{
+				workItemId,
+				issueNumber: 106,
+				reason: "alreadyClaimed",
+				existingRunId,
+			},
+		]);
 	} finally {
 		client.close();
 		database.cleanup();

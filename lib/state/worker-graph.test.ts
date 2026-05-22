@@ -153,6 +153,170 @@ test("worker run timestamps move to running and completed states correctly", asy
 	}
 });
 
+test("listWorkItemGraph returns only rows for requested work item", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+
+	try {
+		const matchingWorkItem = "github_issue:owner/repo#103";
+		const otherWorkItem = "github_issue:owner/repo#104";
+
+		const matchingRun = await createWorkerRun(client, {
+			id: "wrn_match",
+			workItemId: matchingWorkItem,
+			kind: "intake_curator",
+			status: "pending",
+		});
+		const otherRun = await createWorkerRun(client, {
+			id: "wrn_other",
+			workItemId: otherWorkItem,
+			kind: "builder",
+			status: "pending",
+		});
+
+		const matchingDecision = await createDecision(client, {
+			id: "dec_match",
+			workItemId: matchingWorkItem,
+			workerRunId: matchingRun.id,
+			phase: "intake",
+			outcome: "buildable",
+		});
+		await createDecision(client, {
+			id: "dec_other",
+			workItemId: otherWorkItem,
+			workerRunId: otherRun.id,
+			phase: "post_pr",
+			outcome: "ci_failed",
+		});
+
+		await createArtifact(client, {
+			id: "art_match",
+			workItemId: matchingWorkItem,
+			workerRunId: matchingRun.id,
+			kind: "pull_request",
+			externalId: "10",
+			externalUrl: "https://example.org/match",
+			snapshot: { match: true },
+			metadata: { source: "tests" },
+		});
+		await createArtifact(client, {
+			id: "art_other",
+			workItemId: otherWorkItem,
+			workerRunId: otherRun.id,
+			kind: "pull_request",
+			externalId: "11",
+			externalUrl: "https://example.org/other",
+			snapshot: { match: false },
+			metadata: { source: "tests" },
+		});
+
+		const graph = await listWorkItemGraph(client, matchingWorkItem);
+
+		expect(graph.workerRuns).toHaveLength(1);
+		expect(graph.workerRuns[0]?.id).toBe("wrn_match");
+		expect(graph.decisions).toHaveLength(1);
+		expect(graph.decisions[0]?.id).toBe(matchingDecision);
+		expect(graph.artifacts).toHaveLength(1);
+		expect(graph.artifacts[0]?.id).toBe("art_match");
+		expect(graph.links).toHaveLength(0);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("listWorkItemGraph preserves link order and parses artifact snapshots", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItemId = "github_issue:owner/repo#105";
+
+	try {
+		const intakeRun = await createWorkerRun(client, {
+			id: "wrn_order_a",
+			workItemId,
+			kind: "intake_curator",
+			status: "pending",
+			now: 20,
+		});
+		const builderRun = await createWorkerRun(client, {
+			id: "wrn_order_b",
+			workItemId,
+			kind: "builder",
+			status: "pending",
+			now: 10,
+		});
+
+		const firstLink = await createLink(client, {
+			id: "lnk_a",
+			workItemId,
+			fromNodeType: "decision",
+			fromNodeId: intakeRun.id,
+			toNodeType: "worker_run",
+			toNodeId: builderRun.id,
+			relation: "starts",
+			now: 40,
+		});
+		const secondLink = await createLink(client, {
+			id: "lnk_b",
+			workItemId,
+			fromNodeType: "worker_run",
+			fromNodeId: builderRun.id,
+			toNodeType: "decision",
+			toNodeId: "dec-ignored",
+			relation: "evaluates",
+			now: 30,
+			metadata: { order: 2 },
+		});
+		const thirdLink = await createLink(client, {
+			id: "lnk_c",
+			workItemId,
+			fromNodeType: "worker_run",
+			fromNodeId: builderRun.id,
+			toNodeType: "decision",
+			toNodeId: "dec-ignored",
+			relation: "decides",
+			now: 50,
+			metadata: { order: 1 },
+		});
+
+		await createArtifact(client, {
+			id: "art_null_snapshot",
+			workItemId,
+			kind: "pull_request",
+			externalId: "55",
+			externalUrl: "https://example.org/pr/55",
+		});
+		await createArtifact(client, {
+			id: "art_object_snapshot",
+			workItemId,
+			kind: "summary",
+			externalId: null,
+			externalUrl: null,
+			snapshot: { score: 10 },
+			metadata: {},
+		});
+
+		const graph = await listWorkItemGraph(client, workItemId);
+
+		expect(graph.links.map((link) => link.id)).toEqual([
+			secondLink,
+			firstLink,
+			thirdLink,
+		]);
+		expect(
+			graph.artifacts.find((artifact) => artifact.id === "art_null_snapshot")
+				?.snapshot,
+		).toBe(null);
+		expect(
+			graph.artifacts.find((artifact) => artifact.id === "art_object_snapshot")
+				?.snapshot,
+		).toEqual({ score: 10 });
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
 async function createTestDatabase(): Promise<{
 	client: Client;
 	cleanup: () => void;

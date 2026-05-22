@@ -94,6 +94,85 @@ test("runPostPrCurator dedupes by PR number, classification, and head SHA", asyn
 	}
 });
 
+test("runPostPrCurator creates a fresh decision when head SHA changes", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItemId = "github_issue:toyamarinyon/rhapsody#313";
+
+	try {
+		const workerRun = await createWorkerRun(client, {
+			id: "wrn_post_pr_stale",
+			workItemId,
+			kind: "post_pr_curator",
+			status: "completed",
+		});
+
+		await createDecision(client, {
+			id: "dec_post_pr_stale",
+			workItemId,
+			workerRunId: workerRun.id,
+			phase: "post_pr",
+			outcome: "ci_failed",
+			evidence: {
+				pullRequestNumber: 313,
+				checks: {
+					headSha: "sha-old",
+					classification: "ci_failed",
+				},
+			},
+		});
+
+		const result = await runPostPrCurator(client, {
+			workItem: buildProjectItem(313),
+			workItemId,
+			owner: "toyamarinyon",
+			repository: "rhapsody",
+			pullRequestNumber: 313,
+			pullRequestUrl: "https://github.com/toyamarinyon/rhapsody/pull/313",
+			existingDecisions: [
+				{
+					id: "dec_post_pr_stale",
+					workItemId,
+					workerRunId: workerRun.id,
+					phase: "post_pr",
+					outcome: "ci_failed",
+					deterministic: true,
+					policyVersion: null,
+					policyRuleId: null,
+					evidence: {
+						pullRequestNumber: 313,
+						checks: {
+							headSha: "sha-old",
+							classification: "ci_failed",
+						},
+					},
+					nextWorkerKind: null,
+					nextAction: null,
+					createdAt: 1,
+					updatedAt: 1,
+				},
+			],
+			getPullRequestCheckSummary: async () => ({
+				classification: "ci_failed",
+				headSha: "sha-new",
+				status: "failure",
+				checkRuns: [],
+			}),
+		});
+
+		expect(result.skippedFreshDuplicate).toBe(false);
+		expect(result.classification).toBe("ci_failed");
+		expect(result.decisionId).not.toBe("dec_post_pr_stale");
+		expect(result.workerRunId).not.toBeNull();
+
+		const graph = await listWorkItemGraph(client, workItemId);
+		expect(graph.decisions).toHaveLength(2);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
 test("runPostPrCurator creates decision and evaluates link with parsed metadata", async () => {
 	const database = await createTestDatabase();
 	const client = database.client;
@@ -169,6 +248,44 @@ test("runPostPrCurator creates decision and evaluates link with parsed metadata"
 			id: "x",
 			number: 312,
 			url: "https://github.com/toyamarinyon/rhapsody/pull/312",
+		});
+
+		expect(
+			findPullRequestArtifactFromArtifacts([
+				{
+					id: "y",
+					kind: "pull_request",
+					externalId: null,
+					externalUrl: "https://github.com/toyamarinyon/rhapsody/pull/321",
+					createdAt: 2,
+				},
+			]),
+		).toBeNull();
+		expect(
+			findPullRequestArtifactFromArtifacts([
+				{
+					id: "z",
+					kind: "pull_request",
+					externalId: "not-a-number",
+					externalUrl: null,
+					createdAt: 3,
+				},
+			]),
+		).toBeNull();
+		expect(
+			findPullRequestArtifactFromArtifacts([
+				{
+					id: "w",
+					kind: "pull_request",
+					externalId: "314",
+					externalUrl: null,
+					createdAt: 4,
+				},
+			]),
+		).toEqual({
+			id: "w",
+			number: 314,
+			url: null,
 		});
 	} finally {
 		client.close();

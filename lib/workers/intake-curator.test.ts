@@ -95,6 +95,78 @@ test("runIntakeCurator dedupes by evidence and returns existing decision id", as
 	}
 });
 
+test("runIntakeCurator does not dedupe when issue body changes", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItemId = "github_issue:toyamarinyon/rhapsody#213";
+
+	try {
+		const workerRun = await createWorkerRun(client, {
+			id: "wrn_stale",
+			workItemId,
+			kind: "intake_curator",
+			status: "completed",
+		});
+
+		const existingDecisionId = await createDecision(client, {
+			id: "dec_stale",
+			workItemId,
+			workerRunId: workerRun.id,
+			phase: "intake",
+			outcome: "buildable",
+			evidence: {
+				issueNumber: 213,
+				issueTitle: "Small fix request",
+				issueBodyPreview: "Stale body",
+			},
+		});
+
+		const result = await runIntakeCurator(
+			client,
+			buildProjectItem({
+				issueNumber: 213,
+				issueTitle: "Small fix request",
+				issueBody: "This body is now updated with newer details.",
+			}),
+			workItemId,
+			{
+				existingDecisions: [
+					{
+						id: existingDecisionId,
+						workItemId,
+						workerRunId: workerRun.id,
+						phase: "intake",
+						outcome: "buildable",
+						deterministic: true,
+						policyVersion: null,
+						policyRuleId: null,
+						evidence: {
+							issueNumber: 213,
+							issueTitle: "Small fix request",
+							issueBodyPreview: "Stale body",
+						},
+						nextWorkerKind: "builder",
+						nextAction: null,
+						createdAt: 1,
+						updatedAt: 1,
+					},
+				],
+			},
+		);
+
+		expect(result.decisionId).not.toBe(existingDecisionId);
+		expect(result.skippedFreshDuplicate).toBe(false);
+		expect(result.workerRunId).not.toBeNull();
+
+		const graph = await listWorkItemGraph(client, workItemId);
+		expect(graph.decisions).toHaveLength(2);
+		expect(graph.workerRuns).toHaveLength(2);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
 test("runIntakeCurator builds ask_human decision when intake is not buildable", async () => {
 	const database = await createTestDatabase();
 	const client = database.client;

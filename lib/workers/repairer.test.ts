@@ -88,6 +88,59 @@ test("classifyRepair detects format-only failed checks", () => {
 	expect(summary.headSha).toBe("sha-1");
 });
 
+test("runRepairerPlanner allows repair for first format-only failure", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItemId = "github_issue:toyamarinyon/rhapsody#413";
+
+	try {
+		const postPrRun = await createWorkerRun(client, {
+			id: "wrn_post_pr_for_repair_allowed",
+			workItemId,
+			kind: "post_pr_curator",
+			status: "completed",
+		});
+
+		const postPrDecision = await createDecision(client, {
+			id: "dec_post_pr_repair_allowed",
+			workItemId,
+			workerRunId: postPrRun.id,
+			phase: "post_pr",
+			outcome: "ci_failed",
+		});
+
+		const result = await runRepairerPlanner(client, {
+			workItem: buildProjectItem(413),
+			workItemId,
+			postPrDecisionId: postPrDecision,
+			pullRequestNumber: 413,
+			pullRequestUrl: "https://github.com/toyamarinyon/rhapsody/pull/413",
+			checkSummary: {
+				classification: "ci_failed",
+				headSha: "sha-413",
+				status: "failure",
+				checkRuns: [
+					{
+						name: "format check",
+						status: "completed",
+						conclusion: "failure",
+						detailsUrl: null,
+					},
+				],
+			},
+			existingDecisions: [],
+		});
+
+		expect(result.outcome).toBe("repair_allowed");
+		expect(result.classification).toBe("format_fixable");
+		expect(result.attemptCount).toBe(0);
+		expect(result.workerRunId).toBeTypeOf("string");
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
 test("runRepairerPlanner blocks repair after max attempts and emits decision metadata", async () => {
 	const database = await createTestDatabase();
 	const client = database.client;
@@ -239,6 +292,192 @@ test("runRepairerPlanner blocks repair after max attempts and emits decision met
 				metadata: { reason: "format_fixable" },
 			}),
 		);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("runRepairerPlanner blocks non-format failures as not repairable", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItemId = "github_issue:toyamarinyon/rhapsody#414";
+
+	try {
+		const postPrRun = await createWorkerRun(client, {
+			id: "wrn_post_pr_for_repair_blocked",
+			workItemId,
+			kind: "post_pr_curator",
+			status: "completed",
+		});
+
+		const postPrDecision = await createDecision(client, {
+			id: "dec_post_pr_repair_blocked",
+			workItemId,
+			workerRunId: postPrRun.id,
+			phase: "post_pr",
+			outcome: "ci_failed",
+		});
+
+		const result = await runRepairerPlanner(client, {
+			workItem: buildProjectItem(414),
+			workItemId,
+			postPrDecisionId: postPrDecision,
+			pullRequestNumber: 414,
+			pullRequestUrl: "https://github.com/toyamarinyon/rhapsody/pull/414",
+			checkSummary: {
+				classification: "ci_failed",
+				headSha: "sha-414",
+				status: "failure",
+				checkRuns: [
+					{
+						name: "unit tests",
+						status: "completed",
+						conclusion: "failure",
+						detailsUrl: null,
+					},
+				],
+			},
+			existingDecisions: [],
+		});
+
+		expect(result.outcome).toBe("repair_blocked");
+		expect(result.classification).toBe("not_deterministically_fixable");
+		expect(result.attemptCount).toBe(0);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("runRepairerPlanner counts format repair attempts per PR and head SHA", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItemId = "github_issue:toyamarinyon/rhapsody#415";
+
+	try {
+		const postPrRun = await createWorkerRun(client, {
+			id: "wrn_post_pr_for_repair_attempts",
+			workItemId,
+			kind: "post_pr_curator",
+			status: "completed",
+		});
+
+		const postPrDecision = await createDecision(client, {
+			id: "dec_post_pr_repair_attempts",
+			workItemId,
+			workerRunId: postPrRun.id,
+			phase: "post_pr",
+			outcome: "ci_failed",
+		});
+
+		await createWorkerRun(client, {
+			id: "wrn_repair_seed",
+			workItemId,
+			kind: "repairer",
+			status: "completed",
+		});
+		await createDecision(client, {
+			id: "dec_repair_seed",
+			workItemId,
+			workerRunId: "wrn_repair_seed",
+			phase: "repair",
+			outcome: "repair_allowed",
+			policyRuleId: "format_fixable",
+			evidence: {
+				pullRequestNumber: 415,
+				classification: "format_fixable",
+				checks: {
+					headSha: "sha-415-old",
+				},
+			},
+		});
+
+		await createWorkerRun(client, {
+			id: "wrn_repair_seed_new",
+			workItemId,
+			kind: "repairer",
+			status: "completed",
+		});
+		await createDecision(client, {
+			id: "dec_repair_seed_new",
+			workItemId,
+			workerRunId: "wrn_repair_seed_new",
+			phase: "repair",
+			outcome: "repair_allowed",
+			policyRuleId: "format_fixable",
+			evidence: {
+				pullRequestNumber: 415,
+				classification: "format_fixable",
+				checks: {
+					headSha: "sha-415-new",
+				},
+			},
+		});
+
+		const result = await runRepairerPlanner(client, {
+			workItem: buildProjectItem(415),
+			workItemId,
+			postPrDecisionId: postPrDecision,
+			pullRequestNumber: 415,
+			pullRequestUrl: "https://github.com/toyamarinyon/rhapsody/pull/415",
+			checkSummary: {
+				classification: "ci_failed",
+				headSha: "sha-415-newest",
+				status: "failure",
+				checkRuns: [
+					{
+						name: "prettier",
+						status: "completed",
+						conclusion: "failure",
+						detailsUrl: null,
+					},
+				],
+			},
+			existingDecisions: [
+				{
+					id: "dec_repair_seed",
+					workItemId,
+					workerRunId: "wrn_repair_seed",
+					phase: "repair",
+					outcome: "repair_allowed",
+					deterministic: true,
+					policyVersion: null,
+					policyRuleId: "format_fixable",
+					evidence: {
+						pullRequestNumber: 415,
+						classification: "format_fixable",
+						checks: { headSha: "sha-415-old" },
+					},
+					nextWorkerKind: null,
+					nextAction: null,
+					createdAt: 1,
+					updatedAt: 1,
+				},
+				{
+					id: "dec_repair_seed_new",
+					workItemId,
+					workerRunId: "wrn_repair_seed_new",
+					phase: "repair",
+					outcome: "repair_allowed",
+					deterministic: true,
+					policyVersion: null,
+					policyRuleId: "format_fixable",
+					evidence: {
+						pullRequestNumber: 415,
+						classification: "format_fixable",
+						checks: { headSha: "sha-415-new" },
+					},
+					nextWorkerKind: null,
+					nextAction: null,
+					createdAt: 2,
+					updatedAt: 2,
+				},
+			],
+		});
+
+		expect(result.outcome).toBe("repair_allowed");
+		expect(result.attemptCount).toBe(0);
 	} finally {
 		client.close();
 		database.cleanup();
