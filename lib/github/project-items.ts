@@ -7,6 +7,8 @@ export type GitHubProjectIssueWorkItem = {
 	issueState: string;
 	issueBody: string | null;
 	projectStatus: string | null;
+	blockedBy?: Array<{ id: string; state?: string }>;
+	projectFields?: Record<string, string>;
 	repository: {
 		owner: string;
 		name: string;
@@ -415,6 +417,7 @@ function normalizeProjectIssueWorkItem(
 		node.fieldValues?.nodes,
 		statusField,
 	);
+	const projectFields = extractProjectTextFields(node.fieldValues?.nodes);
 
 	if (issueNumber === null || !issueTitle || !issueUrl || !issueState) {
 		return [];
@@ -428,12 +431,70 @@ function normalizeProjectIssueWorkItem(
 			issueState,
 			issueBody,
 			projectStatus,
+			blockedBy: extractBlockedBy(projectFields),
+			projectFields,
 			repository: {
 				owner: repositoryOwner,
 				name: repositoryName,
 			},
 		},
 	];
+}
+
+function extractProjectTextFields(
+	values: GitHubProjectItemFieldValueNode[] | null | undefined,
+): Record<string, string> {
+	const fields: Record<string, string> = {};
+
+	if (!Array.isArray(values)) {
+		return fields;
+	}
+
+	for (const value of values) {
+		if (
+			typeof value !== "object" ||
+			value === null ||
+			!value.field ||
+			typeof value.field !== "object"
+		) {
+			continue;
+		}
+
+		const fieldName = safeString(value.field.name);
+		if (!fieldName) {
+			continue;
+		}
+
+		const fieldValue =
+			value.__typename === "ProjectV2ItemFieldSingleSelectValue"
+				? safeString(value.name)
+				: value.__typename === "ProjectV2ItemFieldTextValue"
+					? safeString(value.text)
+					: null;
+		if (fieldValue) {
+			fields[fieldName] = fieldValue;
+		}
+	}
+
+	return fields;
+}
+
+function extractBlockedBy(
+	projectFields: Record<string, string>,
+): Array<{ id: string; state: "unknown" }> {
+	const raw = Object.entries(projectFields).find(([name]) =>
+		["blocked_by", "blocked by", "blockedby"].includes(
+			name.trim().toLowerCase().replaceAll("-", "_"),
+		),
+	)?.[1];
+
+	if (!raw) {
+		return [];
+	}
+
+	return Array.from(new Set(raw.match(/(?:[\w.-]+\/[\w.-]+)?#\d+/g) ?? []))
+		.sort()
+		.map((id) => ({ id, state: "unknown" }));
 }
 
 function extractProjectStatus(

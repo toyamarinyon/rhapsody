@@ -33,6 +33,21 @@ export class GitHubIssueFetchError extends Error {
 	}
 }
 
+export class GitHubIssueCommentError extends Error {
+	constructor(
+		readonly status: number,
+		readonly owner: string,
+		readonly repository: string,
+		readonly issueNumber: number,
+		readonly messageText: string,
+	) {
+		super(
+			`GitHub issue comment failed for ${owner}/${repository}#${issueNumber}: ${messageText}`,
+		);
+		this.name = "GitHubIssueCommentError";
+	}
+}
+
 export async function fetchGitHubIssue(
 	input: { owner: string; repository: string; issueNumber: number },
 	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
@@ -60,6 +75,63 @@ export async function fetchGitHubIssue(
 	}
 
 	return normalizeIssue(await response.json());
+}
+
+export async function createIssueComment(
+	input: {
+		owner: string;
+		repository: string;
+		issueNumber: number;
+		body: string;
+	},
+	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
+): Promise<{ id: number; htmlUrl: string }> {
+	const response = await fetch(
+		`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}/issues/${input.issueNumber}/comments`,
+		{
+			method: "POST",
+			headers: {
+				Accept: "application/vnd.github+json",
+				Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+				"X-GitHub-Api-Version": "2022-11-28",
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({ body: input.body }),
+		},
+	);
+
+	if (!response.ok) {
+		const message = await safeResponseText(response);
+		throw new GitHubIssueCommentError(
+			response.status,
+			input.owner,
+			input.repository,
+			input.issueNumber,
+			message,
+		);
+	}
+
+	const payload = await response.json();
+
+	if (
+		typeof payload !== "object" ||
+		payload === null ||
+		typeof (payload as { id?: unknown }).id !== "number" ||
+		typeof (payload as { html_url?: unknown }).html_url !== "string"
+	) {
+		throw new GitHubIssueCommentError(
+			response.status,
+			input.owner,
+			input.repository,
+			input.issueNumber,
+			"GitHub issue comment response had unexpected shape.",
+		);
+	}
+
+	return {
+		id: (payload as { id: number }).id,
+		htmlUrl: (payload as { html_url: string }).html_url,
+	};
 }
 
 function normalizeIssue(value: unknown): GitHubIssue {
@@ -134,4 +206,12 @@ function isGitHubIssueResponse(value: unknown): value is GitHubIssueResponse {
 		typeof issue.state === "string" &&
 		Array.isArray(issue.labels)
 	);
+}
+
+async function safeResponseText(response: Response): Promise<string> {
+	try {
+		return await response.text();
+	} catch {
+		return `HTTP ${response.status}`;
+	}
 }

@@ -92,6 +92,7 @@ export type SchedulerTickDependencies = {
 	getPullRequestCheckSummary?: typeof getPullRequestCheckSummary;
 	runRepairerPlanner?: typeof runRepairerPlanner;
 	runRepairerExecutor?: typeof runRepairerExecutor;
+	runIntakeCurator?: typeof runIntakeCuratorNode;
 };
 
 const ACTIVE_STATUSES = ["Todo", "In Progress"];
@@ -187,19 +188,16 @@ export async function runSchedulerTick(
 			}
 
 			const graph = await listWorkItemGraph(client, workItemId);
-			const intakeResult = await runIntakeCuratorNode(
-				client,
-				item,
-				workItemId,
-				{
-					existingDecisions: graph.decisions,
-				},
-			);
+			const runIntakeCurator =
+				dependencies.runIntakeCurator ?? runIntakeCuratorNode;
+			const intakeResult = await runIntakeCurator(client, item, workItemId, {
+				existingDecisions: graph.decisions,
+			});
 			if (!intakeResult.shouldStartBuilder) {
 				skippedIssues.push({
 					workItemId,
 					issueNumber: item.issueNumber,
-					reason: "ask_human",
+					reason: intakeResult.outcome,
 				});
 				continue;
 			}
