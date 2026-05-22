@@ -177,6 +177,15 @@ export type IntakeClassifierOutputFailureMetadata = {
 		preview?: string;
 	};
 	command?: string;
+	runner?: {
+		exitCode: number | null;
+		signal: string | null;
+		timedOut: boolean;
+		durationMs: number;
+		stdoutPreview?: string;
+		stderrPreview?: string;
+		error?: string;
+	};
 };
 
 export class IntakeClassifierOutputError extends Error {
@@ -185,7 +194,7 @@ export class IntakeClassifierOutputError extends Error {
 	constructor(
 		message: string,
 		errorMetadata: IntakeClassifierOutputFailureMetadata,
-		outputStage: "parse_error" | "schema_error",
+		outputStage: IntakeClassifierAttemptCategory,
 	) {
 		super(message);
 		this.name = "IntakeClassifierOutputError";
@@ -208,6 +217,15 @@ type IntakeClassifierAttemptDiagnostic = {
 	rawOutput: {
 		available: boolean;
 		preview?: string;
+	};
+	runner?: {
+		exitCode: number | null;
+		signal: string | null;
+		timedOut: boolean;
+		durationMs: number;
+		stdoutPreview?: string;
+		stderrPreview?: string;
+		error?: string;
 	};
 	command?: string;
 };
@@ -564,6 +582,23 @@ async function classifyWithHealing(
 					: null;
 			const rawOutputFromMetadata = metadata?.rawOutput;
 			const outputPreviewFromError = metadata?.rawOutput.preview;
+			const runnerMetadata = metadata?.runner
+				? {
+						...metadata.runner,
+						stdoutPreview:
+							typeof metadata.runner.stdoutPreview === "string"
+								? boundedRedactedOutputPreview(metadata.runner.stdoutPreview)
+								: undefined,
+						stderrPreview:
+							typeof metadata.runner.stderrPreview === "string"
+								? boundedRedactedOutputPreview(metadata.runner.stderrPreview)
+								: undefined,
+						error:
+							typeof metadata.runner.error === "string"
+								? boundedRedactedOutputPreview(metadata.runner.error, 320)
+								: undefined,
+					}
+				: undefined;
 			const boundedMetadataPreview = outputPreviewFromError
 				? boundedErrorMessage(outputPreviewFromError, 320)
 				: undefined;
@@ -590,6 +625,7 @@ async function classifyWithHealing(
 				attempt,
 				stage,
 				errorMessage: boundedErrorMessage(message),
+				runner: runnerMetadata,
 				rawOutput: {
 					available: rawOutputFromMetadata
 						? rawOutputFromMetadata.available
@@ -649,8 +685,27 @@ async function runCodexIntakeClassification(
 	const result = await runCodexExec(options);
 
 	if (result.exitCode !== 0 || result.timedOut || result.error) {
-		throw new Error(
+		throw new IntakeClassifierOutputError(
 			`Codex intake classification failed (code=${result.exitCode}, timedOut=${result.timedOut}).`,
+			{
+				rawOutput: {
+					available: false,
+				},
+				command: command.argv.join(" "),
+				runner: {
+					exitCode: result.exitCode,
+					signal: result.signal ? String(result.signal) : null,
+					timedOut: result.timedOut,
+					durationMs: result.durationMs,
+					stdoutPreview: boundedRedactedOutputPreview(result.stdout),
+					stderrPreview: boundedRedactedOutputPreview(result.stderr),
+					error:
+						typeof result.error === "string"
+							? boundedErrorMessage(result.error, 500)
+							: undefined,
+				},
+			},
+			"runner_error",
 		);
 	}
 
@@ -849,6 +904,26 @@ function safeTextPreview(text: string, maxCharacters: number): string {
 	}
 
 	return `${normalized.slice(0, maxCharacters - 1)}…`;
+}
+
+function boundedRedactedOutputPreview(
+	text: string,
+	maxCharacters = 500,
+): string {
+	return safeTextPreview(redactSensitiveText(text), maxCharacters);
+}
+
+function redactSensitiveText(input: string): string {
+	return input
+		.replace(
+			/\b(?:api[_-]?key|token|secret|password|credential|pat|bearer)\s*[:=]\s*[^\s,"]{4,}/gi,
+			"[redacted]",
+		)
+		.replace(
+			/\b(?:access[_-]?token|refresh[_-]?token)\s*[:=]\s*[^\s,"]{4,}/gi,
+			"[redacted]",
+		)
+		.replace(/\bbearer\s+[\w-]+/gi, "bearer [redacted]");
 }
 
 function isSafeCommand(command: string): boolean {

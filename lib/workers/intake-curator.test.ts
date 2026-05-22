@@ -32,6 +32,15 @@ type ClassifierDiagnosticAttemptEvidence = {
 		available: boolean;
 		preview?: string;
 	};
+	runner?: {
+		exitCode: number | null;
+		signal: string | null;
+		timedOut: boolean;
+		durationMs: number;
+		stdoutPreview?: string;
+		stderrPreview?: string;
+		error?: string;
+	};
 };
 
 type ClassifierEvidence = {
@@ -1017,6 +1026,9 @@ test("runIntakeCurator heals once and then succeeds", async () => {
 		expect(evidence?.classifierDiagnostics?.failedAttempts?.[0]?.stage).toBe(
 			"schema_error",
 		);
+		expect(
+			evidence?.classifierDiagnostics?.failedAttempts?.[0]?.runner,
+		).toBeUndefined();
 	} finally {
 		client.close();
 		database.cleanup();
@@ -1079,27 +1091,35 @@ test("primary+healing invalid runs fallback ask_human", async () => {
 	}
 });
 
-test("runIntakeCurator records raw output metadata when runner parse fails twice", async () => {
+test("runIntakeCurator records bounded redacted runner error metadata on failed attempts", async () => {
 	const database = await createTestDatabase();
 	const client = database.client;
 	const workItem = buildProjectItem({
 		issueNumber: 218,
-		issueTitle: "Malformed output title",
+		issueTitle: "Runner failure title",
 		issueBody:
 			"This request includes enough context for the classifier to try again.",
 	});
 	const workItemId = "github_issue:toyamarinyon/rhapsody#218";
 	const metadata: IntakeClassifierOutputFailureMetadata = {
 		rawOutput: {
-			available: true,
-			preview: `${"x".repeat(500)}`,
+			available: false,
 		},
 		command: "codex exec --safe-run",
+		runner: {
+			exitCode: -2,
+			signal: null,
+			timedOut: false,
+			durationMs: 123,
+			stdoutPreview: `runner output with secret=abc123tokenvalue and api_key=some_secret_value ${"x".repeat(700)}`,
+			stderrPreview: `stderr output with password=supersecret and bearer verysecretvalue`,
+			error: "Runner error",
+		},
 	};
 	const failure = new IntakeClassifierOutputError(
-		"Classifier output was not parseable JSON.",
+		"Codex intake classification failed (code=-2, timedOut=false).",
 		metadata,
-		"parse_error",
+		"runner_error",
 	);
 	let attempt = 0;
 	const runner: IntakeClassifierRunner = async () => {
@@ -1132,19 +1152,39 @@ test("runIntakeCurator records raw output metadata when runner parse fails twice
 			| undefined;
 
 		expect(evidence?.classifierDiagnostics?.fallbackUsed).toBe(true);
+		expect(evidence?.classifierDiagnostics?.failedAttempts).toHaveLength(2);
+		expect(evidence?.classifierDiagnostics?.failedAttempts?.[0]?.stage).toBe(
+			"runner_error",
+		);
 		expect(
-			evidence?.classifierDiagnostics?.failedAttempts[0]?.rawOutput?.available,
-		).toBe(true);
+			evidence?.classifierDiagnostics?.failedAttempts?.[0]?.rawOutput
+				?.available,
+		).toBe(false);
 		expect(
-			evidence?.classifierDiagnostics?.failedAttempts[0]?.rawOutput?.preview
-				?.length,
-		).toBeLessThanOrEqual(320);
+			evidence?.classifierDiagnostics?.failedAttempts?.[0]?.runner?.exitCode,
+		).toBe(-2);
 		expect(
-			evidence?.classifierDiagnostics?.failedAttempts[0]?.rawOutput?.preview,
-		).toBe(`${"x".repeat(319)}…`);
+			evidence?.classifierDiagnostics?.failedAttempts?.[0]?.runner?.durationMs,
+		).toBe(123);
 		expect(
-			evidence?.classifierDiagnostics?.failedAttempts[1]?.rawOutput?.available,
-		).toBe(true);
+			evidence?.classifierDiagnostics?.failedAttempts?.[0]?.runner?.stdoutPreview?.includes(
+				"secret_token",
+			),
+		).toBe(false);
+		expect(
+			evidence?.classifierDiagnostics?.failedAttempts?.[0]?.runner?.stdoutPreview?.includes(
+				"api_key",
+			),
+		).toBe(false);
+		expect(
+			evidence?.classifierDiagnostics?.failedAttempts?.[0]?.runner?.stderrPreview?.includes(
+				"password",
+			),
+		).toBe(false);
+		expect(
+			evidence?.classifierDiagnostics?.failedAttempts?.[0]?.runner
+				?.stdoutPreview?.length,
+		).toBeLessThanOrEqual(500);
 	} finally {
 		client.close();
 		database.cleanup();
