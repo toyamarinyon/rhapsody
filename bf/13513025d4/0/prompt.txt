@@ -1,0 +1,195 @@
+そこまで頑なにならなくてもいいですが、 lilas は優秀なので信頼して良いと思います。
+
+---
+
+# Diff comments:
+
+## Comment 1
+File: lib/github/issues.ts
+Side: R
+Lines: 124
+Diff hunk:
+```diff
+@@ -62,6 +111,142 @@ export async function fetchGitHubIssue(
+ 	return normalizeIssue(await response.json());
+ }
+ 
++export async function createIssueComment(
++	input: {
++		owner: string;
++		repository: string;
++		issueNumber: number;
++		body: string;
++	},
++	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
++): Promise<{ id: number; htmlUrl: string }> {
++	const response = await fetch(
++		`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}/issues/${input.issueNumber}/comments`,
++		{
++			method: "POST",
++			headers: {
++				Accept: "application/vnd.github+json",
++				Authorization: `Bearer ${env.GITHUB_TOKEN}`,
++				"X-GitHub-Api-Version": "2022-11-28",
++				"content-type": "application/json",
++			},
++			body: JSON.stringify({ body: input.body }),
++		},
++	);
++
++	if (!response.ok) {
++		const message = await safeResponseText(response);
++		throw new GitHubIssueCommentError(
++			response.status,
++			input.owner,
++			input.repository,
++			input.issueNumber,
++			message,
++		);
++	}
++
++	const payload = await response.json();
++
++	if (
++		typeof payload !== "object" ||
++		payload === null ||
++		typeof (payload as { id?: unknown }).id !== "number" ||
++		typeof (payload as { html_url?: unknown }).html_url !== "string"
++	) {
++		throw new GitHubIssueCommentError(
++			response.status,
++			input.owner,
++			input.repository,
++			input.issueNumber,
++			"GitHub issue comment response had unexpected shape.",
++		);
++	}
++
++	return {
++		id: (payload as { id: number }).id,
++		htmlUrl: (payload as { html_url: string }).html_url,
++	};
++}
++
++export async function fetchIssueDependenciesBlockedBy(
++	input: { owner: string; repository: string; issueNumber: number },
++	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
++	options?: {
++		octokit?: OctokitIssueDependenciesClient;
++	},
++): Promise<GitHubBlockedByDependency[]> {
++	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
++	let response: ListDependenciesBlockedByResponse;
++	try {
++		response = await octokit.rest.issues.listDependenciesBlockedBy({
++			owner: input.owner,
++			repo: input.repository,
++			issue_number: input.issueNumber,
++			headers: {
++				Accept: "application/vnd.github+json",
++				"X-GitHub-Api-Version": "2026-03-10",
++			},
++		});
++	} catch (error) {
++		const status =
++			typeof error === "object" &&
++			error !== null &&
++			"status" in error &&
++			typeof error.status === "number"
++				? error.status
++				: 500;
++
++		throw new GitHubIssueFetchError(
++			status,
++			input.owner,
++			input.repository,
++			input.issueNumber,
++			"issue dependencies endpoint",
++		);
++	}
++
++	return response.data.map((dependency) =>
++		normalizeBlockedByDependency(dependency),
++	);
++}
++
++function normalizeBlockedByDependency(
++	dependency: ListDependenciesBlockedByDependency,
++): GitHubBlockedByDependency {
++	const repositoryUrl = dependency.repository_url;
++	const [owner, name] = parseRepositoryOwnerAndNameFromUrl(repositoryUrl);
++
++	return {
++		id: `${dependency.id}`,
++		nodeId: dependency.node_id,
++		number: dependency.number,
++		title: dependency.title,
++		htmlUrl: dependency.html_url,
++		repositoryUrl,
++		state: dependency.state,
++		repository: {
++			owner,
++			name,
++		},
++	};
++}
++
++function parseRepositoryOwnerAndNameFromUrl(url: string): [string, string] {
++	try {
++		const parsed = new URL(url);
++		const parts = parsed.pathname.split("/");
++		const repoIndex = parts.indexOf("repos");
++
++		if (repoIndex >= 0 && parts[repoIndex + 1] && parts[repoIndex + 2]) {
++			return [parts[repoIndex + 1], parts[repoIndex + 2]];
++		}
++	} catch {
++		// Ignore invalid repository URL.
++	}
++
++	return ["", ""];
++}
++
+ function normalizeIssue(value: unknown): GitHubIssue {
+ 	if (!isGitHubIssueResponse(value)) {
+ 		throw new Error("GitHub issue response had an unexpected shape.");
+```
+Comment:
+ここoctokit使えそう？
+
+## My request for Codex:
+
+---
+
+追加の diff comment 対応をお願いします。今回もあなたが実装修正担当、親側はレビューします。コミットはしないでください。
+
+Comment:
+`createIssueComment` の手書き fetch/payload shape check に対して「ここoctokit使えそう？」
+
+ユーザー意図:
+- `fetchIssueDependenciesBlockedBy` と同様、GitHub REST endpoint は Octokit の endpoint-specific type を使いたい。
+- `createIssueComment` は `octokit.rest.issues.createComment` を使えるはず。
+- 手書き `fetch` と `payload` の `typeof` shape check を消し、型付き `response.data` から `{ id, htmlUrl }` へ projection する。
+
+お願い:
+1. `lib/github/issues.ts` の `createIssueComment` を Octokit 化してください。
+   - `new Octokit({ auth: env.GITHUB_TOKEN })`
+   - `octokit.rest.issues.createComment({ owner, repo, issue_number, body, headers: { Accept, X-GitHub-Api-Version } })`
+   - API version は既存と同じ `2022-11-28` でOK。
+   - `response.data.id` / `response.data.html_url` から return。
+   - 失敗時は既存 `GitHubIssueCommentError` に変換してください。Octokit error の `status` / `message` を使う。message が取れなければ fallback でOK。
+2. テスト可能にするため、既存の dependency fetcher と同じ感じで Octokit client injection を設計してください。
+   - ただし手書き API response 型は作らない。
+   - `Octokit["rest"]["issues"]["createComment"]` から Parameters/ReturnType を導出する。
+3. `lib/github/issues.test.ts` に `createIssueComment` の正常系/失敗系テストを追加してください。
+   - 正常系は response fixture を `satisfies` / derived response type で型検証し、`as unknown as` は使わない。
+   - 呼び出し params（owner/repo/issue_number/body/header）も確認。
+4. `safeResponseText` が `createIssueComment` 以外で不要になるなら削除してください。ただし `fetchGitHubIssue` が fetch のままなら不要かどうか確認。
+
+検証:
+- `pnpm exec biome check lib/github/issues.ts lib/github/issues.test.ts package.json pnpm-lock.yaml`
+- `pnpm exec vitest run lib/github/issues.test.ts lib/workers/intake-curator.test.ts lib/scheduler/tick.test.ts`
+- `pnpm typecheck`
+- `pnpm lint`
+
+コミットはしないでください。完了時、変更内容と検証結果を報告してください。
