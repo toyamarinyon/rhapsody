@@ -290,3 +290,30 @@ testもschedulerから書いていきたいです。できます？
 - package manager は pnpm です。
 - 依存追加が必要なら package.json を更新してください。lockfile の扱いは可能なら pnpm install で更新、ネットワーク制約で失敗したらその旨を報告してください。
 - 最後に変更ファイル、実行した検証、未解決事項を報告してください。
+
+---
+
+他にtest書けそうなところあったら [@lilas](agent://019e4d5e-a59f-7573-908f-0a5f26d2a205) に依頼して書いてもらってください。dataを元に、graphが意図通り動くことを確認していきたいです。
+
+---
+
+追加テスト実装をお願いします。
+
+対象 repo: /Users/toyamarinyon/Documents/rhapsody
+
+ユーザーの意図:
+- data を元に worker graph が意図通り動くことを確認していきたい。
+- 既に Vitest へ移行済み。
+- 既存の scheduler tests に加えて、graph/state/worker のテストを書けそうなところを増やしたい。
+
+候補:
+- `lib/state/worker-graph.ts` の CRUD/list/link/ordering/JSON metadata まわり
+- intake/post-pr/repairer の dedupe や decision/link/evidence の生成
+- scheduler で missing PR artifact の In Progress item が skip されるケース
+
+お願い:
+- あなたは実装担当として、価値が高く小さめのテストを追加してください。
+- 既存差分を revert しないでください。親エージェントが最終レビューします。
+- テスト用DBは既存 `lib/scheduler/tick.test.ts` の一時ファイルDBパターンを参考にしてください。
+- できれば helper 重複が大きくなりすぎない形にしてください。ただし大規模リファクタは避けてください。
+- 最後に変更ファイル、実行した検証、未解決事項を報告してください。
