@@ -326,20 +326,6 @@ The repository may also contain normal Codex CLI configuration:
 These files are Codex-native configuration, not Rhapsody workflow schema. The runner launches Codex
 from the repository root inside the sandbox so Codex can discover and use them normally.
 
-Rhapsody-owned runner Codex model selection belongs in `.rhapsody/config.toml`:
-
-```toml
-[runner.codex]
-model = "gpt-5.2"
-reasoning_effort = "medium"
-```
-
-`runner.codex.model` is required when the section is present. `runner.codex.reasoning_effort` is
-optional. The `sandbox-codex` runner applies these values as host-owned `codex exec` configuration
-overrides and records the effective runner model settings in runner metadata or events for
-debugging. If `[runner.codex]` is missing, the runner preserves Codex's existing fallback behavior,
-including normal `.codex/` discovery.
-
 Rhapsody may copy or mount `.codex/` configuration into the prepared sandbox workspace, but the
 wrapper invocation remains Rhapsody-owned. Codex approval/sandbox mode is fixed for Rhapsody
 execution; the MVP runs Codex in YOLO-style mode inside the Vercel Sandbox because the Sandbox is
@@ -502,8 +488,7 @@ Required steps:
 6. Emit runner events and state updates for sandbox/source readiness.
 7. Render prompt.
 8. Prepare brokered agent authentication without writing real credentials into the sandbox.
-9. Prepare wrapper inputs, including rendered prompt, Workflow hook metadata, event metadata, and
-   any configured Rhapsody-owned runner Codex model overrides.
+9. Prepare wrapper inputs, including rendered prompt, Workflow hook metadata, and event metadata.
 10. Create a deterministic Workflow hook token for this attempt.
 11. Launch the wrapper inside the sandbox workspace. The wrapper runs `codex exec`, verifies the
     pushed branch, and reads repository-external handoff artifacts such as PR title/body JSON.
@@ -786,8 +771,7 @@ Recommended hardening:
 - Runner workflow skeleton.
 - Sandbox Codex runner always performs write execution with branch/repo-specific instructions,
   explicit push target, Codex-generated PR handoff JSON, trusted pull request creation or reuse,
-  Rhapsody-owned runner model overrides from `.rhapsody/config.toml`, post-run verification, and
-  post-run decision before marking the attempt completed.
+  post-run verification, and post-run decision before marking the attempt completed.
 - Brokered ChatGPT auth for Codex execution sandboxes.
 - Vercel Sandbox creation and command execution.
 - Basic logs/events table.

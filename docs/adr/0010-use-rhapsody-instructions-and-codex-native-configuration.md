@@ -94,29 +94,16 @@ Repository-owned Codex settings belong in `.codex/config.toml` and `.codex/agent
 Rhapsody treats those files as Codex-native inputs. The runner should not parse them into a
 Rhapsody-specific schema except for narrow validation or diagnostics that are needed before launch.
 
-This keeps local and repository-native Codex behavior aligned for:
+This keeps:
 
+- model selection;
 - Codex CLI settings;
 - approval and tool settings that Codex owns;
 - subagent definitions;
-- local developer Codex behavior
+- local developer Codex behavior;
+- Rhapsody sandbox Codex behavior
 
-through the same files.
-
-Rhapsody sandbox runner model selection is deliberately separate. The runner reads
-`.rhapsody/config.toml` for host-owned operational settings:
-
-```toml
-[runner.codex]
-model = "gpt-5.2"
-reasoning_effort = "medium"
-```
-
-When `[runner.codex]` is present, `model` is required and `reasoning_effort` is optional. The
-`sandbox-codex` runner passes those values to `codex exec` as Rhapsody-owned configuration
-overrides and records the effective values in runner metadata or events. When the section is
-missing, the runner preserves Codex's normal fallback behavior, including any model selection Codex
-would derive from `.codex/` or its defaults.
+aligned through the same files.
 
 Rhapsody-owned safety and scheduling settings remain outside `.codex/`:
 
@@ -124,7 +111,6 @@ Rhapsody-owned safety and scheduling settings remain outside `.codex/`:
 - claim TTLs, concurrency, retry, and reconciliation policy;
 - trusted mediator authorization rules;
 - sandbox creation, source initialization, and network policy;
-- runner Codex model and reasoning effort for scheduled sandbox execution;
 - GitHub handoff verification.
 
 Those settings are defined in trusted Rhapsody configuration and code, not in repository prompt or
@@ -140,10 +126,8 @@ MUST override or constrain Codex settings that define the execution boundary for
   trusted mediators.
 - Real ChatGPT and GitHub credentials are never delegated to `.codex/` configuration or repository
   instructions.
-- Repository-owned Codex config may tune normal local Codex behavior and subagents, but
-  Rhapsody-owned runner model overrides determine scheduled sandbox execution when configured.
-  Repository-owned Codex config cannot weaken Rhapsody's sandbox, mediator, credential, or post-run
-  verification boundaries.
+- Repository-owned Codex config may tune normal Codex behavior, model choice, and subagents, but it
+  cannot weaken Rhapsody's sandbox, mediator, credential, or post-run verification boundaries.
 
 ## Runner Behavior
 
@@ -156,8 +140,7 @@ The MVP runner sequence is:
 5. Render `.rhapsody/INSTRUCTIONS.md` with the work item context.
 6. Launch Codex from the repository root through the sandbox wrapper.
 7. Let Codex read `.codex/config.toml` and `.codex/agents/*.toml` normally, while applying
-   Rhapsody-owned overrides for runner model selection, sandbox mode, network access, and
-   credential boundaries.
+   Rhapsody-owned overrides for sandbox mode, network access, and credential boundaries.
 8. Await the wrapper completion callback.
 9. Verify GitHub handoff and post-run policy.
 10. Finalize the attempt and release the claim.
