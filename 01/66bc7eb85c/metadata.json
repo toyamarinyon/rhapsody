@@ -3,8 +3,9 @@
   "checkpoint_id": "0166bc7eb85c",
   "strategy": "manual-commit",
   "branch": "codex/intake-curator-codex-classifier",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
+    "docs/adr/0014-use-worker-graph-for-build-and-curation.md",
     "lib/github/issues.ts",
     "lib/github/project-items.ts"
   ],
@@ -20,13 +21,19 @@
       "transcript": "/01/66bc7eb85c/1/full.jsonl",
       "content_hash": "/01/66bc7eb85c/1/content_hash.txt",
       "prompt": "/01/66bc7eb85c/1/prompt.txt"
+    },
+    {
+      "metadata": "/01/66bc7eb85c/2/metadata.json",
+      "transcript": "/01/66bc7eb85c/2/full.jsonl",
+      "content_hash": "/01/66bc7eb85c/2/content_hash.txt",
+      "prompt": "/01/66bc7eb85c/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 1554914,
+    "input_tokens": 3444046,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 33461248,
-    "output_tokens": 85950,
-    "api_call_count": 332
+    "cache_read_tokens": 84305024,
+    "output_tokens": 186859,
+    "api_call_count": 746
   }
 }
