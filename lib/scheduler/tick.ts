@@ -5,6 +5,7 @@ import {
 	type GitHubProjectIssueWorkItem,
 	updateProjectIssueStatus,
 } from "@/lib/github/project-items";
+import { getPullRequestCheckSummary } from "@/lib/github/checks";
 import {
 	createClaimedManualRun,
 	createDecision,
@@ -78,13 +79,25 @@ export type SchedulerTickResult =
 	| { ok: true; value: SchedulerTickResponse }
 	| { ok: false; status: number; value: SchedulerTickErrorResponse };
 
+export type SchedulerTickDependencies = {
+	config?: ReturnType<typeof loadRhapsodyConfig>;
+	fetchProjectIssueWorkItems?: typeof fetchProjectIssueWorkItems;
+	updateProjectIssueStatus?: typeof updateProjectIssueStatus;
+	getPullRequestCheckSummary?: typeof getPullRequestCheckSummary;
+};
+
 const ACTIVE_STATUSES = ["Todo", "In Progress"];
 const RUNNING_PROJECT_STATUS = "In Progress";
 
 export async function runSchedulerTick(
 	client: Client,
+	dependencies: SchedulerTickDependencies = {},
 ): Promise<SchedulerTickResult> {
-	const config = loadRhapsodyConfig();
+	const config = dependencies.config ?? loadRhapsodyConfig();
+	const fetchWorkItems =
+		dependencies.fetchProjectIssueWorkItems ?? fetchProjectIssueWorkItems;
+	const updateIssueStatus =
+		dependencies.updateProjectIssueStatus ?? updateProjectIssueStatus;
 
 	try {
 		const stateSummary = await getStateSummary(client);
@@ -97,7 +110,7 @@ export async function runSchedulerTick(
 		let projectItems: GitHubProjectIssueWorkItem[];
 
 		try {
-			projectItems = await fetchProjectIssueWorkItems({
+			projectItems = await fetchWorkItems({
 				owner: config.tracker.owner,
 				repository: config.tracker.repository,
 				projectNumber: config.tracker.projectNumber,
@@ -134,6 +147,7 @@ export async function runSchedulerTick(
 				const postPrHandled = await runPostPrCuratorForInProgress(
 					client,
 					config,
+					dependencies.getPullRequestCheckSummary,
 					item,
 					workItemId,
 				);
@@ -213,6 +227,7 @@ export async function runSchedulerTick(
 					client,
 					{
 						config,
+						updateProjectIssueStatus: updateIssueStatus,
 						item,
 						runId: result.runId,
 						attemptId: result.attemptId,
@@ -303,6 +318,7 @@ async function moveProjectIssueToRunningStatus(
 	client: Client,
 	input: {
 		config: ReturnType<typeof loadRhapsodyConfig>;
+		updateProjectIssueStatus: typeof updateProjectIssueStatus;
 		item: GitHubProjectIssueWorkItem;
 		runId: string;
 		attemptId: string;
@@ -311,7 +327,7 @@ async function moveProjectIssueToRunningStatus(
 	const targetStatus = RUNNING_PROJECT_STATUS;
 
 	try {
-		const result = await updateProjectIssueStatus({
+		const result = await input.updateProjectIssueStatus({
 			owner: input.config.tracker.owner,
 			repository: input.config.tracker.repository,
 			projectNumber: input.config.tracker.projectNumber,
@@ -467,6 +483,9 @@ async function createBuilderWorkerRun(
 async function runPostPrCuratorForInProgress(
 	client: Client,
 	config: ReturnType<typeof loadRhapsodyConfig>,
+	getPullRequestCheckSummaryDependency:
+		| typeof getPullRequestCheckSummary
+		| undefined,
 	item: GitHubProjectIssueWorkItem,
 	workItemId: string,
 ) {
@@ -491,6 +510,7 @@ async function runPostPrCuratorForInProgress(
 			pullRequestNumber: pullRequestArtifact.number,
 			pullRequestUrl: pullRequestArtifact.url ?? "",
 			existingDecisions: graph.decisions,
+			getPullRequestCheckSummary: getPullRequestCheckSummaryDependency,
 		});
 		if (
 			postPrResult.classification === "ci_failed" &&

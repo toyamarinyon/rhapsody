@@ -31,9 +31,12 @@ export async function runPostPrCurator(
 		pullRequestNumber: number;
 		pullRequestUrl: string;
 		existingDecisions?: Decision[];
+		getPullRequestCheckSummary?: typeof getPullRequestCheckSummary;
 	},
 ): Promise<PostPrCuratorResult> {
-	const checkSummary = await getPullRequestCheckSummary({
+	const checkSummary = await (
+		input.getPullRequestCheckSummary ?? getPullRequestCheckSummary
+	)({
 		owner: input.owner,
 		repository: input.repository,
 		pullRequestNumber: input.pullRequestNumber,
