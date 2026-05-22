@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { expect, test } from "vitest";
 import {
 	getPostRunStatusConfig,
 	parsePostRunDecisionConfig,
@@ -32,10 +31,10 @@ test("matches when file is covered by positive path and not excluded", () => {
 		changedFiles: ["docs/guides/architecture.md"],
 	});
 
-	assert.equal(decision.action, "auto_merge_candidate");
-	assert.deepEqual(decision.changedPathsSummary.excluded, []);
-	assert.deepEqual(decision.changedPathsSummary.unmatched, []);
-	assert.deepEqual(decision.changedPathsSummary.matched, [
+	expect(decision.action).toBe("auto_merge_candidate");
+	expect(decision.changedPathsSummary.excluded).toEqual([]);
+	expect(decision.changedPathsSummary.unmatched).toEqual([]);
+	expect(decision.changedPathsSummary.matched).toEqual([
 		"docs/guides/architecture.md",
 	]);
 });
@@ -46,12 +45,12 @@ test("does not match when all changed files are excluded by inline negative patt
 		changedFiles: ["docs/adr/0001-overview.md"],
 	});
 
-	assert.equal(decision.action, "human_review");
-	assert.deepEqual(decision.changedPathsSummary.excluded, [
+	expect(decision.action).toBe("human_review");
+	expect(decision.changedPathsSummary.excluded).toEqual([
 		"docs/adr/0001-overview.md",
 	]);
-	assert.deepEqual(decision.changedPathsSummary.unmatched, []);
-	assert.deepEqual(decision.changedPathsSummary.matched, []);
+	expect(decision.changedPathsSummary.unmatched).toEqual([]);
+	expect(decision.changedPathsSummary.matched).toEqual([]);
 });
 
 test("does not require every positive include pattern to match", () => {
@@ -71,8 +70,8 @@ test("does not require every positive include pattern to match", () => {
 		changedFiles: ["docs/readme.md"],
 	});
 
-	assert.equal(decision.action, "auto_merge_candidate");
-	assert.deepEqual(decision.changedPathsSummary.unmatched, []);
+	expect(decision.action).toBe("auto_merge_candidate");
+	expect(decision.changedPathsSummary.unmatched).toEqual([]);
 });
 
 test("supports config-driven post-run destination statuses", () => {
@@ -87,7 +86,7 @@ paths = ["docs/**"]
 
 	const statusConfig = getPostRunStatusConfig(parsed);
 
-	assert.deepEqual(statusConfig, {
+	expect(statusConfig).toEqual({
 		autoMergeSuccessStatus: "Deployed",
 		humanReviewStatus: "Needs Human Review",
 	});
@@ -102,7 +101,7 @@ paths = ["docs/**"]
 
 	const statusConfig = getPostRunStatusConfig(parsed);
 
-	assert.deepEqual(statusConfig, {
+	expect(statusConfig).toEqual({
 		autoMergeSuccessStatus: "Done",
 		humanReviewStatus: "Human Review",
 	});

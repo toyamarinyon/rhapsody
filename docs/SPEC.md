@@ -2,12 +2,13 @@
 
 Status: Draft v0.1
 
-Purpose: Define a Vercel-native agent scheduler/runner that uses GitHub Projects as the tracker,
-Workflow SDK for durable orchestration, and Vercel Sandbox for isolated agent execution.
+Purpose: Define a Vercel-native agent scheduler and worker orchestrator that uses GitHub Projects as
+the tracker, Workflow SDK for durable orchestration, and Vercel Sandbox for isolated agent
+execution.
 
 This document is derived from the Symphony service specification, but Rhapsody deliberately changes
 the execution model from a long-running local daemon to a Vercel-deployed application made of
-durable workflows, Vercel Functions, persistent state, and sandboxed runners.
+durable workflows, Vercel Functions, persistent state, and sandboxed workers.
 
 For the core product and execution concepts used by this specification, see
 [CONCEPTS.md](CONCEPTS.md).
@@ -34,11 +35,11 @@ Rhapsody solves five operational problems:
 - It isolates agent execution inside Vercel Sandbox instead of the Vercel Function filesystem.
 - It keeps workflow policy in the target repository so teams version prompts and runtime settings
   with their code.
-- It provides a dashboard/API surface for debugging concurrent agent runs.
+- It provides a dashboard/API surface for debugging concurrent worker runs and decision history.
 
 Important boundary:
 
-- Rhapsody is a scheduler/runner and tracker adapter.
+- Rhapsody is a scheduler, worker orchestrator, and tracker adapter.
 - GitHub issue/project writes MAY be performed by the Rhapsody runtime or by the coding agent through
   explicitly exposed tools.
 - A successful run can end at a workflow-defined handoff status, such as `Human Review`, not
@@ -50,9 +51,10 @@ Important boundary:
 
 - Deploy as a Next.js application on Vercel.
 - Use GitHub Projects v2 as the primary work tracker.
-- Use Workflow SDK for durable scheduler and runner workflows.
+- Use Workflow SDK for durable scheduler and worker workflows.
 - Use Vercel Sandbox for isolated code execution.
-- Maintain durable claims, retries, run metadata, sandbox references, and observability data.
+- Maintain durable claims, retries, worker run metadata, sandbox references, decisions, artifacts,
+  links, and observability data.
 - Dispatch work with global, per-project, and per-status concurrency limits.
 - Recover from Vercel Function restarts, workflow retries, sandbox failures, and transient API
   failures.
@@ -96,41 +98,54 @@ Important boundary:
 
 4. `Scheduler Workflow`
    - Durable Workflow SDK workflow triggered by Cron, webhook, or manual refresh.
-   - Owns candidate selection, durable claiming, and runner workflow starts.
+   - Owns candidate selection, durable claiming, and worker workflow starts.
    - Uses database-backed leases to avoid duplicate dispatch.
-   - Starts runner workflows and returns without waiting for agent completion.
+   - Starts builder, curator, repairer, reviewer, and other registered worker workflows and returns
+     without waiting for worker completion.
+   - Dispatches work according to the worker graph model documented in
+     [ADR 0014](adr/0014-use-worker-graph-for-build-and-curation.md).
 
-5. `Runner Workflow`
-   - Durable Workflow SDK workflow for one work item attempt.
+5. `Worker Workflows`
+   - Durable Workflow SDK workflows for bounded units of automation.
+   - The initial runner implementation is treated as the first `builder` worker.
+   - Builder workers create the repository handoff: branch, commit, push, and pull request.
+   - Curator workers decide whether issues are buildable, whether pull requests need repair or
+     human review, and which follow-up worker should run next.
+   - Repairer and reviewer workers may be added as graph-driven extensions.
+
+6. `Builder Workflow`
+   - Durable Workflow SDK workflow for one work item build attempt.
    - Creates or restores a Vercel Sandbox.
    - Prepares source code.
    - Builds the agent prompt.
    - Launches the coding agent inside the sandbox through a callback-capable wrapper.
    - Pauses on a Workflow hook until the sandbox wrapper reports completion.
-   - Records logs/events, snapshots, commits, pull requests, and other concrete run metadata.
+   - Records graph artifacts for snapshots, commits, pull requests, and other concrete handoff
+     metadata.
 
-6. `State Store`
-   - Durable database used for claims, runs, attempts, retries, events, snapshots, and dashboard
-     projections.
+7. `State Store`
+   - Durable database used for claims, worker runs, decisions, artifacts, links, retries, events,
+     snapshots, and dashboard projections.
    - REQUIRED because Vercel Functions and workflow workers MUST NOT rely on in-memory scheduler
      state for correctness.
    - The MVP state store uses Turso/libSQL as documented in
      [ADR 0001](adr/0001-use-turso-libsql-for-state-store.md).
 
-7. `Sandbox Manager`
+8. `Sandbox Manager`
    - Creates, restores, snapshots, and cleans Vercel Sandboxes.
    - Applies network policy and environment configuration.
    - Ensures commands run only in the sandbox workspace.
 
-8. `GitHub Integration and Mediator`
+9. `GitHub Integration and Mediator`
    - Resolves repository, issue, branch, pull request, and ProjectV2 metadata.
    - Enforces run-scoped mediator authorization for agent-owned GitHub reads and writes.
    - Uses the MVP PAT credential held by trusted Rhapsody code; GitHub App credentials are deferred.
 
-9. `Dashboard and API`
+10. `Dashboard and API`
    - Next.js UI plus JSON endpoints for current state, issue details, refresh triggers, and run logs.
+   - Presents worker graph decisions and artifacts as a traceable work-item story.
 
-10. `Logging and Event Sink`
+11. `Logging and Event Sink`
    - Stores structured runtime events in the state store and emits platform logs.
 
 ### 3.2 Abstraction Levels
@@ -400,11 +415,11 @@ The scheduler MAY start from:
 All triggers MUST be idempotent.
 
 Trigger routes SHOULD authenticate the request, start the scheduler workflow, and return quickly
-without performing long-running scheduling or runner work inline.
+without performing long-running scheduling or worker work inline.
 
 ### 6.2 Claiming
 
-Before starting a runner workflow, the scheduler MUST acquire a durable claim.
+Before starting a worker workflow, the scheduler MUST acquire a durable claim.
 
 Claim requirements:
 
@@ -412,18 +427,18 @@ Claim requirements:
 - Claim acquisition MUST be atomic.
 - Claims MUST have an expiration time.
 - Claims MUST be stored independently from run history.
-- Claims MUST include a fencing token that runner updates use to avoid stale writes after reclaim.
+- Claims MUST include a fencing token that worker updates use to avoid stale writes after reclaim.
 - Expired claims MAY be reclaimed after reconciliation.
-- A work item MUST NOT have more than one active runner workflow.
+- A work item MUST NOT have conflicting active worker workflows for the same phase or claim scope.
 
 The MVP claim lifecycle is:
 
 1. Check concurrency limits using active claims and runs.
 2. Atomically acquire or reclaim a claim.
-3. Create a run only after claim acquisition succeeds.
-4. Start the runner workflow only after the claim and run exist.
-5. Extend the claim while the runner is live.
-6. Release the claim after terminal runner cleanup.
+3. Create a worker run only after claim acquisition succeeds.
+4. Start the worker workflow only after the claim and worker run exist.
+5. Extend the claim while the worker is live.
+6. Release or transfer the claim after terminal worker cleanup.
 
 The MVP state model and claim lifecycle are documented in
 [ADR 0002](adr/0002-define-mvp-state-model-and-claim-lifecycle.md).
@@ -459,7 +474,7 @@ delay = min(10000 * 2^(attempt - 1), scheduler.max_retry_backoff_ms)
 
 Fatal errors MUST NOT retry.
 
-Normal continuation MAY schedule a short retry or continue in the same runner workflow if the item
+Normal continuation MAY schedule a short retry or continue in the same worker workflow if the item
 remains active.
 
 ### 6.5 Reconciliation
@@ -474,9 +489,21 @@ Reconciliation checks:
 
 Terminal status MUST stop active work and trigger cleanup according to policy.
 
-## 7. Runner Workflow
+## 7. Worker Graph and Builder Workflow
 
-The runner workflow is a durable workflow for one item.
+Rhapsody execution is moving from one broad runner workflow to a graph of bounded worker runs. The
+scheduler is the single dispatcher for the GitHub Project; workers own specific responsibilities and
+record decisions, artifacts, and links so operators can trace why work moved forward. The worker
+graph model is documented in
+[ADR 0014](adr/0014-use-worker-graph-for-build-and-curation.md).
+
+The existing runner workflow is the initial builder implementation. It should be narrowed over time
+to produce the build handoff only: branch, commit, push, pull request, and associated artifacts.
+Intake clarification, post-PR verification, check observation, repair, review, human escalation,
+merge decisions, and project status handoff belong to curator, repairer, reviewer, or other
+registered worker kinds.
+
+The builder workflow is a durable workflow for one item.
 
 Required steps:
 
@@ -498,23 +525,20 @@ Required steps:
     requests, from Rhapsody-owned code.
 15. Record logs/events and any configured git diff, commits, pull request metadata, sandbox export,
     or snapshot.
-16. Verify GitHub handoff according to post-run verification policy.
-17. Evaluate post-run decision and review policy, optionally running reviewer Codex for structured
-    review evidence.
-18. Apply trusted GitHub actions such as commenting, status movement, or narrowly configured merge.
-19. Evaluate final attempt and run status separately from wrapper execution status.
-20. Release claim.
+16. Record produced handoff artifacts and builder decisions in the worker graph.
+17. Evaluate final builder status separately from wrapper execution status.
+18. Release or transfer claim according to worker graph policy.
 
-The runner MUST NOT depend on local Vercel Function filesystem state for correctness.
-The runner MUST NOT poll the sandbox for the full agent runtime inside one Vercel Function
+The builder MUST NOT depend on local Vercel Function filesystem state for correctness.
+The builder MUST NOT poll the sandbox for the full agent runtime inside one Vercel Function
 invocation. Agent execution completion is callback-driven, with watchdog reconciliation as a
 fallback. See [ADR 0006](adr/0006-use-callback-driven-workflow-orchestration.md).
 
 For the MVP, agent execution uses a TypeScript/Node sandbox wrapper. The wrapper is the
 sandbox-side attempt executor and owns `codex exec`, branch push verification, and collection of
 repository-external handoff artifacts. It reports observed execution status only; trusted Rhapsody
-code creates or reuses pull requests, records handoff events, and evaluates final attempt and run
-status after GitHub handoff verification and policy checks. See
+code creates or reuses pull requests and records handoff artifacts. Later curator workers evaluate
+handoff verification, checks, review evidence, and project status policy. See
 [ADR 0011](adr/0011-use-sandbox-wrapper-for-mvp-runner-execution.md).
 
 The MVP prepares source code with Vercel Sandbox Git source initialization. The runner resolves and
@@ -545,19 +569,19 @@ Terminal handoff payloads include:
 - `error` (string or null)
 - implementation-defined output, GitHub link, sandbox export, or snapshot references
 
-When using a callback route, the route MUST authenticate the request, validate the run and attempt
-against the state store, persist the payload idempotently, and resume the runner workflow hook.
-When using runner-owned completion, the runner MUST enforce the same validation and treat an
-unapplied terminal transition as a failed runner response.
+When using a callback route, the route MUST authenticate the request, validate the worker run and
+attempt against the state store, persist the payload idempotently, and resume the builder workflow
+hook. When using builder-owned completion, the builder MUST enforce the same validation and treat an
+unapplied terminal transition as a failed builder response.
 
-The agent execution status is not authoritative for final run success. The runner workflow MUST
-evaluate final attempt and run status separately using terminal handoff data, GitHub handoff
-verification, and workflow policy.
+The agent execution status is not authoritative for final builder success. The builder workflow MUST
+evaluate final attempt and builder status separately using terminal handoff data. Curator workers
+evaluate GitHub handoff verification and workflow policy.
 
-Post-run verification is required before a successful run outcome and before claim release. The MVP
-uses tiered verification for active run and attempt consistency, GitHub handoff state, mediator
-denial events, ProjectV2 status consistency, and secret hygiene checks before any configured sandbox
-export or snapshot. See
+Post-PR verification is required before a successful accepted-work outcome. The MVP uses tiered
+verification for active worker run and attempt consistency, GitHub handoff state, mediator denial
+events, ProjectV2 status consistency, and secret hygiene checks before any configured sandbox export
+or snapshot. See
 [ADR 0012](adr/0012-define-post-run-verification-policy.md).
 
 Watchdog reconciliation MUST handle missing callbacks, stale heartbeats, expired claims, and
@@ -682,15 +706,16 @@ as pull request creation, are executed by Rhapsody-owned code after branch and h
 The MVP uses a PAT in `GITHUB_TOKEN`; GitHub App installation tokens are deferred. See
 [ADR 0005](adr/0005-use-run-scoped-github-mediation-for-agent-writes.md).
 
-After sandbox execution completes, Rhapsody MUST verify the GitHub handoff before marking a run
-successful. Verification checks that the visible GitHub state still matches the active run,
-including repository, base branch, branch prefix, work item linkage, expected ProjectV2 status, and
-mediator decision events. See
-[ADR 0012](adr/0012-define-post-run-verification-policy.md).
+After a builder produces a pull request, Rhapsody MUST verify and curate the GitHub handoff before
+marking the work accepted. Verification checks that the visible GitHub state still matches the
+active worker graph context, including repository, base branch, branch prefix, work item linkage,
+expected ProjectV2 status, and mediator decision events. See
+[ADR 0012](adr/0012-define-post-run-verification-policy.md) and
+[ADR 0014](adr/0014-use-worker-graph-for-build-and-curation.md).
 
-After verification, Rhapsody MUST evaluate post-run decision policy before moving the item to
-workflow destinations defined in `.rhapsody/config.toml`. `Human Review` is reserved for work that
-Rhapsody decides needs human attention, not every pull request handoff. See
+After verification, curator workers MUST evaluate decision policy before moving the item to workflow
+destinations defined in `.rhapsody/config.toml`. `Human Review` is reserved for work that Rhapsody
+decides needs human attention, not every pull request handoff. See
 [ADR 0013](adr/0013-define-post-run-decision-and-review-policy.md).
 Policy decisions are sourced from `.rhapsody/config.toml` with conservative defaults when policy data
 is missing or invalid.
@@ -749,9 +774,10 @@ Recommended hardening:
 - Avoid exposing broad GitHub tokens inside the sandbox.
 - Validate mediator requests against active run context, as documented in
   [ADR 0008](adr/0008-define-mediator-endpoint-contract.md).
-- Verify GitHub handoff and run-scoped post-run policy before marking a run successful, as
-  documented in [ADR 0012](adr/0012-define-post-run-verification-policy.md).
-- Evaluate post-run decision and review policy before moving work to `Human Review`, as documented
+- Verify GitHub handoff and worker-graph policy before marking work accepted, as documented in
+  [ADR 0012](adr/0012-define-post-run-verification-policy.md) and
+  [ADR 0014](adr/0014-use-worker-graph-for-build-and-curation.md).
+- Evaluate curator decision and review policy before moving work to `Human Review`, as documented
   in [ADR 0013](adr/0013-define-post-run-decision-and-review-policy.md).
 - Keep admin endpoints authenticated.
 - Persist enough logs to audit agent actions.
@@ -767,11 +793,11 @@ Recommended hardening:
 - GitHub Project item fetch and normalization.
 - Workflow SDK scheduler workflow.
 - Durable claim table backed by Turso/libSQL.
-- Durable run, attempt, and event tables backed by Turso/libSQL.
-- Runner workflow skeleton.
-- Sandbox Codex runner always performs write execution with branch/repo-specific instructions,
-  explicit push target, Codex-generated PR handoff JSON, trusted pull request creation or reuse,
-  post-run verification, and post-run decision before marking the attempt completed.
+- Durable worker run, decision, artifact, link, attempt, and event tables backed by Turso/libSQL.
+- Builder workflow skeleton.
+- Sandbox Codex builder always performs write execution with branch/repo-specific instructions,
+  explicit push target, Codex-generated PR handoff JSON, and trusted pull request creation or reuse
+  before recording builder handoff artifacts.
 - Brokered ChatGPT auth for Codex execution sandboxes.
 - Vercel Sandbox creation and command execution.
 - Basic logs/events table.

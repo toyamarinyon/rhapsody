@@ -10,6 +10,10 @@ import { parseWorkItemIssueNumber } from "@/lib/attempt-branch";
 import {
 	applyAttemptTerminalCallback,
 	createEvent,
+	createArtifact,
+	createDecision,
+	createLink,
+	updateWorkerRunStatus,
 	getRunDetail,
 	createStateStoreClient,
 	type AttemptTransitionResult,
@@ -27,6 +31,7 @@ import { createHook } from "workflow";
 export type RunnerWorkflowInput = {
 	runId: string;
 	attemptId: string;
+	builderWorkerRunId?: string;
 	startedBy?: string;
 	callbackBaseUrl?: string;
 };
@@ -113,9 +118,15 @@ export async function runnerWorkflow(input: RunnerWorkflowInput) {
 		token: hookToken,
 	});
 	const launched = await runRunnerAttempt(input, hookToken);
+	if (input.builderWorkerRunId) {
+		await markWorkerRunStatusRunning(input);
+	}
 	const callbackPayload = await hook;
 	const handoff = await completeRunnerHandoff(input, callbackPayload);
 	const finalization = await finalizeRunnerAttempt(callbackPayload, handoff);
+	if (input.builderWorkerRunId) {
+		await recordBuilderOutcome(input, callbackPayload, handoff, finalization);
+	}
 	const postRunPolicy = await evaluatePostRunPolicy(
 		input,
 		callbackPayload,
@@ -244,6 +255,213 @@ async function completeRunnerHandoff(
 	} finally {
 		client.close();
 	}
+}
+
+async function markWorkerRunStatusRunning(input: RunnerWorkflowInput) {
+	"use step";
+
+	if (!input.builderWorkerRunId) {
+		return;
+	}
+
+	const client = createStateStoreClient();
+	try {
+		await updateWorkerRunStatus(client, {
+			id: input.builderWorkerRunId,
+			status: "running",
+			startedAt: Date.now(),
+		});
+	} catch (error) {
+		await createEvent(client, {
+			runId: input.runId,
+			attemptId: input.attemptId,
+			level: "warn",
+			type: "sandbox_codex_runner.builder_worker_graph_failed",
+			message:
+				"Runner workflow could not mark builder worker graph run as running; continuing legacy runner flow.",
+			data: {
+				error: error instanceof Error ? error.message : String(error),
+				builderWorkerRunId: input.builderWorkerRunId,
+			},
+		});
+	} finally {
+		client.close();
+	}
+}
+
+async function recordBuilderOutcome(
+	input: RunnerWorkflowInput,
+	callbackPayload: RunnerWorkflowCallbackPayload,
+	handoff: RunnerWorkflowHandoffResult,
+	finalization: AttemptTransitionResult,
+) {
+	"use step";
+
+	if (!input.builderWorkerRunId) {
+		return;
+	}
+
+	const client = createStateStoreClient();
+	try {
+		const detail = await getRunDetail(client, input.runId);
+		const workItemId = detail?.run?.workItemId;
+		if (!workItemId) {
+			throw new Error(
+				`Could not resolve legacy run detail for builder outcome: ${input.runId}`,
+			);
+		}
+
+		await createDecision(client, {
+			workItemId,
+			workerRunId: input.builderWorkerRunId,
+			phase: "handoff",
+			outcome: builderOutcomeFromResult({
+				callbackPayload,
+				handoff,
+				finalization,
+			}),
+			deterministic: true,
+			nextWorkerKind: null,
+			evidence: {
+				executionStatus: callbackPayload.executionStatus,
+				branchName: callbackPayload.branchName,
+				prHandoff: handoff.ok ? "success" : "missing_or_failed",
+				finalization,
+			},
+		});
+
+		if (callbackPayload.branchName) {
+			const branchArtifactId = await createArtifact(client, {
+				workItemId,
+				workerRunId: input.builderWorkerRunId,
+				kind: "branch",
+				externalId: callbackPayload.branchName,
+				metadata: {
+					branchName: callbackPayload.branchName,
+					executionStatus: callbackPayload.executionStatus,
+					executedBy: input.startedBy ?? "scheduler",
+				},
+				snapshot: {
+					branchName: callbackPayload.branchName,
+				},
+			});
+
+			await createLink(client, {
+				workItemId,
+				fromNodeType: "worker_run",
+				fromNodeId: input.builderWorkerRunId,
+				toNodeType: "artifact",
+				toNodeId: branchArtifactId,
+				relation: "produced",
+				metadata: {
+					artifactKind: "branch",
+				},
+			});
+		}
+
+		if (handoff.ok && handoff.pullRequest) {
+			const artifactId = await createArtifact(client, {
+				workItemId,
+				workerRunId: input.builderWorkerRunId,
+				kind: "pull_request",
+				externalId: String(handoff.pullRequest.number),
+				externalUrl: handoff.pullRequest.htmlUrl,
+				metadata: {
+					pullRequestNumber: handoff.pullRequest.number,
+					baseRef: handoff.pullRequest.baseRef,
+					headRef: handoff.pullRequest.headRef,
+				},
+				snapshot: {
+					title: handoff.pullRequest.title,
+					headRef: handoff.pullRequest.headRef,
+					baseRef: handoff.pullRequest.baseRef,
+				},
+			});
+
+			await createLink(client, {
+				workItemId,
+				fromNodeType: "worker_run",
+				fromNodeId: input.builderWorkerRunId,
+				toNodeType: "artifact",
+				toNodeId: artifactId,
+				relation: "produced",
+				metadata: {
+					artifactKind: "pull_request",
+				},
+			});
+		}
+
+		await updateWorkerRunStatus(client, {
+			id: input.builderWorkerRunId,
+			status: builderRunFinalStatusFromAttemptResult(finalization),
+		});
+	} catch (error) {
+		await createEvent(client, {
+			runId: input.runId,
+			attemptId: input.attemptId,
+			level: "warn",
+			type: "sandbox_codex_runner.builder_worker_graph_failed",
+			message:
+				"Runner workflow could not persist builder worker graph outcome for handoff/finalization.",
+			data: {
+				error: error instanceof Error ? error.message : String(error),
+				builderWorkerRunId: input.builderWorkerRunId,
+			},
+		});
+	} finally {
+		client.close();
+	}
+}
+
+function builderOutcomeFromResult(input: {
+	callbackPayload: RunnerWorkflowCallbackPayload;
+	handoff: RunnerWorkflowHandoffResult;
+	finalization: AttemptTransitionResult;
+}) {
+	if (
+		typeof input.finalization === "object" &&
+		"applied" in input.finalization &&
+		input.finalization.applied &&
+		input.finalization.runStatus === "completed" &&
+		input.handoff.ok &&
+		input.handoff.pullRequest
+	) {
+		return "pr_created";
+	}
+
+	if (
+		input.callbackPayload.executionStatus === "completed" &&
+		(!input.handoff.ok || !input.handoff.pullRequest)
+	) {
+		return "no_pr_handoff";
+	}
+
+	return "builder_failed";
+}
+
+function builderRunFinalStatusFromAttemptResult(
+	result: AttemptTransitionResult,
+): "completed" | "failed" | "timed_out" | "canceled" | "stale" {
+	if (
+		typeof result === "object" &&
+		result !== null &&
+		"applied" in result &&
+		result.applied &&
+		result.runStatus
+	) {
+		switch (result.runStatus) {
+			case "completed":
+			case "failed":
+			case "timed_out":
+			case "canceled":
+			case "stale":
+				return result.runStatus;
+			default:
+				return "failed";
+		}
+	}
+
+	return "failed";
 }
 
 async function evaluatePostRunPolicy(
