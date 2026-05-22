@@ -1,3 +1,5 @@
+import { Octokit } from "@octokit/rest";
+
 import { loadRhapsodyGitHubEnv, type RhapsodyGitHubEnv } from "@/lib/config";
 
 export type PullRequestCheckClassification =
@@ -23,25 +25,31 @@ export type PullRequestCheckSummary = {
 	fallbackStatus?: string | null;
 };
 
-type GitHubPullRequestResponse = {
-	number: number;
-	html_url: string;
-	head: {
-		sha: string;
+type PullRequestResponseFn = Octokit["rest"]["pulls"]["get"];
+type ListCheckRunsFn = Octokit["rest"]["checks"]["listForRef"];
+type GetCombinedStatusFn = Octokit["rest"]["repos"]["getCombinedStatusForRef"];
+type PullRequestResponse = Awaited<ReturnType<PullRequestResponseFn>>;
+type ListCheckRunsResponse = Awaited<ReturnType<ListCheckRunsFn>>;
+type GetCombinedStatusResponse = Awaited<ReturnType<GetCombinedStatusFn>>;
+type CheckRuns = ListCheckRunsResponse["data"]["check_runs"];
+type OctokitChecksClient = {
+	rest: {
+		pulls: {
+			get: (
+				...args: Parameters<PullRequestResponseFn>
+			) => ReturnType<PullRequestResponseFn>;
+		};
+		checks: {
+			listForRef: (
+				...args: Parameters<ListCheckRunsFn>
+			) => ReturnType<ListCheckRunsFn>;
+		};
+		repos: {
+			getCombinedStatusForRef: (
+				...args: Parameters<GetCombinedStatusFn>
+			) => ReturnType<GetCombinedStatusFn>;
+		};
 	};
-};
-
-type GitHubCommitStatusResponse = {
-	state: string;
-};
-
-type GitHubCommitCheckRunResponse = {
-	check_runs?: Array<{
-		name?: unknown;
-		status?: unknown;
-		conclusion?: unknown;
-		details_url?: unknown;
-	}> | null;
 };
 
 export async function getPullRequestCheckSummary(
@@ -51,9 +59,12 @@ export async function getPullRequestCheckSummary(
 		pullRequestNumber: number;
 	},
 	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
+	options?: {
+		octokit?: OctokitChecksClient;
+	},
 ): Promise<PullRequestCheckSummary> {
 	try {
-		const pullRequest = await fetchPullRequest(input, env);
+		const pullRequest = await fetchPullRequest(input, env, options);
 
 		const checkRunResult = await fetchCheckRuns(
 			{
@@ -62,6 +73,7 @@ export async function getPullRequestCheckSummary(
 			},
 			pullRequest.head.sha,
 			env,
+			options,
 		);
 		if (checkRunResult.ok) {
 			const classification = classifyCheckRuns(checkRunResult.checkRuns);
@@ -83,6 +95,7 @@ export async function getPullRequestCheckSummary(
 			},
 			pullRequest.head.sha,
 			env,
+			options,
 		);
 		if (!status.ok) {
 			return {
@@ -203,29 +216,35 @@ async function fetchPullRequest(
 		pullRequestNumber: number;
 	},
 	env: RhapsodyGitHubEnv,
-): Promise<GitHubPullRequestResponse> {
-	const response = await fetch(
-		`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}/pulls/${input.pullRequestNumber}`,
-		{
+	options?: {
+		octokit?: OctokitChecksClient;
+	},
+): Promise<{ number: number; head: { sha: string } }> {
+	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
+
+	let response: PullRequestResponse;
+	try {
+		response = await octokit.rest.pulls.get({
+			owner: input.owner,
+			repo: input.repository,
+			pull_number: input.pullRequestNumber,
 			headers: {
 				Accept: "application/vnd.github+json",
-				Authorization: `Bearer ${env.GITHUB_TOKEN}`,
 				"X-GitHub-Api-Version": "2022-11-28",
 			},
+		});
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : "request failed";
+		throw new Error(`GitHub pull request lookup failed: ${reason}`);
+	}
+
+	const payload = response.data;
+	return {
+		number: payload.number,
+		head: {
+			sha: payload.head.sha,
 		},
-	);
-
-	if (!response.ok) {
-		const message = await safeResponseText(response);
-		throw new Error(`GitHub pull request lookup failed: ${message}`);
-	}
-
-	const payload = (await response.json()) as unknown;
-	if (!isGitHubPullRequestResponse(payload)) {
-		throw new Error("GitHub pull request response had an unexpected shape.");
-	}
-
-	return payload;
+	};
 }
 
 async function fetchCheckRuns(
@@ -235,33 +254,35 @@ async function fetchCheckRuns(
 	},
 	headSha: string,
 	env: RhapsodyGitHubEnv,
+	options?: {
+		octokit?: OctokitChecksClient;
+	},
 ): Promise<
 	| { ok: true; status: string; checkRuns: PullRequestCheckRunSummary[] }
 	| { ok: false; status: string; reason: string }
 > {
-	const response = await fetch(
-		`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}/commits/${encodeURIComponent(headSha)}/check-runs`,
-		{
+	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
+	let response: ListCheckRunsResponse;
+	try {
+		response = await octokit.rest.checks.listForRef({
+			owner: input.owner,
+			repo: input.repository,
+			ref: headSha,
 			headers: {
 				Accept: "application/vnd.github+json",
-				Authorization: `Bearer ${env.GITHUB_TOKEN}`,
 				"X-GitHub-Api-Version": "2022-11-28",
 			},
-		},
-	);
-
-	if (!response.ok) {
-		const message = await safeResponseText(response);
+		});
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : "request failed";
 		return {
 			ok: false,
 			status: "unknown",
-			reason: `GitHub check-runs lookup failed: ${message}`,
+			reason: `GitHub check-runs lookup failed: ${reason}`,
 		};
 	}
 
-	const payload = (await response.json()) as GitHubCommitCheckRunResponse;
-	const runs = normalizeCheckRuns(payload);
-
+	const runs = normalizeCheckRuns(response.data.check_runs ?? []);
 	return {
 		ok: true,
 		status: runs.length > 0 ? "available" : "none",
@@ -269,32 +290,11 @@ async function fetchCheckRuns(
 	};
 }
 
-function normalizeCheckRuns(
-	payload: GitHubCommitCheckRunResponse,
-): PullRequestCheckRunSummary[] {
-	if (!Array.isArray(payload.check_runs)) {
-		return [];
-	}
-
-	return payload.check_runs
-		.filter(
-			(
-				checkRun,
-			): checkRun is {
-				name?: unknown;
-				status?: unknown;
-				conclusion?: unknown;
-				details_url?: unknown;
-			} =>
-				typeof checkRun === "object" &&
-				checkRun !== null &&
-				"status" in checkRun,
-		)
+function normalizeCheckRuns(payload: CheckRuns): PullRequestCheckRunSummary[] {
+	return payload
 		.map((checkRun) => {
 			const name =
-				typeof checkRun.name === "string" && checkRun.name.trim().length > 0
-					? checkRun.name
-					: "unknown";
+				typeof checkRun.name === "string" ? checkRun.name : "unknown";
 			const status =
 				typeof checkRun.status === "string" ? checkRun.status : "unknown";
 			const conclusion =
@@ -303,7 +303,7 @@ function normalizeCheckRuns(
 				typeof checkRun.details_url === "string" ? checkRun.details_url : null;
 
 			return {
-				name,
+				name: name.trim() || "unknown",
 				status,
 				conclusion,
 				detailsUrl,
@@ -319,73 +319,32 @@ async function fetchCommitCheckStatus(
 	},
 	headSha: string,
 	env: RhapsodyGitHubEnv,
+	options?: {
+		octokit?: OctokitChecksClient;
+	},
 ): Promise<
 	{ ok: true; state: string } | { ok: false; state: string; reason: string }
 > {
-	const response = await fetch(
-		`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}/commits/${encodeURIComponent(headSha)}/status`,
-		{
+	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
+	let response: GetCombinedStatusResponse;
+	try {
+		response = await octokit.rest.repos.getCombinedStatusForRef({
+			owner: input.owner,
+			repo: input.repository,
+			ref: headSha,
 			headers: {
 				Accept: "application/vnd.github+json",
-				Authorization: `Bearer ${env.GITHUB_TOKEN}`,
 				"X-GitHub-Api-Version": "2022-11-28",
 			},
-		},
-	);
-
-	if (!response.ok) {
-		const message = await safeResponseText(response);
+		});
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : "request failed";
 		return {
 			ok: false,
 			state: "unknown",
-			reason: `GitHub commit status lookup failed: ${message}`,
+			reason: `GitHub commit status lookup failed: ${reason}`,
 		};
 	}
 
-	const payload = (await response.json()) as unknown;
-	if (!isGitHubCommitStatusResponse(payload)) {
-		return {
-			ok: false,
-			state: "unknown",
-			reason: "GitHub commit status response had an unexpected shape.",
-		};
-	}
-
-	return { ok: true, state: payload.state };
-}
-
-function isGitHubPullRequestResponse(
-	value: unknown,
-): value is GitHubPullRequestResponse {
-	if (typeof value !== "object" || value === null) {
-		return false;
-	}
-
-	const pullRequest = value as Partial<GitHubPullRequestResponse>;
-	return (
-		typeof pullRequest.number === "number" &&
-		typeof pullRequest.head === "object" &&
-		pullRequest.head !== null &&
-		typeof pullRequest.head.sha === "string"
-	);
-}
-
-function isGitHubCommitStatusResponse(
-	value: unknown,
-): value is GitHubCommitStatusResponse {
-	if (typeof value !== "object" || value === null) {
-		return false;
-	}
-
-	const status = value as Partial<GitHubCommitStatusResponse>;
-	return typeof status.state === "string";
-}
-
-async function safeResponseText(response: Response): Promise<string> {
-	try {
-		const text = await response.text();
-		return text || `${response.status} ${response.statusText}`;
-	} catch {
-		return `${response.status} ${response.statusText}`;
-	}
+	return { ok: true, state: response.data.state };
 }

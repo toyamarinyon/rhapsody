@@ -15,6 +15,7 @@ export type CodexCliOptions = {
 	approvalPolicy?: CodexCliApprovalPolicy;
 	json?: boolean;
 	outputLastMessageFile?: string;
+	outputSchemaFile?: string;
 	skipGitRepoCheck?: boolean;
 	ephemeral?: boolean;
 	dangerouslyBypassApprovalsAndSandbox?: boolean;
@@ -58,6 +59,10 @@ export function buildCodexExecCommand(
 
 	if (options.outputLastMessageFile) {
 		execArgv.push("--output-last-message", options.outputLastMessageFile);
+	}
+
+	if (options.outputSchemaFile) {
+		execArgv.push("--output-schema", options.outputSchemaFile);
 	}
 
 	if (options.skipGitRepoCheck) {

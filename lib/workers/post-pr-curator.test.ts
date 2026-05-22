@@ -301,6 +301,8 @@ function buildProjectItem(issueNumber: number) {
 		issueBody: "A longer body is present to satisfy intake checks if needed.",
 		issueState: "OPEN",
 		projectStatus: "In Progress",
+		blockedBy: [],
+		projectFields: {},
 		repository: {
 			owner: "toyamarinyon",
 			name: "rhapsody",

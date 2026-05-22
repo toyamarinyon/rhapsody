@@ -191,6 +191,27 @@ Initial deterministic repair classes should be conservative. Formatting failures
 Prettier check failures are good first candidates. Type errors, failing tests, dependency changes,
 and ambiguous behavior changes may require human review or a reviewer worker before repair.
 
+## Initial Intake Classifier Implementation
+
+The first pre-build intake implementation treats explicit blockers as a deterministic gate before
+any model judgment. Intake resolves issue dependencies from the native GitHub issue dependency
+API first (`GET /repos/{owner}/{repo}/issues/{issue_number}/dependencies/blocked_by`).
+
+Only blockers with `state` not equal to `closed` are treated as active. `closed` dependencies do
+not stop intake.
+
+If native dependency lookup fails, intake falls back to the configured `blocked_by`/`Blocked by`
+Project field when available. If no fallback is available, intake emits a conservative
+`ask_human` decision and does not start the builder.
+
+When there is no active blocker, intake asks Codex to classify the issue with a schema-constrained
+final response. The classifier output is validated again in trusted Rhapsody code with Zod before
+any GitHub side effect is applied. Buildable issues receive an implementation-plan comment before
+builder dispatch; unclear issues receive a question comment and wait for human input; skipped
+issues receive a reason comment and do not start the builder. If the first classifier output is
+invalid, Rhapsody gives Codex one healing attempt. If healing also fails, Rhapsody records a
+conservative `ask_human` fallback.
+
 ## Scheduler Semantics
 
 The scheduler should be a dispatcher, not the owner of all business logic.

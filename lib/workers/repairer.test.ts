@@ -751,6 +751,8 @@ function buildProjectItem(issueNumber: number) {
 		issueState: "OPEN",
 		issueBody: "A body for the repairer planner checks.",
 		projectStatus: "In Progress",
+		blockedBy: [],
+		projectFields: {},
 		repository: {
 			owner: "toyamarinyon",
 			name: "rhapsody",

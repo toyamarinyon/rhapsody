@@ -1,10 +1,10 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { type Client, createClient } from "@libsql/client";
 import { expect, test, vi } from "vitest";
-import { createClient, type Client } from "@libsql/client";
-
-import { runSchedulerTick, type SchedulerTickDependencies } from "./tick";
+import type { PullRequestCheckSummary } from "@/lib/github/checks";
+import type { GitHubProjectIssueWorkItem } from "@/lib/github/project-items";
 import {
 	createArtifact,
 	createClaimedManualRun,
@@ -13,13 +13,13 @@ import {
 	listWorkItemGraph,
 	migrateStateStore,
 } from "@/lib/state";
-import type { GitHubProjectIssueWorkItem } from "@/lib/github/project-items";
+import { runIntakeCurator } from "@/lib/workers/intake-curator";
 import {
 	buildFailureFingerprint,
 	buildRepairExecutionKey,
 	runRepairerPlanner,
 } from "@/lib/workers/repairer";
-import type { PullRequestCheckSummary } from "@/lib/github/checks";
+import { runSchedulerTick, type SchedulerTickDependencies } from "./tick";
 
 const baseConfig: SchedulerTickDependencies["config"] = {
 	tracker: {
@@ -59,6 +59,7 @@ test("scheduler records intake and builder graph for buildable Todo items", asyn
 		const result = await runSchedulerTick(client, {
 			config: baseConfig,
 			fetchProjectIssueWorkItems: async () => [item],
+			runIntakeCurator: runBuildableIntakeCurator,
 			updateProjectIssueStatus: async () => ({
 				projectId: "project",
 				itemId: "item",
@@ -114,6 +115,7 @@ test("scheduler records ask_human and skips builder for sparse Todo items", asyn
 		const result = await runSchedulerTick(client, {
 			config: baseConfig,
 			fetchProjectIssueWorkItems: async () => [item],
+			runIntakeCurator: runAskHumanIntakeCurator,
 		});
 
 		expect(result.ok).toBe(true);
@@ -141,6 +143,99 @@ test("scheduler records ask_human and skips builder for sparse Todo items", asyn
 			),
 		).toBe(true);
 		expect(graph.workerRuns.some((run) => run.kind === "builder")).toBe(false);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("scheduler records blocked and skips builder for open blocked Todo items", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItem = {
+		issueNumber: 103,
+		issueTitle: "Blocked work",
+		issueUrl: "https://github.com/toyamarinyon/rhapsody/issues/103",
+		issueState: "OPEN",
+		issueBody: "Depends on another ticket before this can be started.",
+		projectStatus: "Todo",
+		repository: {
+			owner: "toyamarinyon",
+			name: "rhapsody",
+		},
+		blockedBy: [{ id: "#111", state: "open" }],
+		projectFields: {},
+	};
+
+	try {
+		const result = await runSchedulerTick(client, {
+			config: baseConfig,
+			fetchProjectIssueWorkItems: async () => [workItem],
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) {
+			return;
+		}
+
+		expect(result.value.created).toBe(0);
+		expect(result.value.skippedIssues).toEqual([
+			{
+				workItemId: "github_issue:toyamarinyon/rhapsody#103",
+				issueNumber: 103,
+				reason: "blocked",
+			},
+		]);
+
+		const graph = await listWorkItemGraph(
+			client,
+			"github_issue:toyamarinyon/rhapsody#103",
+		);
+		expect(
+			graph.decisions.some(
+				(decision) =>
+					decision.phase === "intake" && decision.outcome === "blocked",
+			),
+		).toBe(true);
+		expect(graph.workerRuns.some((run) => run.kind === "builder")).toBe(false);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("scheduler does not block when only closed blockers exist", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItem = {
+		issueNumber: 104,
+		issueTitle: "Depends on closed issue",
+		issueUrl: "https://github.com/toyamarinyon/rhapsody/issues/104",
+		issueState: "OPEN",
+		issueBody: "Existing dependency is closed, so proceed.",
+		projectStatus: "Todo",
+		repository: {
+			owner: "toyamarinyon",
+			name: "rhapsody",
+		},
+		blockedBy: [{ id: "#901", state: "closed" }],
+		projectFields: {},
+	};
+
+	try {
+		const result = await runSchedulerTick(client, {
+			config: baseConfig,
+			fetchProjectIssueWorkItems: async () => [workItem],
+			runIntakeCurator: runBuildableIntakeCurator,
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) {
+			return;
+		}
+
+		expect(result.value.created).toBe(1);
+		expect(result.value.skippedIssues).toEqual([]);
 	} finally {
 		client.close();
 		database.cleanup();
@@ -894,6 +989,7 @@ test("scheduler skips Todo items when concurrency limit is exhausted", async () 
 				},
 			},
 			fetchProjectIssueWorkItems: async () => [item],
+			runIntakeCurator: runBuildableIntakeCurator,
 		});
 
 		expect(result.ok).toBe(true);
@@ -940,6 +1036,7 @@ test("scheduler skips Todo items with an active claim on same work item", async 
 		const result = await runSchedulerTick(client, {
 			config: baseConfig,
 			fetchProjectIssueWorkItems: async () => [item],
+			runIntakeCurator: runBuildableIntakeCurator,
 		});
 
 		expect(result.ok).toBe(true);
@@ -991,9 +1088,70 @@ function buildProjectItem(input: {
 			input.issueBody ??
 			"Please move this issue forward with a small focused implementation.",
 		projectStatus: input.projectStatus,
+		blockedBy: [],
+		projectFields: {},
 		repository: {
 			owner: "toyamarinyon",
 			name: "rhapsody",
 		},
 	};
 }
+
+const runBuildableIntakeCurator: typeof runIntakeCurator = (
+	client,
+	workItem,
+	workItemId,
+	options,
+) =>
+	runIntakeCurator(client, workItem, workItemId, {
+		...options,
+		dependencies: {
+			...options?.dependencies,
+			fetchBlockedBy: async () => [],
+		},
+		classify: async () => ({
+			classification: {
+				decision: "buildable",
+				summary: "Ready to build.",
+				implementation_plan:
+					"Implement the requested change with a focused patch.",
+				comment: "I will implement this with a focused patch.",
+				next_action: "start_builder",
+			},
+			raw: "{}",
+			command: "mock",
+		}),
+		comment: async (comment) => ({
+			id: comment.issueNumber,
+			htmlUrl: `${comment.owner}/${comment.repository}#${comment.issueNumber}`,
+		}),
+	});
+
+const runAskHumanIntakeCurator: typeof runIntakeCurator = (
+	client,
+	workItem,
+	workItemId,
+	options,
+) =>
+	runIntakeCurator(client, workItem, workItemId, {
+		...options,
+		dependencies: {
+			...options?.dependencies,
+			fetchBlockedBy: async () => [],
+		},
+		classify: async () => ({
+			classification: {
+				decision: "ask_human",
+				summary: "Needs clarification.",
+				question: "What should Rhapsody change?",
+				comment: "Please clarify the expected change before implementation.",
+				next_action: "add_context_and_acceptance_criteria",
+			},
+			raw: "{}",
+			command: "mock",
+		}),
+		comment: async (comment) => ({
+			id: comment.issueNumber,
+			htmlUrl: `${comment.owner}/${comment.repository}#${comment.issueNumber}`,
+		}),
+	});
