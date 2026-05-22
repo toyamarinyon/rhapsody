@@ -102,5 +102,8 @@ dashboard activity.
 Dashboard State is the queryable projection of Claims, Runs, Attempts, Events, sandbox references,
 and GitHub Handoffs that helps a human understand what Rhapsody is doing.
 
+Preview Verification is a low-risk run used to confirm that intake, dispatch, handoff, and
+post-run graph data are visible in a deployed preview environment.
+
 Reconciliation is the background process that repairs or finalizes stale Claims, missing callbacks,
 expired Attempts, stopped sandboxes, and Work Items that moved outside the active Project Boundary.
