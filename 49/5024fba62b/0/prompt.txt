@@ -1,0 +1,66 @@
+この後の段取りはどうするのが良いと思いますか？
+
+---
+
+> 今は Project text field の blocked_by / Blocked by
+
+GitHubのissueにblocked_by設定できるようになっているので、それ使えないですか？
+[https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/creating-issue-dependencies](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/creating-issue-dependencies)
+
+実装する前に仕様とAPI確認して実現可能性を調べてください
+
+---
+
+ではそれ使うようにしましょう [@lilas](agent://019e4ee1-b657-7800-9815-42d098c8311e) に実装依頼してあなたは評価、フィードバックを繰り返してください
+
+---
+
+Rhapsody repo `/Users/toyamarinyon/Documents/rhapsody` の現ブランチ `codex/intake-curator-codex-classifier` で実装をお願いします。あなたはコード変更担当です。私は親側でレビュー・フィードバック・最終検証をします。
+
+Goal: pre-build intake curator の blocker 判定で、GitHub Projects text field `blocked_by` ではなく GitHub native issue dependencies を第一ソースとして使う。GitHub docs: https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/creating-issue-dependencies
+
+仕様/API 前提:
+- REST endpoint: `GET /repos/{owner}/{repo}/issues/{issue_number}/dependencies/blocked_by`
+- Header: `Accept: application/vnd.github+json`, `Authorization: Bearer ...`, `X-GitHub-Api-Version: 2026-03-10`
+- response は blocked-by 側の issue objects。`state === "closed"` のものは blocking 扱いしない。open/unknown は blocking。
+- permission は Issues read が必要。
+
+実装希望:
+1. `lib/github/issues.ts` に native blocked_by dependencies fetcher を追加してください。既存の env/token ロードと error pattern に合わせること。戻り値は intake が使いやすい normalized shape にしてください（例: id/nodeId/number/title/state/htmlUrl/repository など。必要十分でOK）。
+2. `lib/workers/intake-curator/index.ts` を更新し、runIntakeCurator が native dependencies を第一ソースとして解決するようにしてください。テストしやすいよう options/dependencies で fetcher を差し替え可能にしてください。
+3. Project text field `blockedBy` は fallback として残してください。native fetch に成功した場合は native 結果を使う。fetch が失敗した場合の扱いは安全側に倒してください。個人的には「fallback があれば fallback、なければ ask_human または blocked 相当で人間に依存情報を確認してもらう」がよいです。既存の outcome vocabulary と graph/comment 実装に自然に合わせてください。
+4. deterministic にできるところは Vitest を追加/更新してください。
+   - native open blocker -> outcome blocked / classifier not called
+   - native closed blocker -> classifier proceeds
+   - native empty dependencies -> classifier proceeds
+   - fetch failure + Project fallback -> fallback blocker判定
+   - github issues fetcher の success/error/shape tests
+5. ADR `docs/adr/0014-use-worker-graph-for-build-and-curation.md` を更新してください。
+
+注意:
+- あなたは一人ではありません。ユーザーや親エージェントの既存変更を戻さないでください。
+- unrelated refactor は避けて、変更範囲を上記に絞ってください。
+- 完了時は変更ファイル、実行したテスト、未解決リスクを短く報告してください。コミットは親側でやるので作らないでください。
+
+---
+
+レビュー結果です。実装方針は良いですが、このままだと `pnpm typecheck` が落ちています。修正してください。
+
+実行結果:
+- `pnpm exec vitest run lib/github/issues.test.ts lib/workers/intake-curator.test.ts` は ✅
+- `pnpm typecheck` が ❌
+
+主なエラー:
+1. `lib/workers/intake-curator/index.ts` の fetch failure fallback ask_human object が literal type として推論されず、`decision: string` 扱いになっています。`satisfies IntakeWorkerClassification` や明示 annotation などで直してください。
+2. `lib/workers/intake-curator.test.ts` の `vi.fn(async () => ({ classification: { decision: "buildable", ... } }))` が `decision: string` に広がって `IntakeClassifierRunner` に合っていません。`satisfies Awaited<ReturnType<IntakeClassifierRunner>>`、`as const`、明示型 annotation など、既存コードの雰囲気に合う形で直してください。
+3. diff 上、`lib/workers/intake-curator.test.ts` の `finally` 周辺にインデント/brace が怪しい箇所がありました（vitest は通っているので構文上はOKかもしれませんが、format/typecheck/lint 目線で確認してください）。
+
+追加で気になった点:
+- `fetchIssueDependenciesBlockedBy` は payload が array でも `{ nodes: [] }` でもないと `[]` にしてしまっていますが、API shape 逸脱は安全側に検出したいです。silent empty は危険なので、unexpected shape error にしてください。テストも追加/修正してください。
+- 可能なら error class は fetchGitHubIssue と同じ `GitHubIssueFetchError` でも最低限OKですが、dependency endpoint とわかる message のほうがよいです。大きな変更にしすぎない範囲で検討してください。
+
+修正後、少なくとも以下を実行して結果を報告してください:
+- `pnpm exec vitest run lib/github/issues.test.ts lib/workers/intake-curator.test.ts`
+- `pnpm typecheck`
+
+コミットはまだしないでください。
