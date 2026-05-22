@@ -45,69 +45,63 @@ test("parseEncodedWorkItemIdParam rejects invalid URI encoding", () => {
 	});
 });
 
-test(
-	"loadWorkItemGraphForRouteParam returns an empty graph when no rows exist",
-	async () => {
-		const database = await createTestDatabase();
-		const client = database.client;
-		const workItemId = "github_issue:toyamarinyon/rhapsody#404";
+test("loadWorkItemGraphForRouteParam returns an empty graph when no rows exist", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItemId = "github_issue:toyamarinyon/rhapsody#404";
 
-		try {
-			const result = await loadWorkItemGraphForRouteParam(
-				client,
-				encodeURIComponent(workItemId),
-			);
+	try {
+		const result = await loadWorkItemGraphForRouteParam(
+			client,
+			encodeURIComponent(workItemId),
+		);
 
-			expect(result).toEqual({
-				ok: true,
-				graph: createEmptyGraph(workItemId),
-			});
-		} finally {
-			client.close();
-			database.cleanup();
+		expect(result).toEqual({
+			ok: true,
+			graph: createEmptyGraph(workItemId),
+		});
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("loadWorkItemGraphForRouteParam looks up graph rows using the decoded work item id", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItemId = "github_issue:toyamarinyon/rhapsody#51";
+
+	try {
+		await createWorkerRun(client, {
+			id: "wrn_graph_lookup",
+			workItemId,
+			kind: "builder",
+			status: "completed",
+		});
+
+		const result = await loadWorkItemGraphForRouteParam(
+			client,
+			encodeURIComponent(workItemId),
+		);
+
+		expect(result.ok).toBe(true);
+
+		if (!result.ok) {
+			throw new Error(result.error);
 		}
-	},
-);
 
-test(
-	"loadWorkItemGraphForRouteParam looks up graph rows using the decoded work item id",
-	async () => {
-		const database = await createTestDatabase();
-		const client = database.client;
-		const workItemId = "github_issue:toyamarinyon/rhapsody#51";
-
-		try {
-			await createWorkerRun(client, {
-				id: "wrn_graph_lookup",
-				workItemId,
-				kind: "builder",
-				status: "completed",
-			});
-
-			const result = await loadWorkItemGraphForRouteParam(
-				client,
-				encodeURIComponent(workItemId),
-			);
-
-			expect(result.ok).toBe(true);
-
-			if (!result.ok) {
-				throw new Error(result.error);
-			}
-
-			expect(result.graph.workItemId).toBe(workItemId);
-			expect(result.graph.workerRuns.map((run) => run.id)).toEqual([
-				"wrn_graph_lookup",
-			]);
-			expect(result.graph.decisions).toEqual([]);
-			expect(result.graph.artifacts).toEqual([]);
-			expect(result.graph.links).toEqual([]);
-		} finally {
-			client.close();
-			database.cleanup();
-		}
-	},
-);
+		expect(result.graph.workItemId).toBe(workItemId);
+		expect(result.graph.workerRuns.map((run) => run.id)).toEqual([
+			"wrn_graph_lookup",
+		]);
+		expect(result.graph.decisions).toEqual([]);
+		expect(result.graph.artifacts).toEqual([]);
+		expect(result.graph.links).toEqual([]);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
 
 async function createTestDatabase(): Promise<{
 	client: Client;

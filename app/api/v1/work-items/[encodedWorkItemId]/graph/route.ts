@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 export async function GET(
 	request: Request,
-	context: { params: Promise<{ encodedWorkItemId: string[] }> },
+	context: { params: Promise<{ encodedWorkItemId: string }> },
 ) {
 	const auth = requireAdminAuth(request);
 
