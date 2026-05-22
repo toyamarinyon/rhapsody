@@ -3,6 +3,7 @@ import { expect, test, vi } from "vitest";
 
 import {
 	createIssueComment,
+	fetchGitHubIssue,
 	fetchIssueDependenciesBlockedBy,
 	GitHubIssueCommentError,
 	GitHubIssueFetchError,
@@ -18,11 +19,13 @@ type CreateIssueCommentResponse = Awaited<
 >;
 type ListDependenciesBlockedByMock = ReturnType<typeof vi.fn>;
 type CreateIssueCommentMock = ReturnType<typeof vi.fn>;
+type GetIssueMock = ReturnType<typeof vi.fn>;
 type MockOctokit = {
 	rest: {
 		issues: {
 			listDependenciesBlockedBy: ListDependenciesBlockedByMock;
 			createComment: CreateIssueCommentMock;
+			get: GetIssueMock;
 		};
 	};
 };
@@ -32,8 +35,142 @@ const createOctokitMock = () => ({
 		issues: {
 			listDependenciesBlockedBy: vi.fn(),
 			createComment: vi.fn(),
+			get: vi.fn(),
 		},
 	},
+});
+
+test("fetchGitHubIssue returns normalized issue from Octokit", async () => {
+	const octokit = createOctokitMock() as MockOctokit;
+	const get = octokit.rest.issues.get as GetIssueMock;
+
+	const issue = {
+		number: 12,
+		id: 101,
+		node_id: "MDU6SXNzdWUxMQ==",
+		url: "https://api.github.com/repos/octo/rhapsody/issues/12",
+		repository_url: "https://api.github.com/repos/octo/rhapsody",
+		labels_url:
+			"https://api.github.com/repos/octo/rhapsody/issues/12/labels{/name}",
+		comments_url:
+			"https://api.github.com/repos/octo/rhapsody/issues/12/comments",
+		events_url: "https://api.github.com/repos/octo/rhapsody/issues/12/events",
+		html_url: "https://github.com/octo/rhapsody/issues/12",
+		title: "Issue title",
+		body: "body",
+		state: "open",
+		labels: [
+			{
+				id: 1,
+				node_id: "MDU6TGFiZWwx",
+				name: "bug",
+				color: "ff0000",
+				description: "fix",
+			},
+		],
+		locked: false,
+		created_at: "2026-01-01T00:00:00Z",
+		updated_at: "2026-01-01T00:00:00Z",
+		closed_at: null,
+		author_association: "NONE",
+		user: {
+			login: "octo",
+			id: 1,
+			node_id: "nodeid",
+			avatar_url: "",
+			gravatar_id: "",
+			url: "",
+			html_url: "",
+			followers_url: "",
+			following_url: "",
+			gists_url: "",
+			starred_url: "",
+			subscriptions_url: "",
+			organizations_url: "",
+			repos_url: "",
+			events_url: "",
+			received_events_url: "",
+			type: "User",
+			site_admin: false,
+		},
+		comments: 0,
+		pull_request: undefined,
+		repository: {},
+	};
+
+	const response = {
+		data: issue,
+		status: 200,
+		headers: {},
+		url: "",
+	};
+	get.mockResolvedValue(response);
+
+	const result = await fetchGitHubIssue(
+		{
+			owner: "octo",
+			repository: "rhapsody",
+			issueNumber: 12,
+		},
+		{
+			GITHUB_TOKEN: "test-token",
+		},
+		{
+			octokit,
+		},
+	);
+
+	expect(result).toEqual({
+		number: 12,
+		id: 101,
+		nodeId: "MDU6SXNzdWUxMQ==",
+		title: "Issue title",
+		body: "body",
+		htmlUrl: "https://github.com/octo/rhapsody/issues/12",
+		state: "open",
+		labels: [
+			{
+				id: 1,
+				nodeId: "MDU6TGFiZWwx",
+				name: "bug",
+				color: "ff0000",
+				description: "fix",
+			},
+		],
+	});
+
+	expect(get).toHaveBeenCalledWith({
+		owner: "octo",
+		repo: "rhapsody",
+		issue_number: 12,
+		headers: {
+			Accept: "application/vnd.github+json",
+			"X-GitHub-Api-Version": "2022-11-28",
+		},
+	});
+});
+
+test("fetchGitHubIssue fails when Octokit request rejects", async () => {
+	const octokit = createOctokitMock() as MockOctokit;
+	const get = octokit.rest.issues.get as GetIssueMock;
+
+	get.mockRejectedValue(Object.assign(new Error("not found"), { status: 404 }));
+
+	await expect(
+		fetchGitHubIssue(
+			{
+				owner: "octo",
+				repository: "rhapsody",
+				issueNumber: 12,
+			},
+			{
+				GITHUB_TOKEN: "test-token",
+			},
+			{
+				octokit,
+			},
+		),
+	).rejects.toBeInstanceOf(GitHubIssueFetchError);
 });
 
 test("fetchIssueDependenciesBlockedBy returns normalized issue dependencies from Octokit", async () => {

@@ -44,7 +44,14 @@ type ListDependenciesBlockedByDependency =
 	ListDependenciesBlockedByResponse["data"][number];
 type CreateIssueCommentFn = Octokit["rest"]["issues"]["createComment"];
 type CreateIssueCommentResponse = Awaited<ReturnType<CreateIssueCommentFn>>;
+type GetIssueFn = Octokit["rest"]["issues"]["get"];
+type GetIssueResponse = Awaited<ReturnType<GetIssueFn>>;
+type GetIssueLabel = GetIssueResponse["data"]["labels"][number];
+type GetIssueLabelObject = Exclude<GetIssueLabel, string>;
 type CreateIssueCommentError = Error & {
+	status?: number;
+};
+type GetIssueError = Error & {
 	status?: number;
 };
 type OctokitIssueDependenciesClient = {
@@ -53,6 +60,7 @@ type OctokitIssueDependenciesClient = {
 			listDependenciesBlockedBy: (
 				...args: Parameters<ListDependenciesBlockedByFn>
 			) => ReturnType<ListDependenciesBlockedByFn>;
+			get: (...args: Parameters<GetIssueFn>) => ReturnType<GetIssueFn>;
 		};
 	};
 };
@@ -90,30 +98,36 @@ export class GitHubIssueCommentError extends Error {
 export async function fetchGitHubIssue(
 	input: { owner: string; repository: string; issueNumber: number },
 	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
+	options?: {
+		octokit?: OctokitIssueDependenciesClient;
+	},
 ): Promise<GitHubIssue> {
-	const response = await fetch(
-		`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(
-			input.repository,
-		)}/issues/${input.issueNumber}`,
-		{
+	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
+	let response: GetIssueResponse;
+	try {
+		response = await octokit.rest.issues.get({
+			owner: input.owner,
+			repo: input.repository,
+			issue_number: input.issueNumber,
 			headers: {
 				Accept: "application/vnd.github+json",
-				Authorization: `Bearer ${env.GITHUB_TOKEN}`,
 				"X-GitHub-Api-Version": "2022-11-28",
 			},
-		},
-	);
+		});
+	} catch (error) {
+		const typedError = error as GetIssueError;
+		const status =
+			typeof typedError?.status === "number" ? typedError.status : 500;
 
-	if (!response.ok) {
 		throw new GitHubIssueFetchError(
-			response.status,
+			status,
 			input.owner,
 			input.repository,
 			input.issueNumber,
 		);
 	}
 
-	return normalizeIssue(await response.json());
+	return normalizeIssue(response.data);
 }
 
 export async function createIssueComment(
@@ -252,76 +266,33 @@ function parseRepositoryOwnerAndNameFromUrl(url: string): [string, string] {
 	return ["", ""];
 }
 
-function normalizeIssue(value: unknown): GitHubIssue {
-	if (!isGitHubIssueResponse(value)) {
-		throw new Error("GitHub issue response had an unexpected shape.");
-	}
-
+function normalizeIssue(value: GetIssueResponse["data"]): GitHubIssue {
 	return {
 		number: value.number,
 		id: value.id,
 		nodeId: value.node_id,
 		title: value.title,
-		body: value.body,
+		body: value.body ?? null,
 		htmlUrl: value.html_url,
 		state: value.state,
 		labels: value.labels.flatMap(normalizeLabel),
 	};
 }
 
-function normalizeLabel(
-	value: GitHubIssueResponse["labels"][number],
-): GitHubIssueLabel[] {
+function normalizeLabel(value: GetIssueLabel): GitHubIssueLabel[] {
 	if (typeof value === "string") {
 		return [];
 	}
 
+	const asLabel = value as GetIssueLabelObject;
+
 	return [
 		{
-			id: value.id,
-			nodeId: value.node_id,
-			name: value.name,
-			color: value.color,
-			description: value.description,
+			id: asLabel.id ?? 0,
+			nodeId: asLabel.node_id ?? "",
+			name: asLabel.name ?? "",
+			color: asLabel.color ?? null,
+			description: asLabel.description ?? null,
 		},
 	];
-}
-
-type GitHubIssueResponse = {
-	number: number;
-	id: number;
-	node_id: string;
-	title: string;
-	body: string | null;
-	html_url: string;
-	state: string;
-	labels: (
-		| string
-		| {
-				id: number;
-				node_id: string;
-				name: string;
-				color: string | null;
-				description: string | null;
-		  }
-	)[];
-};
-
-function isGitHubIssueResponse(value: unknown): value is GitHubIssueResponse {
-	if (typeof value !== "object" || value === null) {
-		return false;
-	}
-
-	const issue = value as Partial<GitHubIssueResponse>;
-
-	return (
-		typeof issue.number === "number" &&
-		typeof issue.id === "number" &&
-		typeof issue.node_id === "string" &&
-		typeof issue.title === "string" &&
-		(issue.body === null || typeof issue.body === "string") &&
-		typeof issue.html_url === "string" &&
-		typeof issue.state === "string" &&
-		Array.isArray(issue.labels)
-	);
 }
