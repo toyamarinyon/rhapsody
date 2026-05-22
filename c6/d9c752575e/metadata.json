@@ -1,0 +1,22 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "c6d9c752575e",
+  "strategy": "manual-commit",
+  "branch": "codex/new-scheduler",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "lib/post-run-decision.test.ts",
+    "lib/scheduler/tick.test.ts",
+    "package.json",
+    "test/ts-loader.mjs",
+    "vitest.config.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/c6/d9c752575e/0/metadata.json",
+      "transcript": "/c6/d9c752575e/0/full.jsonl",
+      "content_hash": "/c6/d9c752575e/0/content_hash.txt",
+      "prompt": "/c6/d9c752575e/0/prompt.txt"
+    }
+  ]
+}
