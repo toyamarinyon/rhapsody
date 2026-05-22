@@ -537,8 +537,11 @@ fallback. See [ADR 0006](adr/0006-use-callback-driven-workflow-orchestration.md)
 For the MVP, agent execution uses a TypeScript/Node sandbox wrapper. The wrapper is the
 sandbox-side attempt executor and owns `codex exec`, branch push verification, and collection of
 repository-external handoff artifacts. It reports observed execution status only; trusted Rhapsody
-code creates or reuses pull requests and records handoff artifacts. Later curator workers evaluate
-handoff verification, checks, review evidence, and project status policy. See
+code creates or reuses pull requests and records handoff artifacts. When trusted code creates a new
+pull request from sandbox handoff and the agent-provided body does not already contain a
+GitHub-supported closing keyword for the current work item, Rhapsody appends one before creation.
+Existing pull request reuse does not rewrite the body. Later curator workers evaluate handoff
+verification, checks, review evidence, and project status policy. See
 [ADR 0011](adr/0011-use-sandbox-wrapper-for-mvp-runner-execution.md).
 
 The MVP prepares source code with Vercel Sandbox Git source initialization. The runner resolves and

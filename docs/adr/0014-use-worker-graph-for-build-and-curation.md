@@ -54,6 +54,11 @@ The builder worker owns only the build handoff:
 - create or reuse a pull request;
 - record the produced artifacts and finish.
 
+When trusted Rhapsody code creates a new pull request from builder handoff and the agent-provided
+body does not already contain a GitHub-supported closing keyword for the current work item, it
+should append one before creation so GitHub links the pull request to the issue. Reused pull
+requests are not rewritten as part of that handoff step.
+
 The curator worker owns decision-making around readiness and next action:
 
 - intake curation before the builder runs;
