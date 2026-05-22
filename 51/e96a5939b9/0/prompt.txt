@@ -1,0 +1,9 @@
+[toyamarinyon/rhapsody#55](https://github.com/toyamarinyon/rhapsody/pull/55) が Vercel Buildで失敗しているので確認してください。修正する前に原因を教えてください。
+
+---
+
+checkoutして、修正しましょう。 [@builder](subagent://builder) に修正を依頼したあなたはアウトプットの品質を評価しフィードバックを続けてください。CIも通るようにローカルで実行できるチェックはしましょう
+
+---
+
+Repo: `/Users/toyamarinyon/Documents/rhapsody`. Please check out branch `rhapsody/issue-54-1` in your workspace if needed. Fix the invalid Next.js route structure behind PR #55 so Vercel build passes, and make the touched code pass the narrowest relevant local CI checks. You own the work item graph endpoint implementation and any directly related tests/docs needed for this fix. Edit files directly in your workspace. You are not alone in the codebase: do not revert unrelated edits, and adapt to existing changes. In your final response, summarize the fix, list every file you changed, and include the exact verification commands you ran with results.

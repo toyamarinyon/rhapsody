@@ -1,0 +1,62 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "51e96a5939b9",
+  "session_id": "019e4e2c-d33a-7d71-abcb-64ca01aeb7ce",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-22T05:51:02.381652Z",
+  "branch": "rhapsody/issue-54-1",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "app/api/v1/work-items/[...encodedWorkItemId]/graph/route.ts",
+    "app/api/v1/work-items/[encodedWorkItemId]/graph/route.ts",
+    "lib/server/work-item-graph.test.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.4",
+  "turn_id": "036c77c273d2",
+  "token_usage": {
+    "input_tokens": 284201,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 4018432,
+    "output_tokens": 12617,
+    "api_call_count": 58
+  },
+  "session_metrics": {
+    "turn_count": 3
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-22T05:51:02.36393Z",
+    "agent_lines": 163,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 163,
+    "total_lines_changed": 163,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 83,
+      "agent_lines_removed": 89
+    }
+  ]
+}

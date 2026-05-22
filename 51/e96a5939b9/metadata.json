@@ -1,0 +1,27 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "51e96a5939b9",
+  "strategy": "manual-commit",
+  "branch": "rhapsody/issue-54-1",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "app/api/v1/work-items/[...encodedWorkItemId]/graph/route.ts",
+    "app/api/v1/work-items/[encodedWorkItemId]/graph/route.ts",
+    "lib/server/work-item-graph.test.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/51/e96a5939b9/0/metadata.json",
+      "transcript": "/51/e96a5939b9/0/full.jsonl",
+      "content_hash": "/51/e96a5939b9/0/content_hash.txt",
+      "prompt": "/51/e96a5939b9/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 284201,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 4018432,
+    "output_tokens": 12617,
+    "api_call_count": 58
+  }
+}
