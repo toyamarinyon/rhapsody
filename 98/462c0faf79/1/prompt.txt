@@ -1,0 +1,14 @@
+[config.toml](.rhapsody/config.toml) で、modelとreasoning effortを指定できたと思うのですが、どうやって設定するんでしたっけ？
+
+---
+
+多分実装追加したんですよね。 rhapsody/config で
+
+---
+
+rhapsody/issue-48-1 でやっていて途中で終わっていました。
+これcheckoutしてpnpm formatして、modelを`gpt-5.4` reasoning effortを'low'にしてpushしてください。
+
+---
+
+[toyamarinyon/rhapsody#49](https://github.com/toyamarinyon/rhapsody/pull/49/) pr
