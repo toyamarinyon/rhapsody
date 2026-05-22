@@ -7,7 +7,7 @@
 		"build": "next build",
 		"start": "next start",
 		"lint": "eslint",
-		"test": "node --no-warnings --experimental-transform-types --experimental-loader ./test/ts-loader.mjs --test \"**/*.test.ts\"",
+		"test": "vitest",
 		"format:check": "biome format .",
 		"format": "biome format --write .",
 		"typecheck": "tsc --noEmit && node --check lib/runners/sandbox-codex-wrapper/wrapper.cjs"
@@ -31,6 +31,7 @@
 		"eslint": "^9",
 		"eslint-config-next": "16.2.6",
 		"eslint-plugin-raula": "0.0.6",
+		"vitest": "^3.2.4",
 		"tailwindcss": "^4",
 		"typescript": "^5"
 	}

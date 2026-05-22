@@ -1,8 +1,7 @@
-import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import { expect, test } from "vitest";
 import { createClient, type Client } from "@libsql/client";
 
 import { runSchedulerTick, type SchedulerTickDependencies } from "./tick";
@@ -61,39 +60,33 @@ test("scheduler records intake and builder graph for buildable Todo items", asyn
 			}),
 		});
 
-		assert.equal(result.ok, true);
+		expect(result.ok).toBe(true);
 		if (!result.ok) {
 			return;
 		}
 
-		assert.equal(result.value.created, 1);
+		expect(result.value.created).toBe(1);
 		const graph = await listWorkItemGraph(
 			client,
 			"github_issue:toyamarinyon/rhapsody#101",
 		);
 
-		assert.equal(
-			graph.workerRuns.some((run) => run.kind === "intake_curator"),
+		expect(graph.workerRuns.some((run) => run.kind === "intake_curator")).toBe(
 			true,
 		);
-		assert.equal(
-			graph.workerRuns.some((run) => run.kind === "builder"),
-			true,
-		);
-		assert.equal(
+		expect(graph.workerRuns.some((run) => run.kind === "builder")).toBe(true);
+		expect(
 			graph.decisions.some(
 				(decision) =>
 					decision.phase === "intake" && decision.outcome === "buildable",
 			),
-			true,
-		);
-		assert.equal(
+		).toBe(true);
+		expect(
 			graph.decisions.some(
 				(decision) =>
 					decision.phase === "dispatch" && decision.outcome === "start_builder",
 			),
-			true,
-		);
+		).toBe(true);
 	} finally {
 		client.close();
 		database.cleanup();
@@ -115,13 +108,13 @@ test("scheduler records ask_human and skips builder for sparse Todo items", asyn
 			fetchProjectIssueWorkItems: async () => [item],
 		});
 
-		assert.equal(result.ok, true);
+		expect(result.ok).toBe(true);
 		if (!result.ok) {
 			return;
 		}
 
-		assert.equal(result.value.created, 0);
-		assert.deepEqual(result.value.skippedIssues, [
+		expect(result.value.created).toBe(0);
+		expect(result.value.skippedIssues).toEqual([
 			{
 				workItemId: "github_issue:toyamarinyon/rhapsody#102",
 				issueNumber: 102,
@@ -133,17 +126,13 @@ test("scheduler records ask_human and skips builder for sparse Todo items", asyn
 			client,
 			"github_issue:toyamarinyon/rhapsody#102",
 		);
-		assert.equal(
+		expect(
 			graph.decisions.some(
 				(decision) =>
 					decision.phase === "intake" && decision.outcome === "ask_human",
 			),
-			true,
-		);
-		assert.equal(
-			graph.workerRuns.some((run) => run.kind === "builder"),
-			false,
-		);
+		).toBe(true);
+		expect(graph.workerRuns.some((run) => run.kind === "builder")).toBe(false);
 	} finally {
 		client.close();
 		database.cleanup();
@@ -191,27 +180,22 @@ test("scheduler runs post-PR curator and repairer planner for failed format chec
 			}),
 		});
 
-		assert.equal(result.ok, true);
+		expect(result.ok).toBe(true);
 		const graph = await listWorkItemGraph(client, workItemId);
 
-		assert.equal(
+		expect(
 			graph.decisions.some(
 				(decision) =>
 					decision.phase === "post_pr" && decision.outcome === "ci_failed",
 			),
-			true,
-		);
-		assert.equal(
+		).toBe(true);
+		expect(
 			graph.decisions.some(
 				(decision) =>
 					decision.phase === "repair" && decision.outcome === "repair_allowed",
 			),
-			true,
-		);
-		assert.equal(
-			graph.workerRuns.some((run) => run.kind === "repairer"),
-			true,
-		);
+		).toBe(true);
+		expect(graph.workerRuns.some((run) => run.kind === "repairer")).toBe(true);
 	} finally {
 		client.close();
 		database.cleanup();
