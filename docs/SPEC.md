@@ -736,6 +736,8 @@ Minimum endpoints:
   - Returns running, retrying, completed, failed, token totals, recent events, and rate limits.
 - `GET /api/v1/items/:identifier`
   - Returns item-specific run/debug details.
+- `GET /api/v1/work-items/:encoded_work_item_id/graph`
+  - Returns worker runs, decisions, artifacts, and links for a single work item.
 - `GET /api/v1/runs/:run_id`
   - Returns run attempts, sandbox references, logs, sandbox exports, snapshots, and GitHub links.
 - `POST /api/v1/refresh`
