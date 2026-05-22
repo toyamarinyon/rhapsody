@@ -10,7 +10,7 @@
 		"test": "vitest",
 		"format:check": "biome format .",
 		"format": "biome format --write .",
-		"typecheck": "tsc --noEmit && node --check lib/runners/sandbox-codex-wrapper/wrapper.cjs"
+		"typecheck": "tsc --noEmit && find lib -type f -name '*.cjs' -exec node --check {} \\;"
 	},
 	"dependencies": {
 		"@libsql/client": "^0.17.3",
