@@ -1,0 +1,28 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "d5ede7586973",
+  "strategy": "manual-commit",
+  "branch": "codex/intake-curator-codex-classifier",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "lib/github/issues.test.ts",
+    "lib/github/issues.ts",
+    "package.json",
+    "pnpm-lock.yaml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d5/ede7586973/0/metadata.json",
+      "transcript": "/d5/ede7586973/0/full.jsonl",
+      "content_hash": "/d5/ede7586973/0/content_hash.txt",
+      "prompt": "/d5/ede7586973/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 336493,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 8951424,
+    "output_tokens": 45485,
+    "api_call_count": 138
+  }
+}

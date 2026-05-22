@@ -1,0 +1,138 @@
+apiのresponse fieldを実装者やreviewerの記憶で議論したりparse実装するの危険すぎるんで、 Octokit使いませんか？
+
+[octokit/rest.js](https://github.com/octokit/rest.js/)
+
+意見聞きたいです
+
+---
+
+>  Octokit に寄せる。ただし unknown response を完全に信じる
+
+Octokit restを使ったら、unknown reeponseじゃなくて、responseはendpointごとに型安全になると思います。
+
+---
+
+> 型付き response.data を Rhapsody の小さい domain type に写す
+
+これは賛成です。
+では実装を始めましょう。
+依存を追加したら、 [@lilas](agent://019e4ee1-b657-7800-9815-42d098c8311e) に実装を依頼してあなたは評価とフィードバックに徹してください。
+
+---
+
+Rhapsody repo `/Users/toyamarinyon/Documents/rhapsody` の現ブランチ `codex/intake-curator-codex-classifier` で続きの実装をお願いします。親側で `@octokit/rest@22.0.1` を依存追加済みです。あなたは実装担当、私はレビュー・フィードバック担当です。コミットはしないでください。
+
+Goal: 先ほど入れた native GitHub issue dependencies fetcher を、手書き fetch/手書き response shape guard から Octokit REST の型付き response に置き換える。
+
+背景:
+- ユーザーの懸念: API response field を実装者/reviewer の記憶で parse するのは危険。
+- 合意した方針: Octokit の endpoint-specific typed `response.data` を使い、それを Rhapsody の小さい domain type に projection する。
+- つまり内部型 `GitHubBlockedByDependency` のような Rhapsody domain type は残してよいが、GitHub API response shape を手書き型/shape guard で再定義しない。
+
+やってほしいこと:
+1. `lib/github/issues.ts` の `fetchIssueDependenciesBlockedBy` を Octokit REST に置き換えてください。
+   - `import { Octokit } from "@octokit/rest"` を使用。
+   - auth は既存 `RhapsodyGitHubEnv.GITHUB_TOKEN` を使う。
+   - API version は dependencies endpoint で `2026-03-10` を使う。
+   - 可能ならまず `octokit.rest.issues...` に typed method があるか確認して使う。
+   - method がまだ存在しないなら `octokit.request("GET /repos/{owner}/{repo}/issues/{issue_number}/dependencies/blocked_by", ...)` を使ってください。ただし `response.data` の型が Octokit/OpenAPI に乗っているか TypeScript で確認してください。型が乗らない場合は報告してください。
+2. 手書きの `GitHubBlockedByDependencyResponse`, `isGitHubBlockedByDependencyResponse`, `normalizeIssueDependency(value: unknown, ...)` のような API response shape guard は削除してください。
+3. Rhapsody 内部型への projection は残してください。projection では Octokit typed `response.data[number]` などから必要 field を読む形にしてください。
+4. 既存 tests を更新してください。
+   - `lib/github/issues.test.ts` は global.fetch mock ではなく Octokit request の挙動をテストしやすい形にしてください。必要なら `fetchIssueDependenciesBlockedBy` に Octokit instance を injection できる設計でもOKです。
+   - テストでは API version / endpoint / auth について可能な範囲で確認してください。
+   - response shape guard テストは不要になるはずなので削除/置換してください。
+5. intake curator 側の挙動は変えないでください。
+
+検証:
+- `pnpm exec vitest run lib/github/issues.test.ts lib/workers/intake-curator.test.ts lib/scheduler/tick.test.ts`
+- `pnpm typecheck`
+- `pnpm lint`
+
+注意:
+- あなたは一人ではありません。親側やユーザーの既存変更を戻さないでください。
+- 依存追加済みの `package.json` / `pnpm-lock.yaml` は触ってOKですが、不要な churn は避けてください。
+- 完了時、変更ファイル、実行テスト、Octokit の endpoint 型が使えたかどうかを報告してください。
+
+---
+
+レビュー差し戻しです。方向は合っていますが、現 diff はまだユーザーの懸念を解消できていません。
+
+問題:
+1. `lib/github/issues.ts` に `IssueDependenciesBlockedByOctokit` という手書き型を作っていて、`data: { nodes?: unknown[] } | unknown[]` になっています。これは Octokit の endpoint-specific response type を使っていないので NG です。
+2. `response.data` から `unknown[]` に cast して、さらに `{ id: string | number; ... repository: ... }` へ cast しています。これは「API response field を記憶で parse」から抜けられていません。
+3. `octokit.rest.issues.listDependenciesBlockedBy` が型付きで存在するなら、型は `Octokit` の実メソッドから取ってください。例: `type ListDependenciesBlockedByResponse = Awaited<ReturnType<Octokit["rest"]["issues"]["listDependenciesBlockedBy"]>>;` のような方向です。mock injection が必要なら `Pick` / `Parameters` / `ReturnType` を Octokit 実メソッドから導出してください。
+4. もし `response.data` が Octokit 型上 union になるなら、その union の型名・実際の compiler 上の形を活かしてください。`unknown` へ落としてはいけません。必要なら小さい helper で `Array.isArray(response.data) ? response.data : response.data.nodes` のように narrow して、その後の `dependency` は Octokit 由来の element type で扱ってください。
+5. `repository` field を読む実装になっていますが、公式 REST issue object の例では `repository_url` が主です。Octokit endpoint 型が本当に `repository` を持つならOKですが、手書き cast でそう見せているだけならNGです。型に従ってください。
+6. `package.json` の依存/Dev依存の並び替えは不要な churn なので、依存追加以外の並び替えは戻してください（zod/vitest の位置など）。
+
+期待する形:
+- `Octokit` 実型から `listDependenciesBlockedBy` の parameters/response/data/element 型を導出する。
+- 手書き API response shape type / unknown cast を削除する。
+- Rhapsody domain type への projection だけ残す。
+- テストの mock type も Octokit 実メソッド由来にする。
+
+検証は同じく:
+- `pnpm exec vitest run lib/github/issues.test.ts lib/workers/intake-curator.test.ts lib/scheduler/tick.test.ts`
+- `pnpm typecheck`
+- `pnpm lint`
+
+コミットはしないでください。
+
+---
+
+再レビューです。まだ通せません。かなり近いですが、型安全性の肝が崩れています。
+
+問題点:
+1. `lib/github/issues.test.ts` の正常系 response が `as unknown as ListDependenciesBlockedByResponse` になっています。これは今回避けたいパターンそのものです。テストデータが Octokit の型を満たせないなら、実装が読んでいる field が Octokit 型に存在しない可能性があります。cast で黙らせないでください。
+2. 正常系 mock data に `repository` を入れていますが、公式 REST issue object では主に `repository_url` です。Octokit 型に `repository` がないなら実装で読まないでください。`repository_url` から owner/name を project するだけで十分です。
+3. `issues.ts` 側で `dependency.repository` を `typeof` で掘っていますが、Octokit 型に `repository` が存在しないなら不要です。存在するなら test response は cast なしで通るはずです。
+4. `ListDependenciesBlockedByData extends { nodes: ... }` の分岐は本当に必要ですか？`octokit.rest.issues.listDependenciesBlockedBy` の response.data が配列型なら、nodes fallback は消してください。型安全に使える endpoint method を採用した意味を薄めます。
+5. `package.json` の並び替え churn はまだ残っています。`@octokit/rest` 追加以外の並び替えは戻してください。
+
+期待する実装:
+- `type ListDependenciesBlockedByDependency = Awaited<ReturnType<Octokit["rest"]["issues"]["listDependenciesBlockedBy"]>>["data"][number];` のように、data が配列である前提を型で確認する。
+- projection は `dependency.repository_url` から owner/name を parse する。`repository_url` が Octokit 型で string なら runtime `typeof` check は不要です。
+- test response は `satisfies ListDependenciesBlockedByResponse` または直接 `const data = [...] satisfies ListDependenciesBlockedByResponse["data"]` のように、cast なしで型に検証させる。
+- `as unknown as ...` は削除してください。どうしても `vi.fn` の mock 型都合で必要なら、response payload ではなく mock 関数型にだけ限定してください。
+- package.json の不要な並び替えを戻してください。
+
+再度検証:
+- `pnpm exec vitest run lib/github/issues.test.ts lib/workers/intake-curator.test.ts lib/scheduler/tick.test.ts`
+- `pnpm typecheck`
+- `pnpm lint`
+
+コミットはしないでください。
+
+---
+
+ほぼOKです。残り一点だけ直してください。
+
+`package.json` に不要な並び替え churn が残っています。
+- `zod` の位置を元に戻してください（`@vercel/sandbox` の直後）
+- devDependencies も元の順序に戻してください（`vitest` は元々 `eslint-plugin-raula` の後、`tailwindcss` の前でした）
+- `@octokit/rest` 追加だけが package.json の差分になるようにしてください。
+
+コード側はこの方向でよさそうです。修正後に以下だけ再実行してください:
+- `pnpm exec vitest run lib/github/issues.test.ts lib/workers/intake-curator.test.ts lib/scheduler/tick.test.ts`
+- `pnpm typecheck`
+- `pnpm lint`
+
+コミットはしないでください。
+
+---
+
+最後の整えです。こちらで `pnpm exec biome check lib/github/issues.ts lib/github/issues.test.ts package.json pnpm-lock.yaml` を実行したところ、Biome 指摘が残っています。
+
+対応してください:
+- `lib/github/issues.ts`: `parts.findIndex((part) => part === "repos")` を `parts.indexOf("repos")` に変更
+- `lib/github/issues.test.ts`: `Octokit` import は type-only に変更
+- `lib/github/issues.ts` / `lib/github/issues.test.ts`: Biome format を適用
+
+修正後、以下を実行して報告してください:
+- `pnpm exec biome check lib/github/issues.ts lib/github/issues.test.ts package.json pnpm-lock.yaml`
+- `pnpm exec vitest run lib/github/issues.test.ts lib/workers/intake-curator.test.ts lib/scheduler/tick.test.ts`
+- `pnpm typecheck`
+- `pnpm lint`
+
+コミットはしないでください。
