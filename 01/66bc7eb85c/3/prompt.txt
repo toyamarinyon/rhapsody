@@ -1,0 +1,92 @@
+[0014-use-worker-graph-for-build-and-curation.md](docs/adr/0014-use-worker-graph-for-build-and-curation.md) に書いてある、pre-buildのworkerが今、仮実装だと思うので、これをもうちょっとちゃんとやりたい。どうすればいいと思う？
+
+---
+
+blockedは読みたいですね。
+ask_humanでcommentしたいし、buildableの時にもこういう感じで実装するね、というのをcommentしたいですね。
+提案してくれた方法は確かに網羅的かつ賢いと思うのですが、今すぐに実現したいことはこれです。
+
+issueにblocked_byが設定されている、かつそのissueがcloseになっていない→skip
+issueのtitle,bodyその方かいろいろな情報をLLMに入力し、classify(object形式)
+結果を元に、issueにcommentし、次に繋げる
+
+どうでしょう？
+
+---
+
+OKです。実装を進める上で、検討ポイントはLLMの実行方法ですね。Builderと同じようにCodexを使うのがいいかなと思う一方で、軽く実装できるならOpenAIのAPIを使ってもいいと思っています。この場合、Builderで使っている。Login with ChatGPTにtokenが使えるかがポイントです。
+
+---
+
+ChatGPT Login Tokenを使うと、ChatGPTのサブスクリプションに付帯するtokenが使えるのでAPI利用料がかからないんですよね。ではCodexを使いましょうか。model gpt-5.4-mini にすればサブスクリプションのusageにも影響小さそうですし。
+
+---
+
+良いと思います。Codexの出力をスキーマで強制できるか調べて欲しいです。
+
+---
+
+いいですね。zodで定義しておけばruntimeでの検証も楽です。もし失敗した場合はhealingようのCodexをn.
+
+---
+
+okです。Plan作ってみましょう。長くなっていいので、細かくやっていくことを積んでいきましょう。また、ゴールイメージも明確に表現しましょう。
+
+---
+
+okなので、これで実装進めましょう。一つのprでいいので、ブランチ作って、コミットを分けてください。
+実装は [@builder](subagent://builder) に依頼して、あなたはアウトプットを評価し十分な水準になるまでフィードバックを繰り返してください。deterministicにできるところはテストを書き、検証できるようにしてください。
+ゴールイメージを高いレベルで実現することに責任を持って進めてください。
+
+---
+
+Implement the intake curator Codex-classifier feature in /Users/toyamarinyon/Documents/rhapsody. You are not alone in the codebase; do not revert changes made by others, and accommodate concurrent changes if any appear.
+
+Context summary:
+- Branch should be codex/intake-curator-codex-classifier.
+- Follow AGENTS.md in repo. docs/adr/0014-use-worker-graph-for-build-and-curation.md is the guiding ADR.
+- Current intake curator is lib/workers/intake-curator/index.ts and only checks title/body length.
+- Scheduler integration is lib/scheduler/tick.ts.
+- Codex CLI command builder is lib/codex/cli.ts; local `codex exec --help` supports `--output-schema <FILE>`.
+
+Goal: high-level but working implementation of pre-build intake worker:
+- deterministic blocked_by/open-blocker path that skips builder and records graph decision/comment;
+- Codex-based classification path using gpt-5.4-mini with schema-constrained final output;
+- Zod runtime validation, one healing attempt, fallback ask_human;
+- GitHub issue comments created by trusted Rhapsody code, not by Codex;
+- decision/artifact/link graph records and dedupe so comments are not posted repeatedly for unchanged input;
+- deterministic tests for schema validation, CLI argv, blocked path, classifier success/failure/healing/fallback, scheduler integration where feasible.
+
+Important constraints:
+- Use repo patterns.
+- Do not use OpenAI API for the classifier. Use Codex CLI path. Add `--output-schema` support to lib/codex/cli.ts.
+- The actual sandbox Codex runner can be represented through an injectable classifier runner so tests do not invoke Codex/network. Keep a production path shaped for Codex CLI with output schema + output-last-message.
+- Use Zod as runtime source of truth for IntakeClassification. If JSON schema generation requires a dependency, prefer existing dependencies first; if adding one, update package files and tests.
+- Keep secrets/raw tokens out of logs, events, decisions, artifacts.
+- Commit in focused commits if possible, but do not push.
+
+Suggested implementation slices:
+1) schema + business validation + JSON schema export; add outputSchemaFile to lib/codex/cli.ts and tests.
+2) extend intake curator types for blockedBy/project metadata minimally, implement fingerprint/dedupe and deterministic blocked outcome.
+3) implement injectable Codex classification/healing/fallback and issue comment helper/artifact/link recording.
+4) integrate scheduler behavior so only buildable starts builder, blocked/ask_human/skip do not.
+5) tests and docs.
+
+Please edit files directly. Final answer should list changed files, tests run, commits made, and known gaps/blockers.
+
+---
+
+Review feedback from parent: the current implementation is not yet acceptable. Please address these concrete issues in the same workspace without reverting unrelated changes.
+
+Critical issues:
+1) User explicitly wants buildable comments too. Current `postIntakeComment` only runs for non-buildable. Change to comment for buildable/ask_human/blocked/skip, with dedupe.
+2) The requirement is `blocked_by` set AND referenced issue is not closed -> skip. Current implementation treats any blockedBy string as blocked and does not model closed/open state. Add a minimal structured blocker type (string compatibility ok for tests) with state, and only block open/unknown blockers. Closed blockers should proceed to classifier/buildable path.
+3) Classifier schema should not include `blocked_by` as an LLM decision if blocked_by is deterministic. Use outcomes `buildable | ask_human | skip` for LLM, and worker outcomes can include `blocked` (or `blocked_by`, but be consistent). The final product should have a skip/block decision for deterministic blockers.
+4) `runCodexIntakeClassification` currently calls `runCodexExec(command)` with a built command object, but `runCodexExec` expects CodexCliOptions and builds its own command. Fix this.
+5) Zod business validation is too weak. Need buildable requires implementation plan/comment, ask_human requires question/comment, skip requires reason/comment. Current schema only has reason/comment optional-ish.
+6) There is no real comment dedupe. Fresh decision dedupe prevents rerun only when existingDecisions are passed, but comment artifact dedupe should be explicit enough for repeated scheduler ticks with graph decisions. At minimum, if fresh decision exists return based on it and do not comment; if creating new decision create one comment artifact. Prefer metadata fingerprint.
+7) package.json dependency versions need to be installable and pnpm-lock.yaml must be updated. Use known compatible zod + zod-to-json-schema versions, or avoid zod-to-json-schema by hand-generating JSON schema from the Zod source if dependency friction is high.
+8) Keep raw command strings out of evidence/logs if they can include paths only fine, but no prompt/token. Ensure raw classifier output is not stored unless sanitized.
+9) Tests should cover closed blocker proceeds, open blocker skips, buildable posts a comment, invalid primary -> healing -> success, primary+healing invalid -> fallback ask_human.
+
+Please make focused corrections and run whatever tests you can. If network/deps block you, still make code/tests coherent and report exactly what remains.

@@ -1,0 +1,42 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "0166bc7eb85c",
+  "session_id": "019e4ebe-3331-7e23-9edb-c5dc998bc1a6",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-22T09:21:29.355743Z",
+  "branch": "codex/intake-curator-codex-classifier",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "lib/github/issues.ts",
+    "lib/scheduler/tick.test.ts",
+    "lib/scheduler/tick.ts",
+    "lib/workers/intake-curator.test.ts",
+    "lib/workers/intake-curator/index.ts",
+    "package.json"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "e04b8d76e740",
+  "token_usage": {
+    "input_tokens": 366066,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 11355392,
+    "output_tokens": 98737,
+    "api_call_count": 174
+  },
+  "session_metrics": {
+    "turn_count": 4
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-22T09:21:29.309074Z",
+    "agent_lines": 1381,
+    "agent_removed": 206,
+    "human_added": 144,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1525,
+    "total_lines_changed": 1731,
+    "agent_percentage": 91.68110918544194,
+    "metric_version": 2
+  }
+}
