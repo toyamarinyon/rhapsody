@@ -1,3 +1,507 @@
+この後の段取りはどうするのが良いと思いますか？
+
+---
+
+> 今は Project text field の blocked_by / Blocked by
+
+GitHubのissueにblocked_by設定できるようになっているので、それ使えないですか？
+[https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/creating-issue-dependencies](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/creating-issue-dependencies)
+
+実装する前に仕様とAPI確認して実現可能性を調べてください
+
+---
+
+# AGENTS.md instructions for /Users/toyamarinyon/Documents/rhapsody
+
+<INSTRUCTIONS>
+# AGENTS.md
+
+Rhapsody is a Next.js application for a Vercel-native agent scheduler/runner. It is derived from
+[Symphony](https://openai.com/index/open-source-codex-orchestration-symphony/), but the target
+architecture is GitHub Projects + Workflow SDK + Vercel Sandbox rather than a long-running local
+daemon.
+
+## Project Direction
+
+- Treat [docs/SPEC.md](docs/SPEC.md) as the working product/engineering specification.
+- Treat [docs/ORIGINAL_SPEC.md](docs/ORIGINAL_SPEC.md) as the unmodified Symphony reference spec.
+- Design human-facing surfaces as extensions of familiar development practice, while optimizing the
+  machinery behind them for agents and automation. Rhapsody exists to help humans develop with
+  coding agents, so branch names, PRs, issue comments, dashboards, logs, and operator workflows
+  should remain readable and unsurprising to developers. Code is also a human-facing surface:
+  even when it implements agent-optimized data structures, protocols, mediation, sandboxing,
+  retries, and verification, its naming, module boundaries, and control flow should stay readable
+  and understandable to human maintainers. The product facade should feel familiar; the internal
+  contracts should be explicit and structured for agents; the implementation should make both
+  legible.
+- Prefer Vercel-native primitives:
+  - Workflow SDK for durable scheduler/runner workflows.
+  - Vercel Sandbox for isolated agent execution.
+  - Vercel Cron and GitHub webhooks for triggers.
+  - A durable store for claims, runs, attempts, events, and dashboard projections.
+- Use GitHub Projects v2 as the first issue tracker, not Linear.
+- Keep the initial target narrow: GitHub Issues in a configured ProjectV2 board. Add PRs, draft
+  issues, and other trackers later.
+
+## Near-Term Work
+
+1. Define the config shape for GitHub Project, scheduler, sandbox, and agent settings.
+2. Add a GitHub Project tracker client that can resolve project/field IDs and normalize ProjectV2
+   items into Rhapsody work items.
+3. Add durable claim/run/attempt/event persistence.
+4. Add a Workflow SDK scheduler workflow that polls GitHub Projects and starts runner workflows.
+5. Add a runner workflow skeleton that creates a Vercel Sandbox and runs a simple command.
+6. Add dashboard/API endpoints for state, item detail, run detail, and manual refresh.
+
+## Engineering Notes
+
+- Do not rely on in-memory state for scheduler correctness; Vercel Functions are not daemon
+  processes.
+- Agent commands must run inside a Vercel Sandbox workspace, not directly in the Vercel Function
+  environment.
+- Secrets should be passed through documented environment or brokered access patterns and must not
+  be logged.
+- Project status, claims, and retries must be idempotent because Cron, webhooks, and manual refresh
+  can overlap.
+- Keep docs updated as implementation decisions become concrete.
+
+<!-- eslint-plugin-raula-start -->
+<!-- Managed by `eslint-plugin-raula install` -->
+# raula: opnionated linting
+Before editing files that touch styling, JSX className usage, global CSS selectors, or Next.js layout files, read:
+`./node_modules/eslint-plugin-raula/REFERENCE.md`
+This block is supplemental and should complement, not override, local project instructions.
+<!-- eslint-plugin-raula-end -->
+
+
+<!-- BEGIN:nextjs-agent-rules -->
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+<!-- END:nextjs-agent-rules -->
+
+</INSTRUCTIONS>
+
+---
+
+<environment_context>
+  <cwd>/Users/toyamarinyon/Documents/rhapsody</cwd>
+  <shell>zsh</shell>
+  <current_date>2026-05-22</current_date>
+  <timezone>Asia/Tokyo</timezone>
+  <subagents>
+    - 019e4ee1-b657-7800-9815-42d098c8311e: lilas
+  </subagents>
+</environment_context>
+
+---
+
+ではそれ使うようにしましょう [@lilas](agent://019e4ee1-b657-7800-9815-42d098c8311e) に実装依頼してあなたは評価、フィードバックを繰り返してください
+
+---
+
+apiのresponse fieldを実装者やreviewerの記憶で議論したりparse実装するの危険すぎるんで、 Octokit使いませんか？
+
+[octokit/rest.js](https://github.com/octokit/rest.js/)
+
+意見聞きたいです
+
+---
+
+>  Octokit に寄せる。ただし unknown response を完全に信じる
+
+Octokit restを使ったら、unknown reeponseじゃなくて、responseはendpointごとに型安全になると思います。
+
+---
+
+> 型付き response.data を Rhapsody の小さい domain type に写す
+
+これは賛成です。
+では実装を始めましょう。
+依存を追加したら、 [@lilas](agent://019e4ee1-b657-7800-9815-42d098c8311e) に実装を依頼してあなたは評価とフィードバックに徹してください。
+
+---
+
+# Diff comments:
+
+## Comment 1
+File: lib/github/issues.ts
+Side: R
+Lines: 220-221
+Diff hunk:
+```diff
+@@ -62,6 +111,167 @@ export async function fetchGitHubIssue(
+ 	return normalizeIssue(await response.json());
+ }
+ 
++export async function createIssueComment(
++	input: {
++		owner: string;
++		repository: string;
++		issueNumber: number;
++		body: string;
++	},
++	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
++): Promise<{ id: number; htmlUrl: string }> {
++	const response = await fetch(
++		`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}/issues/${input.issueNumber}/comments`,
++		{
++			method: "POST",
++			headers: {
++				Accept: "application/vnd.github+json",
++				Authorization: `Bearer ${env.GITHUB_TOKEN}`,
++				"X-GitHub-Api-Version": "2022-11-28",
++				"content-type": "application/json",
++			},
++			body: JSON.stringify({ body: input.body }),
++		},
++	);
++
++	if (!response.ok) {
++		const message = await safeResponseText(response);
++		throw new GitHubIssueCommentError(
++			response.status,
++			input.owner,
++			input.repository,
++			input.issueNumber,
++			message,
++		);
++	}
++
++	const payload = await response.json();
++
++	if (
++		typeof payload !== "object" ||
++		payload === null ||
++		typeof (payload as { id?: unknown }).id !== "number" ||
++		typeof (payload as { html_url?: unknown }).html_url !== "string"
++	) {
++		throw new GitHubIssueCommentError(
++			response.status,
++			input.owner,
++			input.repository,
++			input.issueNumber,
++			"GitHub issue comment response had unexpected shape.",
++		);
++	}
++
++	return {
++		id: (payload as { id: number }).id,
++		htmlUrl: (payload as { html_url: string }).html_url,
++	};
++}
++
++export async function fetchIssueDependenciesBlockedBy(
++	input: { owner: string; repository: string; issueNumber: number },
++	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
++	options?: {
++		octokit?: OctokitIssueDependenciesClient;
++	},
++): Promise<GitHubBlockedByDependency[]> {
++	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
++	let response: ListDependenciesBlockedByResponse;
++	try {
++		response = await octokit.rest.issues.listDependenciesBlockedBy({
++			owner: input.owner,
++			repo: input.repository,
++			issue_number: input.issueNumber,
++			headers: {
++				Accept: "application/vnd.github+json",
++				"X-GitHub-Api-Version": "2026-03-10",
++			},
++		});
++	} catch (error) {
++		const status =
++			typeof error === "object" &&
++			error !== null &&
++			"status" in error &&
++			typeof error.status === "number"
++				? error.status
++				: 500;
++
++		throw new GitHubIssueFetchError(
++			status,
++			input.owner,
++			input.repository,
++			input.issueNumber,
++			"issue dependencies endpoint",
++		);
++	}
++
++	const rawDependencies = response.data;
++
++	const normalizedDependencies = rawDependencies.map(
++		(dependency: ListDependenciesBlockedByDependency) => {
++			if (typeof dependency.repository_url !== "string") {
++				throw new Error(
++					`GitHub issue dependency payload had invalid field values for ${input.owner}/${input.repository}#${input.issueNumber}.`,
++				);
++			}
++			const repositoryUrl = dependency.repository_url;
++			const [owner, name] = parseRepositoryOwnerAndNameFromUrl(repositoryUrl);
++			if (
++				typeof dependency.id !== "string" &&
++				typeof dependency.id !== "number"
++			) {
++				throw new Error("GitHub issue dependency missing id.");
++			}
++
++			if (
++				typeof dependency.node_id !== "string" ||
++				typeof dependency.number !== "number" ||
++				typeof dependency.title !== "string" ||
++				typeof dependency.html_url !== "string" ||
++				typeof dependency.state !== "string" ||
++				name === "" ||
++				owner === ""
++			) {
++				throw new Error(
++					`GitHub issue dependency payload had invalid field values for ${input.owner}/${input.repository}#${input.issueNumber}.`,
++				);
++			}
++
++			return {
++				id: `${dependency.id}`,
++				nodeId: dependency.node_id,
++				number: dependency.number,
++				title: dependency.title,
++				htmlUrl: dependency.html_url,
++				repositoryUrl,
++				state: dependency.state,
++				repository: {
++					owner,
++					name,
++				},
++			};
++		},
++	);
++
++	return normalizedDependencies;
++}
++
++function parseRepositoryOwnerAndNameFromUrl(url: string): [string, string] {
++	try {
++		const parsed = new URL(url);
++		const parts = parsed.pathname.split("/");
++		const repoIndex = parts.indexOf("repos");
++
++		if (repoIndex >= 0 && parts[repoIndex + 1] && parts[repoIndex + 2]) {
++			return [parts[repoIndex + 1], parts[repoIndex + 2]];
++		}
++	} catch {
++		// Ignore invalid repository URL.
++	}
++
++	return ["", ""];
++}
++
+ function normalizeIssue(value: unknown): GitHubIssue {
+ 	if (!isGitHubIssueResponse(value)) {
+ 		throw new Error("GitHub issue response had an unexpected shape.");
+```
+Comment:
+こういうの型わかってるから不要じゃないですか？
+
+## My request for Codex:
+
+---
+
+<turn_aborted>
+The user interrupted the previous turn on purpose. Any running unified exec processes may still be running in the background. If any tools/commands were aborted, they may have partially executed.
+</turn_aborted>
+
+---
+
+ファイルの修正は [@lilas](agent://019e4ee1-b657-7800-9815-42d098c8311e) に任せてください。 [@builder](subagent://builder) ni
+
+---
+
+<turn_aborted>
+The user interrupted the previous turn on purpose. Any running unified exec processes may still be running in the background. If any tools/commands were aborted, they may have partially executed.
+</turn_aborted>
+
+---
+
+ファイルの修正は [@lilas](agent://019e4ee1-b657-7800-9815-42d098c8311e) に任せてください。 依頼できるくらい私の意図を理解し、わからない場合は質問するのがあなたの責務です。
+
+---
+
+そこまで頑なにならなくてもいいですが、 lilas は優秀なので信頼して良いと思います。
+
+---
+
+# Diff comments:
+
+## Comment 1
+File: lib/github/issues.ts
+Side: R
+Lines: 124
+Diff hunk:
+```diff
+@@ -62,6 +111,142 @@ export async function fetchGitHubIssue(
+ 	return normalizeIssue(await response.json());
+ }
+ 
++export async function createIssueComment(
++	input: {
++		owner: string;
++		repository: string;
++		issueNumber: number;
++		body: string;
++	},
++	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
++): Promise<{ id: number; htmlUrl: string }> {
++	const response = await fetch(
++		`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}/issues/${input.issueNumber}/comments`,
++		{
++			method: "POST",
++			headers: {
++				Accept: "application/vnd.github+json",
++				Authorization: `Bearer ${env.GITHUB_TOKEN}`,
++				"X-GitHub-Api-Version": "2022-11-28",
++				"content-type": "application/json",
++			},
++			body: JSON.stringify({ body: input.body }),
++		},
++	);
++
++	if (!response.ok) {
++		const message = await safeResponseText(response);
++		throw new GitHubIssueCommentError(
++			response.status,
++			input.owner,
++			input.repository,
++			input.issueNumber,
++			message,
++		);
++	}
++
++	const payload = await response.json();
++
++	if (
++		typeof payload !== "object" ||
++		payload === null ||
++		typeof (payload as { id?: unknown }).id !== "number" ||
++		typeof (payload as { html_url?: unknown }).html_url !== "string"
++	) {
++		throw new GitHubIssueCommentError(
++			response.status,
++			input.owner,
++			input.repository,
++			input.issueNumber,
++			"GitHub issue comment response had unexpected shape.",
++		);
++	}
++
++	return {
++		id: (payload as { id: number }).id,
++		htmlUrl: (payload as { html_url: string }).html_url,
++	};
++}
++
++export async function fetchIssueDependenciesBlockedBy(
++	input: { owner: string; repository: string; issueNumber: number },
++	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
++	options?: {
++		octokit?: OctokitIssueDependenciesClient;
++	},
++): Promise<GitHubBlockedByDependency[]> {
++	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
++	let response: ListDependenciesBlockedByResponse;
++	try {
++		response = await octokit.rest.issues.listDependenciesBlockedBy({
++			owner: input.owner,
++			repo: input.repository,
++			issue_number: input.issueNumber,
++			headers: {
++				Accept: "application/vnd.github+json",
++				"X-GitHub-Api-Version": "2026-03-10",
++			},
++		});
++	} catch (error) {
++		const status =
++			typeof error === "object" &&
++			error !== null &&
++			"status" in error &&
++			typeof error.status === "number"
++				? error.status
++				: 500;
++
++		throw new GitHubIssueFetchError(
++			status,
++			input.owner,
++			input.repository,
++			input.issueNumber,
++			"issue dependencies endpoint",
++		);
++	}
++
++	return response.data.map((dependency) =>
++		normalizeBlockedByDependency(dependency),
++	);
++}
++
++function normalizeBlockedByDependency(
++	dependency: ListDependenciesBlockedByDependency,
++): GitHubBlockedByDependency {
++	const repositoryUrl = dependency.repository_url;
++	const [owner, name] = parseRepositoryOwnerAndNameFromUrl(repositoryUrl);
++
++	return {
++		id: `${dependency.id}`,
++		nodeId: dependency.node_id,
++		number: dependency.number,
++		title: dependency.title,
++		htmlUrl: dependency.html_url,
++		repositoryUrl,
++		state: dependency.state,
++		repository: {
++			owner,
++			name,
++		},
++	};
++}
++
++function parseRepositoryOwnerAndNameFromUrl(url: string): [string, string] {
++	try {
++		const parsed = new URL(url);
++		const parts = parsed.pathname.split("/");
++		const repoIndex = parts.indexOf("repos");
++
++		if (repoIndex >= 0 && parts[repoIndex + 1] && parts[repoIndex + 2]) {
++			return [parts[repoIndex + 1], parts[repoIndex + 2]];
++		}
++	} catch {
++		// Ignore invalid repository URL.
++	}
++
++	return ["", ""];
++}
++
+ function normalizeIssue(value: unknown): GitHubIssue {
+ 	if (!isGitHubIssueResponse(value)) {
+ 		throw new Error("GitHub issue response had an unexpected shape.");
+```
+Comment:
+ここoctokit使えそう？
+
+## My request for Codex:
+
+---
+
+# Diff comments:
+
+## Comment 1
+File: lib/github/issues.ts
+Side: R
+Lines: 95
+Comment:
+これは前からですが、ここもですね。 api.github.com にfetchしているところは全部変えた方がいい気がします。
+
+## My request for Codex:
+
+---
+
 [toyamarinyon/rhapsody#61](https://github.com/toyamarinyon/rhapsody/pull/61) titleとbody間違っている、やっていること矮小化しているので、書き直して。あと、英語で書いてほしい
 
 ---
@@ -23,6 +527,12 @@ main pullして新しくブランチ作って、
 
 ---
 
+<turn_aborted>
+The user interrupted the previous turn on purpose. Any running unified exec processes may still be running in the background. If any tools/commands were aborted, they may have partially executed.
+</turn_aborted>
+
+---
+
 実装しましょう。実装は [@builder](subagent://builder) に依頼して、あなたは評価・フィードバック・タスクの推進について責任を持って進めてください。
 
 ---
@@ -31,80 +541,6 @@ main pullして新しくブランチ作って、
 
 ---
 
-Rhapsody repo `/Users/toyamarinyon/Documents/rhapsody` on branch `codex/intake-comment-replies-retrigger`.
-
-You are the implementation worker. Please edit files directly, but do not commit. The parent agent will review, run verification, and commit.
-
-Goal: implement scheduler-tick reintake from human issue comments, no webhook.
-
-Problem:
-- Intake can produce `ask_human` and post a question comment.
-- Today, if a user replies in an issue comment, scheduler tick still reuses the stale `ask_human` decision because the intake fingerprint only includes issue title/body/blockers/status.
-- We want scheduler polling to notice comments added after the Rhapsody intake question and re-run intake with those replies as context.
-
-Implementation requirements:
-1. Add Octokit-based issue comment listing in `lib/github/issues.ts`.
-   - Use `octokit.rest.issues.listComments` with endpoint-derived types.
-   - Return small domain type, e.g. `GitHubIssueComment = { id: number; body: string; htmlUrl: string; createdAt: string; updatedAt: string; authorLogin: string | null }`.
-   - Add injectable `octokit` option for tests, consistent with existing helpers.
-   - Use `Accept: application/vnd.github+json`, `X-GitHub-Api-Version: 2022-11-28`.
-   - Avoid hand-written API response shape types; derive from `Octokit["rest"]["issues"]["listComments"]`.
-2. Extend intake curator to use human replies.
-   - Add dependency option, e.g. `fetchIssueComments`, to `IntakeCuratorOptions.dependencies`.
-   - During `runIntakeCurator`, resolve issue comments for the current issue.
-   - Find latest recorded `intake_comment` artifact for the work item from graph/artifacts. Scheduler currently passes `existingDecisions`; if needed, inspect artifacts via `listWorkItemGraph` inside intake.
-   - Treat comments created/updated after the latest `intake_comment` artifact as human replies.
-   - Do not filter by author, because Rhapsody may post through a human-owned token. Use the artifact boundary as the source of truth.
-   - Include selected reply `id` and `updatedAt` in intake fingerprint.
-   - Include reply body in classifier prompt under `Human replies since Rhapsody asked:`.
-   - Add replies to decision evidence for observability.
-   - If comment fetching fails, fall back to current safe behavior: do not use replies, do not start builder solely due to fetch failure.
-3. Preserve current behavior without replies.
-   - Existing fresh `ask_human` decision should still be reused when no newer comments exist.
-   - No repeated reclassification loops caused by Rhapsody’s own intake comment.
-4. Scheduler behavior.
-   - Existing scheduler should call intake as before.
-   - A Todo item with prior `ask_human` and newer issue comment should re-run intake on next scheduler tick and can start builder if classifier returns `buildable`.
-5. Tests.
-   - Add/update `lib/github/issues.test.ts`: list comments success and failure if useful.
-   - Add/update `lib/workers/intake-curator.test.ts`:
-     - no new replies after `ask_human` reuses existing decision.
-     - new comment after latest intake comment changes fingerprint and classifier runs again.
-     - prompt includes human reply text.
-     - buildable reclassification returns `shouldStartBuilder: true`.
-   - Add/update `lib/scheduler/tick.test.ts`:
-     - previous `ask_human` plus newer comment can proceed to builder.
-   - Keep tests deterministic with injected fetchers/commenters/classifiers.
-6. Verification to run before reporting:
-   - `pnpm exec biome check lib/github/issues.ts lib/github/issues.test.ts lib/workers/intake-curator/index.ts lib/workers/intake-curator.test.ts lib/scheduler/tick.ts lib/scheduler/tick.test.ts`
-   - `pnpm exec vitest run lib/github/issues.test.ts lib/workers/intake-curator.test.ts lib/scheduler/tick.test.ts`
-   - `pnpm typecheck`
-   - `pnpm lint`
-
-Notes:
-- You are not alone in the codebase. Do not revert unrelated edits.
-- Keep scope focused. No webhook work.
-- Do not commit.
-
-Report changed files, behavior, and verification results when done.
-
----
-
-レビューです。大筋は良いです。1点だけ修正してください。
-
-`fetchIssueComments` が `octokit.rest.issues.listComments` を1回だけ呼んでいて、デフォルトページだけになっています。scheduler tick で最新の human reply を拾う用途なので、コメント数が30件を超えた issue で後続コメントを見落とす可能性があります。
-
-修正方針:
-- `fetchIssueComments` を pagination 対応にしてください。
-- 既存の repo style に合わせるなら、`per_page: 100`, `page` loop + `response.headers.link?.includes('rel="next"')` でOKです。
-- Octokit の `paginate` を使うなら injection type と test がやや複雑になるので、明示 page loop が無難です。
-- 各 request に headers を維持してください。
-- Test で2ページ目も取得するケースを追加してください。
-
-検証:
-- `pnpm exec biome check lib/github/issues.ts lib/github/issues.test.ts lib/workers/intake-curator/index.ts lib/workers/intake-curator.test.ts lib/scheduler/tick.ts lib/scheduler/tick.test.ts`
-- `pnpm exec vitest run lib/github/issues.test.ts lib/workers/intake-curator.test.ts lib/scheduler/tick.test.ts`
-- `pnpm typecheck`
-- `pnpm lint`
-
-コミットはしないでください。
+<subagent_notification>
+{"agent_path":"019e502e-b544-7160-98c2-499cb3fc937d","status":{"completed":"Implemented on branch `codex/intake-comment-replies-retrigger` (no commit).\n\n## Changes made\n\n- [lib/github/issues.ts](/Users/toyamarinyon/Documents/rhapsody/lib/github/issues.ts)  \n  - Added `GitHubIssueComment` domain type.  \n  - Added endpoint-derived Octokit types for `issues.listComments`.  \n  - Added `fetchIssueComments(input, env?, options?)` using `Octokit[\"rest\"][\"issues\"][\"listComments\"]` with required headers:\n    - `Accept: application/vnd.github+json`\n    - `X-GitHub-Api-Version: 2022-11-28`\n  - Kept response shape normalized from endpoint response (no handwritten API shape types).  \n  - Added injectable `octokit` in options.\n\n- [lib/workers/intake-curator/index.ts](/Users/toyamarinyon/Documents/rhapsody/lib/workers/intake-curator/index.ts)  \n  - Extended `IntakeCuratorOptions.dependencies` with:\n    - `fetchIssueComments`.\n  - Added helper path to:\n    - load work-item graph (`safeListWorkItemGraph`)\n    - read latest `intake_comment` artifact timestamp\n    - fetch issue comments and filter only those with `updatedAt` after latest `intake_comment` artifact.\n  - Added safe fallback on comment fetch failure (returns `[]`, no new replies).  \n  - `buildIntakeInputFingerprint(...)` now includes selected human replies as `{id, updatedAt}` in fingerprint input.  \n  - `buildIntakeClassificationPrompt(...)` now includes:\n    - `Human replies since Rhapsody asked:` section when replies exist.\n  - Added evidence fields `humanReplies` with `id`, `updatedAt`, and `body` on intake decisions.\n  - Behavior remains unchanged when no newer replies: existing decision fingerprint reused.\n  - Re-classification can now occur when replies appear after latest intake comment boundary.\n\n- [lib/github/issues.test.ts](/Users/toyamarinyon/Documents/rhapsody/lib/github/issues.test.ts)  \n  - Added tests for `fetchIssueComments` success normalization and failure handling.\n\n- [lib/workers/intake-curator.test.ts](/Users/toyamarinyon/Documents/rhapsody/lib/workers/intake-curator.test.ts)  \n  - Added tests:\n    - Reuses ask-humans when no newer replies exist.\n    - Re-runs classification when newer reply exists (fingerprint changes, `buildable` path).\n    - Prompt includes human reply text.\n    - Decision evidence includes human reply `id/updatedAt`.\n    - Safe fallback when comment fetch fails (no forced reclassify; keeps prior decision).\n\n- [lib/scheduler/tick.test.ts](/Users/toyamarinyon/Documents/rhapsody/lib/scheduler/tick.test.ts)  \n  - Added scheduler test for:\n    - prior `ask_human` item with `intake_comment` artifact\n    - newer issue comment on next tick\n    - intake reruns and scheduler proceeds to builder.\n\n## Verification\n\nCommands requested were attempted, but all failed in this environment due network/DNS restrictions while pnpm tries to resolve/download packages from npm:\n\n- `pnpm exec biome check ...`  \n- `pnpm exec vitest run lib/github/issues.test.ts lib/workers/intake-curator.test.ts lib/scheduler/tick.test.ts`  \n- `pnpm typecheck`  \n- `pnpm lint`  \n\nFailure pattern:\n- `TypeError: fetch failed` / `ENOTFOUND` for `registry.npmjs.org` during pnpm dependency install step.\n\nNo commit was made."}}
+</subagent_notification>
