@@ -1,0 +1,118 @@
+# Diff comments:
+
+## Comment 1
+File: lib/github/issues.ts
+Side: R
+Lines: 95
+Comment:
+これは前からですが、ここもですね。 api.github.com にfetchしているところは全部変えた方がいい気がします。
+
+## My request for Codex:
+
+---
+
+追加コメント対応をお願いします。実装修正はあなたに任せます。親側はレビューします。コミットはしないでください。
+
+Diff comment:
+`lib/github/issues.ts` の `fetchGitHubIssue` に対して「これは前からですが、ここもですね。api.github.com にfetchしているところは全部変えた方がいい気がします。」
+
+意図:
+- `api.github.com` の REST fetch は Octokit REST に統一する。
+- GraphQL (`https://api.github.com/graphql`) は今回の対象外でOK。ProjectV2 GraphQL client は fetch のままでよい。
+- 手書き response shape guard をできるだけ減らし、Octokit の endpoint-specific response type から Rhapsody domain type へ projection する。
+
+対象候補（親側で軽く確認済み）:
+1. `lib/github/issues.ts`
+   - `fetchGitHubIssue` を `octokit.rest.issues.get` に変更。
+   - 既に `createIssueComment` / `fetchIssueDependenciesBlockedBy` は Octokit 化済み。
+   - `normalizeIssue` / `isGitHubIssueResponse` / `normalizeLabel` が不要になる可能性あり。Octokit type から projection できるなら削除/簡略化してください。
+2. `lib/github/pull-requests.ts`
+   - `getPullRequest` -> `octokit.rest.pulls.get`
+   - `getPullRequestChangedFiles` -> `octokit.paginate(octokit.rest.pulls.listFiles, ...)` または typed method paging。既存の perPage/page loop 相当の動作を保つ。
+   - `mergePullRequest` -> `octokit.rest.pulls.merge`
+   - `findOpenPullRequestForHead` -> `octokit.rest.pulls.list` with `state: "open"`, `head: `${owner}:${head}``
+   - `createPullRequest` -> `octokit.rest.pulls.create`
+   - 手書き `GitHubApiPullRequest*` response types / shape guards / `safeResponseText` は可能なら削除。
+3. `lib/github/checks.ts`
+   - `fetchPullRequest` -> `octokit.rest.pulls.get`
+   - `fetchCheckRuns` -> `octokit.rest.checks.listForRef`（または正しい typed endpoint）
+   - `fetchCommitCheckStatus` -> `octokit.rest.repos.getCombinedStatusForRef`
+   - `GitHubPullRequestResponse` / `GitHubCommitStatusResponse` / `GitHubCommitCheckRunResponse` と shape guards を Octokit type projection に置換できる範囲で削除。
+
+実装方針:
+- 各 exported function に必要なら `options?: { octokit?: ... }` を追加してテスト注入できるようにする。ただし既存 public call sites を壊さないこと。
+- 型は `Octokit["rest"][...]` の実メソッドから `Parameters` / `ReturnType` / `response.data[number]` を導出する。手書き API response shape type は避ける。
+- エラーは既存 domain error / existing behavior に合わせる。
+  - `issues.ts`: `GitHubIssueFetchError`, `GitHubIssueCommentError`
+  - `pull-requests.ts`: `GitHubPullRequestError`
+  - `checks.ts`: 既存の `getPullRequestCheckSummary` は catch して `checks_unknown` にするので、reason の意味が崩れないように。
+- `api.github.com` の REST fetch が残っていないか最後に `rg "api.github.com" lib/github` で確認。GraphQL は残ってOKなので結果を報告。
+
+テスト:
+- 既存 tests を壊さない。必要に応じて Octokit mock tests を追加/更新。
+- 特に `lib/github/issues.test.ts` は `fetchGitHubIssue` の正常/失敗系を追加してください。
+- `pull-requests.ts` / `checks.ts` の既存 tests があるなら更新。なければ対象関数の最小テスト追加を検討してください（blast radius が広いので、Octokit 呼び出し params と projection の要点だけでも）。
+
+検証:
+- `pnpm exec biome check lib/github/issues.ts lib/github/issues.test.ts lib/github/pull-requests.ts lib/github/checks.ts package.json pnpm-lock.yaml`
+- `pnpm exec vitest run lib/github/issues.test.ts lib/workers/intake-curator.test.ts lib/scheduler/tick.test.ts lib/workers/post-pr-curator.test.ts lib/workers/repairer.test.ts lib/workers/repairer/format-executor.test.ts`
+- `pnpm typecheck`
+- `pnpm lint`
+- `rg "api.github.com" lib/github` の結果報告（GraphQL のみ残る想定）
+
+コミットはしないでください。完了時、変更ファイル・検証結果・残った `api.github.com` の場所を報告してください。
+
+---
+
+レビューしました。検証は親側でも通っていますが、いくつか整えてください。
+
+修正してほしい点:
+1. `lib/github/pull-requests.ts` の `octokit.rest.pulls.listFiles` と `octokit.rest.pulls.list` に `headers` が入っていません。他の Octokit REST 呼び出しと同じく以下を付けてください。
+   - `Accept: "application/vnd.github+json"`
+   - `X-GitHub-Api-Version: "2022-11-28"`
+2. `lib/github/checks.ts` の `normalizeCheckRuns` は Octokit typed response に変わったので、`filter` の `typeof checkRun === "object" && ... "status" in checkRun` は不要に見えます。typed response element から `name/status/conclusion/details_url` を projection するだけに寄せられるなら簡潔化してください。ただし optional/null の可能性が型にある場合は、値の fallback (`??`) は残してOKです。
+3. `lib/github/issues.ts` の `normalizeIssue` で `id ?? 0`, `node_id ?? ""`, `html_url ?? ""` のような fallback が入っています。Octokit 型上必要なら残してOKですが、型が non-null なら不要なので削ってください。ここも「型がわかるなら runtime fallback しない」に寄せたいです。
+
+確認してほしいこと:
+- `rg "fetch\(" lib/github` は GraphQL の `project-items.ts` だけ残る状態か。
+- `rg "api.github.com" lib/github` は GraphQL と test fixture だけ残る状態か。
+
+検証:
+- `pnpm exec biome check lib/github/issues.ts lib/github/issues.test.ts lib/github/pull-requests.ts lib/github/checks.ts package.json pnpm-lock.yaml`
+- `pnpm exec vitest run lib/github/issues.test.ts lib/workers/intake-curator.test.ts lib/scheduler/tick.test.ts lib/workers/post-pr-curator.test.ts lib/workers/repairer.test.ts lib/workers/repairer/format-executor.test.ts`
+- `pnpm typecheck`
+- `pnpm lint`
+
+コミットはしないでください。
+
+---
+
+レビューでもう一点だけお願いします。
+
+`lib/github/issues.ts` の `normalizeLabel` に以下の手書き subset cast が入っています:
+
+```ts
+const asLabel = value as {
+  id: number;
+  node_id: string;
+  name: string;
+  color: string | null;
+  description: string | null;
+};
+```
+
+この流れでは API response shape の手書き型を避けたいので、ここも Octokit 由来の型にしてください。
+
+期待:
+- `type GetIssueLabel = GetIssueResponse["data"]["labels"][number];`
+- string を除いた label object 型が必要なら `Extract<GetIssueLabel, object>` や `Exclude<GetIssueLabel, string>` など、Octokit 由来で表現してください。
+- 手書き `{ id; node_id; ... }` cast は削除。
+- もし Octokit 型上 label object fields が optional/null で、そのまま domain type に入れられないなら、型に沿った最小 fallback はOKです。ただし手書き API response type は作らないでください。
+
+あわせて、いま親側で走らせた `pnpm exec vitest ...` と `pnpm typecheck` がまだ実行中なら競合しないようにしてください（こちらでは結果を待ちます）。あなた側でも最終検証してください:
+- `pnpm exec biome check lib/github/issues.ts lib/github/issues.test.ts lib/github/pull-requests.ts lib/github/checks.ts package.json pnpm-lock.yaml`
+- `pnpm exec vitest run lib/github/issues.test.ts lib/workers/intake-curator.test.ts lib/scheduler/tick.test.ts lib/workers/post-pr-curator.test.ts lib/workers/repairer.test.ts lib/workers/repairer/format-executor.test.ts`
+- `pnpm typecheck`
+- `pnpm lint`
+
+コミットはしないでください。
