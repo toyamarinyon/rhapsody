@@ -205,55 +205,30 @@ export async function fetchIssueDependenciesBlockedBy(
 		);
 	}
 
-	const rawDependencies = response.data;
-
-	const normalizedDependencies = rawDependencies.map(
-		(dependency: ListDependenciesBlockedByDependency) => {
-			if (typeof dependency.repository_url !== "string") {
-				throw new Error(
-					`GitHub issue dependency payload had invalid field values for ${input.owner}/${input.repository}#${input.issueNumber}.`,
-				);
-			}
-			const repositoryUrl = dependency.repository_url;
-			const [owner, name] = parseRepositoryOwnerAndNameFromUrl(repositoryUrl);
-			if (
-				typeof dependency.id !== "string" &&
-				typeof dependency.id !== "number"
-			) {
-				throw new Error("GitHub issue dependency missing id.");
-			}
-
-			if (
-				typeof dependency.node_id !== "string" ||
-				typeof dependency.number !== "number" ||
-				typeof dependency.title !== "string" ||
-				typeof dependency.html_url !== "string" ||
-				typeof dependency.state !== "string" ||
-				name === "" ||
-				owner === ""
-			) {
-				throw new Error(
-					`GitHub issue dependency payload had invalid field values for ${input.owner}/${input.repository}#${input.issueNumber}.`,
-				);
-			}
-
-			return {
-				id: `${dependency.id}`,
-				nodeId: dependency.node_id,
-				number: dependency.number,
-				title: dependency.title,
-				htmlUrl: dependency.html_url,
-				repositoryUrl,
-				state: dependency.state,
-				repository: {
-					owner,
-					name,
-				},
-			};
-		},
+	return response.data.map((dependency) =>
+		normalizeBlockedByDependency(dependency),
 	);
+}
 
-	return normalizedDependencies;
+function normalizeBlockedByDependency(
+	dependency: ListDependenciesBlockedByDependency,
+): GitHubBlockedByDependency {
+	const repositoryUrl = dependency.repository_url;
+	const [owner, name] = parseRepositoryOwnerAndNameFromUrl(repositoryUrl);
+
+	return {
+		id: `${dependency.id}`,
+		nodeId: dependency.node_id,
+		number: dependency.number,
+		title: dependency.title,
+		htmlUrl: dependency.html_url,
+		repositoryUrl,
+		state: dependency.state,
+		repository: {
+			owner,
+			name,
+		},
+	};
 }
 
 function parseRepositoryOwnerAndNameFromUrl(url: string): [string, string] {
