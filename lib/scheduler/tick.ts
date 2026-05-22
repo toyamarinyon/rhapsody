@@ -16,10 +16,12 @@ import {
 } from "@/lib/state";
 import {
 	findPullRequestArtifactFromArtifacts,
-	runIntakeCurator as runIntakeCuratorNode,
-	linkIntakeToBuilder,
 	runPostPrCurator,
-} from "@/lib/workers/curator";
+} from "@/lib/workers/post-pr-curator";
+import {
+	linkIntakeToBuilder,
+	runIntakeCurator as runIntakeCuratorNode,
+} from "@/lib/workers/intake-curator";
 import { runRepairerPlanner } from "@/lib/workers/repairer";
 import { loadRhapsodyConfig } from "@/lib/config";
 
