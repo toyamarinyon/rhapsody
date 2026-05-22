@@ -5,6 +5,7 @@ import {
 	mergePullRequest,
 	type PullRequestMergeResult,
 } from "@/lib/github/pull-requests";
+import { appendIssueReference } from "@/lib/github/issue-reference";
 import { updateProjectIssueStatus } from "@/lib/github/project-items";
 import { parseWorkItemIssueNumber } from "@/lib/attempt-branch";
 import {
@@ -218,7 +219,10 @@ async function completeRunnerHandoff(
 			base: config.repository.defaultBranch,
 			head: callbackPayload.branchName,
 			title: callbackPayload.prSpec.title,
-			body: appendIssueReference(callbackPayload.prSpec.body, issueNumber),
+			body: appendIssueReference(callbackPayload.prSpec.body, issueNumber, {
+				owner: config.repository.owner,
+				name: config.repository.name,
+			}),
 		});
 
 		await createEvent(client, {
@@ -933,24 +937,6 @@ function isPrSpec(value: unknown): value is { title: string; body: string } {
 		typeof (value as { body: unknown }).body === "string" &&
 		(value as { body: string }).body.trim().length > 0
 	);
-}
-
-function appendIssueReference(body: string, issueNumber: number | null) {
-	if (issueNumber === null) {
-		return body;
-	}
-
-	const reference = `Refs #${issueNumber}`;
-	const issuePattern = new RegExp(
-		`(?:refs|closes|fixes|resolves)\\s+#${issueNumber}(?!\\d)`,
-		"iu",
-	);
-
-	if (issuePattern.test(body)) {
-		return body;
-	}
-
-	return `${body.trimEnd()}\n\n${reference}`;
 }
 
 type RunnerPostflight = {
