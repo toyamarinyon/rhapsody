@@ -1,0 +1,28 @@
+[toyamarinyon/rhapsody](https://github.com/toyamarinyon/rhapsody/issues/44) を進めましょう。 [@builder](subagent://builder) に実装を依頼してあなたはアウトプットを評価し十分な水準になるまでフィードバックを続けてください。
+
+---
+
+format, lint, typeの順に確認しましょう。buildはVercel側でやるので不要です。
+
+---
+
+build不要じゃない？
+
+---
+
+消して
+
+---
+
+node24にしたい
+https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+確認して、
+[neomjs/neo](https://github.com/neomjs/neo/issues/9600) も参考になりそう
+
+---
+
+pushとpull requestの両方起動するのは仕方ないですか？
+
+---
+
+そうしてください。
