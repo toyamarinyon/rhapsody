@@ -28,6 +28,10 @@ type GitHubApiPullRequest = {
 	};
 };
 
+type GitHubApiPullRequestFile = {
+	filename: string;
+};
+
 type GitHubApiPullRequestMergeResponse = {
 	sha: string | null;
 	merged: boolean;
@@ -116,6 +120,99 @@ export async function createOrReuseOpenPullRequest(
 		reused: false,
 		...created,
 	};
+}
+
+export async function getPullRequest(
+	input: {
+		owner: string;
+		repository: string;
+		pullRequestNumber: number;
+	},
+	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
+): Promise<PullRequestSummary> {
+	const response = await fetch(
+		`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}/pulls/${encodeURIComponent(String(input.pullRequestNumber))}`,
+		{
+			headers: {
+				Accept: "application/vnd.github+json",
+				Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+				"X-GitHub-Api-Version": "2022-11-28",
+			},
+		},
+	);
+
+	if (!response.ok) {
+		const message = await safeResponseText(response);
+		throw new GitHubPullRequestError(
+			response.status,
+			input.owner,
+			input.repository,
+			"lookup",
+			message,
+		);
+	}
+
+	const payload = normalizePullRequest(await response.json());
+	return {
+		reused: true,
+		number: payload.number,
+		htmlUrl: payload.html_url,
+		title: payload.title,
+		headRef: payload.head.ref,
+		baseRef: payload.base.ref,
+	};
+}
+
+export async function getPullRequestChangedFiles(
+	input: {
+		owner: string;
+		repository: string;
+		pullRequestNumber: number;
+	},
+	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
+): Promise<string[]> {
+	const perPage = 100;
+	let page = 1;
+	const filenames: string[] = [];
+
+	while (true) {
+		const response = await fetch(
+			`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}/pulls/${encodeURIComponent(String(input.pullRequestNumber))}/files?per_page=${perPage}&page=${page}`,
+			{
+				headers: {
+					Accept: "application/vnd.github+json",
+					Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+					"X-GitHub-Api-Version": "2022-11-28",
+				},
+			},
+		);
+
+		if (!response.ok) {
+			const message = await safeResponseText(response);
+			throw new GitHubPullRequestError(
+				response.status,
+				input.owner,
+				input.repository,
+				"list_files",
+				message,
+			);
+		}
+
+		const payload = normalizePullRequestFiles(await response.json());
+		for (const candidate of payload) {
+			filenames.push(candidate.filename);
+		}
+
+		if (payload.length < perPage) {
+			return filenames;
+		}
+
+		const linkHeader = response.headers.get("link");
+		if (!linkHeader || !linkHeader.includes('rel="next"')) {
+			return filenames;
+		}
+		page += 1;
+	}
 }
 
 export async function mergePullRequest(
@@ -305,6 +402,18 @@ function normalizePullRequestList(value: unknown): GitHubApiPullRequest[] {
 	);
 }
 
+function normalizePullRequestFiles(value: unknown): GitHubApiPullRequestFile[] {
+	if (!Array.isArray(value)) {
+		throw new Error(
+			"GitHub pull request files response had an unexpected shape.",
+		);
+	}
+
+	return value.flatMap((candidate) =>
+		isGitHubPullRequestFile(candidate) ? [candidate] : [],
+	);
+}
+
 function normalizePullRequestMergeResponse(
 	value: unknown,
 ): GitHubApiPullRequestMergeResponse {
@@ -334,6 +443,17 @@ function isGitHubPullRequest(value: unknown): value is GitHubApiPullRequest {
 		pr.base !== null &&
 		typeof pr.base.ref === "string"
 	);
+}
+
+function isGitHubPullRequestFile(
+	value: unknown,
+): value is GitHubApiPullRequestFile {
+	if (typeof value !== "object" || value === null) {
+		return false;
+	}
+
+	const candidate = value as Partial<GitHubApiPullRequestFile>;
+	return typeof candidate.filename === "string";
 }
 
 function isGitHubPullRequestMergeResponse(

@@ -11,7 +11,14 @@ import {
 	migrateStateStore,
 } from "@/lib/state";
 import type { PullRequestCheckSummary } from "@/lib/github/checks";
-import { classifyRepair, runRepairerPlanner } from "@/lib/workers/repairer";
+import {
+	MAX_FORMAT_REPAIR_ATTEMPTS_PER_FAILURE_FINGERPRINT,
+	MAX_FORMAT_REPAIR_ATTEMPTS_PER_HEAD_SHA,
+	MAX_FORMAT_REPAIR_ATTEMPTS_PER_PULL_REQUEST,
+	buildFailureFingerprint,
+	classifyRepair,
+	runRepairerPlanner,
+} from "@/lib/workers/repairer";
 
 test("classifyRepair detects format-only failed checks", () => {
 	const summary: PullRequestCheckSummary = {
@@ -289,7 +296,7 @@ test("runRepairerPlanner blocks repair after max attempts and emits decision met
 		expect(startLink).toEqual(
 			expect.objectContaining({
 				relation: "starts",
-				metadata: { reason: "format_fixable" },
+				metadata: expect.objectContaining({ reason: "format_fixable" }),
 			}),
 		);
 	} finally {
@@ -478,6 +485,258 @@ test("runRepairerPlanner counts format repair attempts per PR and head SHA", asy
 
 		expect(result.outcome).toBe("repair_allowed");
 		expect(result.attemptCount).toBe(0);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("runRepairerPlanner enforces PR-wide repair budget", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItemId = "github_issue:toyamarinyon/rhapsody#416";
+
+	try {
+		const postPrRun = await createWorkerRun(client, {
+			id: "wrn_post_pr_for_repair_budget_pr",
+			workItemId,
+			kind: "post_pr_curator",
+			status: "completed",
+		});
+
+		const postPrDecision = await createDecision(client, {
+			id: "dec_post_pr_repair_budget_pr",
+			workItemId,
+			workerRunId: postPrRun.id,
+			phase: "post_pr",
+			outcome: "ci_failed",
+		});
+
+		for (
+			let index = 0;
+			index < MAX_FORMAT_REPAIR_ATTEMPTS_PER_PULL_REQUEST;
+			index += 1
+		) {
+			await createWorkerRun(client, {
+				id: `wrn_repair_budget_${index}`,
+				workItemId,
+				kind: "repairer",
+				status: "completed",
+			});
+			await createDecision(client, {
+				id: `dec_repair_budget_${index}`,
+				workItemId,
+				workerRunId: `wrn_repair_budget_${index}`,
+				phase: "repair",
+				outcome: "repair_failed",
+				policyRuleId: "format_fixable",
+				evidence: {
+					pullRequestNumber: 416,
+					classification: "format_fixable",
+					checks: {
+						headSha: `sha-${index}`,
+					},
+					failureFingerprint: "shared-fingerprint",
+				},
+			});
+		}
+
+		const result = await runRepairerPlanner(client, {
+			workItem: buildProjectItem(416),
+			workItemId,
+			postPrDecisionId: postPrDecision,
+			pullRequestNumber: 416,
+			pullRequestUrl: "https://github.com/toyamarinyon/rhapsody/pull/416",
+			checkSummary: {
+				classification: "ci_failed",
+				headSha: "sha-new",
+				status: "failure",
+				checkRuns: [
+					{
+						name: "prettier",
+						status: "completed",
+						conclusion: "failure",
+						detailsUrl: null,
+					},
+				],
+			},
+			existingDecisions: (await listWorkItemGraph(client, workItemId))
+				.decisions,
+		});
+
+		expect(result.outcome).toBe("repair_blocked");
+		expect(result.attemptCounts.pullRequest).toBe(
+			MAX_FORMAT_REPAIR_ATTEMPTS_PER_PULL_REQUEST,
+		);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("runRepairerPlanner enforces failure fingerprint budget", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItemId = "github_issue:toyamarinyon/rhapsody#417";
+
+	try {
+		const postPrRun = await createWorkerRun(client, {
+			id: "wrn_post_pr_for_repair_budget_fp",
+			workItemId,
+			kind: "post_pr_curator",
+			status: "completed",
+		});
+
+		const postPrDecision = await createDecision(client, {
+			id: "dec_post_pr_repair_budget_fp",
+			workItemId,
+			workerRunId: postPrRun.id,
+			phase: "post_pr",
+			outcome: "ci_failed",
+		});
+
+		const sharedFingerprint = buildFailureFingerprint({
+			checkRuns: [
+				{
+					name: "prettier",
+					status: "completed",
+					conclusion: "failure",
+					detailsUrl: null,
+				},
+			],
+		});
+
+		for (
+			let index = 0;
+			index < MAX_FORMAT_REPAIR_ATTEMPTS_PER_FAILURE_FINGERPRINT;
+			index += 1
+		) {
+			await createWorkerRun(client, {
+				id: `wrn_repair_fp_${index}`,
+				workItemId,
+				kind: "repairer",
+				status: "completed",
+			});
+			await createDecision(client, {
+				id: `dec_repair_fp_${index}`,
+				workItemId,
+				workerRunId: `wrn_repair_fp_${index}`,
+				phase: "repair",
+				outcome: "repair_failed",
+				policyRuleId: "format_fixable",
+				evidence: {
+					pullRequestNumber: 417,
+					classification: "format_fixable",
+					checks: {
+						headSha: `sha-fp-${index}`,
+					},
+					failureFingerprint: sharedFingerprint,
+				},
+			});
+		}
+
+		const result = await runRepairerPlanner(client, {
+			workItem: buildProjectItem(417),
+			workItemId,
+			postPrDecisionId: postPrDecision,
+			pullRequestNumber: 417,
+			pullRequestUrl: "https://github.com/toyamarinyon/rhapsody/pull/417",
+			checkSummary: {
+				classification: "ci_failed",
+				headSha: "sha-417-new",
+				status: "failure",
+				checkRuns: [
+					{
+						name: "prettier",
+						status: "completed",
+						conclusion: "failure",
+						detailsUrl: null,
+					},
+				],
+			},
+			existingDecisions: (await listWorkItemGraph(client, workItemId))
+				.decisions,
+		});
+
+		expect(result.outcome).toBe("repair_blocked");
+		expect(result.attemptCounts.fingerprint).toBe(
+			MAX_FORMAT_REPAIR_ATTEMPTS_PER_FAILURE_FINGERPRINT,
+		);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("runRepairerPlanner records failureFingerprint and repairExecutionKey", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItemId = "github_issue:toyamarinyon/rhapsody#418";
+
+	try {
+		const postPrRun = await createWorkerRun(client, {
+			id: "wrn_post_pr_for_repair_meta",
+			workItemId,
+			kind: "post_pr_curator",
+			status: "completed",
+		});
+
+		const postPrDecision = await createDecision(client, {
+			id: "dec_post_pr_repair_meta",
+			workItemId,
+			workerRunId: postPrRun.id,
+			phase: "post_pr",
+			outcome: "ci_failed",
+		});
+
+		const checkSummary = {
+			classification: "ci_failed" as const,
+			headSha: "sha-418",
+			status: "failure" as const,
+			checkRuns: [
+				{
+					name: "prettier",
+					status: "completed",
+					conclusion: "failure",
+					detailsUrl: null,
+				},
+			],
+		};
+		const fingerprint = buildFailureFingerprint(checkSummary);
+
+		const result = await runRepairerPlanner(client, {
+			workItem: buildProjectItem(418),
+			workItemId,
+			postPrDecisionId: postPrDecision,
+			pullRequestNumber: 418,
+			pullRequestUrl: "https://github.com/toyamarinyon/rhapsody/pull/418",
+			checkSummary,
+			existingDecisions: [],
+		});
+
+		expect(result.repairExecutionKey).toBe("418:sha-418:" + fingerprint);
+		expect(result.failureFingerprint).toBe(fingerprint);
+
+		const graph = await listWorkItemGraph(client, workItemId);
+		const repairDecision = graph.decisions.find(
+			(decision) => decision.id === result.decisionId,
+		);
+		expect(repairDecision?.evidence).toEqual(
+			expect.objectContaining({
+				repairExecutionKey: result.repairExecutionKey,
+				failureFingerprint: fingerprint,
+				attemptCounts: {
+					headSha: 0,
+					pullRequest: 0,
+					fingerprint: 0,
+				},
+				maxAttempts: {
+					headSha: MAX_FORMAT_REPAIR_ATTEMPTS_PER_HEAD_SHA,
+					pullRequest: MAX_FORMAT_REPAIR_ATTEMPTS_PER_PULL_REQUEST,
+					fingerprint: MAX_FORMAT_REPAIR_ATTEMPTS_PER_FAILURE_FINGERPRINT,
+				},
+			}),
+		);
 	} finally {
 		client.close();
 		database.cleanup();
