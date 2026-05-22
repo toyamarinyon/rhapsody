@@ -13,7 +13,10 @@ import {
 	listWorkItemGraph,
 	migrateStateStore,
 } from "@/lib/state";
-import { runIntakeCurator } from "@/lib/workers/intake-curator";
+import {
+	buildIntakeInputFingerprint,
+	runIntakeCurator,
+} from "@/lib/workers/intake-curator";
 import {
 	buildFailureFingerprint,
 	buildRepairExecutionKey,
@@ -143,6 +146,123 @@ test("scheduler records ask_human and skips builder for sparse Todo items", asyn
 			),
 		).toBe(true);
 		expect(graph.workerRuns.some((run) => run.kind === "builder")).toBe(false);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("scheduler re-runs intake on newer human comment after ask_human", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const item = buildProjectItem({
+		issueNumber: 109,
+		projectStatus: "Todo",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#109";
+	const oldFingerprint = buildIntakeInputFingerprint({
+		issueNumber: 109,
+		issueTitle: item.issueTitle,
+		issueBody: item.issueBody,
+		issueUrl: item.issueUrl,
+		issueState: item.issueState,
+		projectStatus: item.projectStatus,
+		blockedBy: [],
+		projectFields: item.projectFields,
+		repository: item.repository,
+	});
+
+	const workerRun = await createWorkerRun(client, {
+		id: "wrn_ask_scheduler",
+		workItemId,
+		kind: "intake_curator",
+		status: "completed",
+	});
+	await createArtifact(client, {
+		id: "art_ask_scheduler",
+		workItemId,
+		workerRunId: workerRun.id,
+		kind: "intake_comment",
+		externalId: "1",
+		externalUrl: "https://github.com/toyamarinyon/rhapsody/issues/109",
+		now: 1_000_000,
+		metadata: {
+			inputFingerprint: oldFingerprint,
+		},
+	});
+	await createDecision(client, {
+		id: "dec_ask_scheduler",
+		workItemId,
+		workerRunId: workerRun.id,
+		phase: "intake",
+		outcome: "ask_human",
+		evidence: {
+			inputFingerprint: oldFingerprint,
+			reason: "Need more context.",
+		},
+	});
+
+	const result = await runSchedulerTick(client, {
+		config: baseConfig,
+		fetchProjectIssueWorkItems: async () => [item],
+		runIntakeCurator: async (runClient, runItem, runWorkItemId, runOptions) =>
+			runIntakeCurator(runClient, runItem, runWorkItemId, {
+				...runOptions,
+				dependencies: {
+					...runOptions?.dependencies,
+					fetchBlockedBy: async () => [],
+					fetchIssueComments: async () => [
+						{
+							id: 2,
+							body: "Please proceed with extra checks.",
+							htmlUrl:
+								"https://github.com/toyamarinyon/rhapsody/issues/109#issuecomment-2",
+							createdAt: "1970-01-01T00:20:00Z",
+							updatedAt: "1970-01-01T00:20:00Z",
+							authorLogin: "human",
+						},
+					],
+				},
+				classify: async () => ({
+					classification: {
+						decision: "buildable",
+						summary: "Re-classified from human reply.",
+						implementation_plan: "Start builder from updated context.",
+						comment: "I can proceed now.",
+						next_action: "start_builder",
+					},
+					raw: "{}",
+					command: "mock",
+				}),
+				comment: async (comment) => ({
+					id: comment.issueNumber,
+					htmlUrl: `${comment.owner}/${comment.repository}#${comment.issueNumber}`,
+				}),
+			}),
+		updateProjectIssueStatus: async () => ({
+			projectId: "project",
+			itemId: "item",
+			fieldId: "field",
+			optionId: "option",
+			status: "In Progress",
+		}),
+	});
+
+	try {
+		expect(result.ok).toBe(true);
+		if (!result.ok) {
+			return;
+		}
+
+		expect(result.value.created).toBe(1);
+		expect(result.value.skippedIssues).toHaveLength(0);
+		const graph = await listWorkItemGraph(client, workItemId);
+		expect(
+			graph.decisions.some(
+				(decision) =>
+					decision.phase === "intake" && decision.outcome === "buildable",
+			),
+		).toBe(true);
 	} finally {
 		client.close();
 		database.cleanup();

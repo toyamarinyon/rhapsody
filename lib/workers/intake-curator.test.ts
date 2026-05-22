@@ -3,8 +3,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { type Client, createClient } from "@libsql/client";
 import { expect, test, vi } from "vitest";
-
+import type { GitHubIssueComment } from "@/lib/github/issues";
 import {
+	createArtifact,
 	createDecision,
 	createWorkerRun,
 	listWorkItemGraph,
@@ -40,6 +41,21 @@ async function createTestDatabase(): Promise<{
 	return {
 		client,
 		cleanup: () => rmSync(directory, { force: true, recursive: true }),
+	};
+}
+
+function buildIssueCommentPayload(input: {
+	id: number;
+	body: string;
+	updatedAt: string;
+}): GitHubIssueComment {
+	return {
+		id: input.id,
+		body: input.body,
+		htmlUrl: `https://github.com/toyamarinyon/rhapsody/issues/1#issuecomment-${input.id}`,
+		createdAt: "1970-01-01T00:00:00Z",
+		updatedAt: input.updatedAt,
+		authorLogin: "human",
 	};
 }
 
@@ -205,6 +221,215 @@ test("runIntakeCurator dedupes by fingerprint and reuses decision", async () => 
 	}
 });
 
+test("runIntakeCurator reuses ask_human decision when no replies follow", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItem = buildProjectItem({
+		issueNumber: 401,
+		issueTitle: "Needs clarification",
+		issueBody: "Short body",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#401";
+	const oldFingerprint = buildIntakeInputFingerprint(workItem);
+	const workerRun = await createWorkerRun(client, {
+		id: "wrn_ask_old",
+		workItemId,
+		kind: "intake_curator",
+		status: "completed",
+	});
+
+	try {
+		await createArtifact(client, {
+			id: "art_ask_old",
+			workItemId,
+			workerRunId: workerRun.id,
+			kind: "intake_comment",
+			externalId: "1",
+			externalUrl: "https://github.com/toyamarinyon/rhapsody/issues/401",
+			now: 1_000_000,
+			metadata: {
+				inputFingerprint: oldFingerprint,
+			},
+		});
+		const decisionId = await createDecision(client, {
+			id: "dec_ask_old",
+			workItemId,
+			workerRunId: workerRun.id,
+			phase: "intake",
+			outcome: "ask_human",
+			evidence: {
+				inputFingerprint: oldFingerprint,
+				reason: "Need more detail.",
+			},
+		});
+
+		const classify = vi.fn(async () =>
+			buildClassifierResult({
+				decision: "buildable",
+				summary: "Ignored",
+				implementation_plan: "Shouldn't run.",
+				comment: "Should not run.",
+			}),
+		);
+
+		const result = await runIntakeCurator(client, workItem, workItemId, {
+			existingDecisions: [
+				{
+					id: decisionId,
+					workItemId,
+					workerRunId: workerRun.id,
+					phase: "intake",
+					outcome: "ask_human",
+					deterministic: false,
+					policyVersion: null,
+					policyRuleId: null,
+					evidence: {
+						inputFingerprint: oldFingerprint,
+						reason: "Need more detail.",
+					},
+					nextWorkerKind: null,
+					nextAction: null,
+					createdAt: 1,
+					updatedAt: 1,
+				},
+			],
+			dependencies: {
+				fetchBlockedBy: noNativeDependenciesFetcher,
+				fetchIssueComments: async () => [
+					buildIssueCommentPayload({
+						id: 1,
+						body: "Old comment",
+						updatedAt: "1970-01-01T00:00:00Z",
+					}),
+				],
+			},
+			classify,
+		});
+
+		expect(result.skippedFreshDuplicate).toBe(true);
+		expect(result.outcome).toBe("ask_human");
+		expect(classify).not.toHaveBeenCalled();
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("runIntakeCurator reclassifies when a human reply appears after latest intake comment", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItem = buildProjectItem({
+		issueNumber: 402,
+		issueTitle: "Needs clarification",
+		issueBody: "Short body",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#402";
+	const oldFingerprint = buildIntakeInputFingerprint(workItem);
+	const workerRun = await createWorkerRun(client, {
+		id: "wrn_ask_retry",
+		workItemId,
+		kind: "intake_curator",
+		status: "completed",
+	});
+
+	try {
+		await createArtifact(client, {
+			id: "art_ask_retry",
+			workItemId,
+			workerRunId: workerRun.id,
+			kind: "intake_comment",
+			externalId: "2",
+			externalUrl: "https://github.com/toyamarinyon/rhapsody/issues/402",
+			now: 1_000_000,
+			metadata: {
+				inputFingerprint: oldFingerprint,
+			},
+		});
+		const decisionId = await createDecision(client, {
+			id: "dec_ask_retry",
+			workItemId,
+			workerRunId: workerRun.id,
+			phase: "intake",
+			outcome: "ask_human",
+			evidence: {
+				inputFingerprint: oldFingerprint,
+				reason: "Need more detail.",
+			},
+		});
+		let observedPrompt = "";
+		const result = await runIntakeCurator(client, workItem, workItemId, {
+			existingDecisions: [
+				{
+					id: decisionId,
+					workItemId,
+					workerRunId: workerRun.id,
+					phase: "intake",
+					outcome: "ask_human",
+					deterministic: false,
+					policyVersion: null,
+					policyRuleId: null,
+					evidence: {
+						inputFingerprint: oldFingerprint,
+						reason: "Need more detail.",
+					},
+					nextWorkerKind: null,
+					nextAction: null,
+					createdAt: 1,
+					updatedAt: 1,
+				},
+			],
+			dependencies: {
+				fetchBlockedBy: noNativeDependenciesFetcher,
+				fetchIssueComments: async () => [
+					buildIssueCommentPayload({
+						id: 12,
+						body: "The issue should close all existing checks as pass.",
+						updatedAt: "1970-01-01T00:20:00Z",
+					}),
+				],
+			},
+			classify: async (input) => {
+				observedPrompt = input.prompt;
+				return buildClassifierResult({
+					decision: "buildable",
+					summary: "Buildable now.",
+					implementation_plan: "Implement with clarified context.",
+					comment: "I can start now.",
+					next_action: "start_builder",
+				});
+			},
+		});
+
+		expect(result.skippedFreshDuplicate).toBe(false);
+		expect(result.outcome).toBe("buildable");
+		expect(result.shouldStartBuilder).toBe(true);
+		expect(result.inputFingerprint).not.toBe(oldFingerprint);
+		expect(observedPrompt).toContain("Human replies since Rhapsody asked:");
+		expect(observedPrompt).toContain(
+			"The issue should close all existing checks as pass.",
+		);
+
+		const graph = await listWorkItemGraph(client, workItemId);
+		const intakeDecision = graph.decisions.find(
+			(entry) => entry.phase === "intake",
+		);
+		expect(intakeDecision?.evidence).toHaveProperty("humanReplies");
+		expect(
+			(intakeDecision?.evidence as { humanReplies: Array<unknown> })
+				.humanReplies,
+		).toEqual([
+			{
+				id: 12,
+				updatedAt: "1970-01-01T00:20:00Z",
+				body: "The issue should close all existing checks as pass.",
+			},
+		]);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
 test("runIntakeCurator does not reuse stale fingerprint decisions", async () => {
 	const database = await createTestDatabase();
 	const client = database.client;
@@ -269,6 +494,97 @@ test("runIntakeCurator does not reuse stale fingerprint decisions", async () => 
 
 		expect(result.skippedFreshDuplicate).toBe(false);
 		expect(result.workerRunId).not.toBeNull();
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("runIntakeCurator falls back to no-reply behavior when comment fetch fails", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItem = buildProjectItem({
+		issueNumber: 403,
+		issueTitle: "Needs clarification",
+		issueBody: "Short body",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#403";
+	const oldFingerprint = buildIntakeInputFingerprint(workItem);
+	const workerRun = await createWorkerRun(client, {
+		id: "wrn_fetch_fail",
+		workItemId,
+		kind: "intake_curator",
+		status: "completed",
+	});
+
+	try {
+		await createArtifact(client, {
+			id: "art_fetch_fail",
+			workItemId,
+			workerRunId: workerRun.id,
+			kind: "intake_comment",
+			externalId: "3",
+			externalUrl: "https://github.com/toyamarinyon/rhapsody/issues/403",
+			now: 1_000_000,
+			metadata: {
+				inputFingerprint: oldFingerprint,
+			},
+		});
+		const decisionId = await createDecision(client, {
+			id: "dec_fetch_fail",
+			workItemId,
+			workerRunId: workerRun.id,
+			phase: "intake",
+			outcome: "ask_human",
+			evidence: {
+				inputFingerprint: oldFingerprint,
+				reason: "Need more detail.",
+			},
+		});
+
+		const classify = vi.fn(async () =>
+			buildClassifierResult({
+				decision: "buildable",
+				summary: "Should not run.",
+				implementation_plan: "No fallback plan.",
+				comment: "No fallback plan.",
+				next_action: "start_builder",
+			}),
+		);
+
+		const result = await runIntakeCurator(client, workItem, workItemId, {
+			existingDecisions: [
+				{
+					id: decisionId,
+					workItemId,
+					workerRunId: workerRun.id,
+					phase: "intake",
+					outcome: "ask_human",
+					deterministic: false,
+					policyVersion: null,
+					policyRuleId: null,
+					evidence: {
+						inputFingerprint: oldFingerprint,
+						reason: "Need more detail.",
+					},
+					nextWorkerKind: null,
+					nextAction: null,
+					createdAt: 1,
+					updatedAt: 1,
+				},
+			],
+			dependencies: {
+				fetchBlockedBy: noNativeDependenciesFetcher,
+				fetchIssueComments: async () => {
+					throw new Error("temporary GitHub comments error");
+				},
+			},
+			classify,
+		});
+
+		expect(result.skippedFreshDuplicate).toBe(true);
+		expect(result.outcome).toBe("ask_human");
+		expect(classify).not.toHaveBeenCalled();
 	} finally {
 		client.close();
 		database.cleanup();
