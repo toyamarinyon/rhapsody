@@ -229,3 +229,29 @@ Constraints:
 5. Run `pnpm format:check` and `pnpm typecheck`.
 
 Final response should list changed files, verification results, and any caveats.
+
+---
+
+[worker-graph.ts](lib/state/worker-graph.ts) これはなんです？
+
+---
+
+okです。動作確認はどうやってやりましょう
+
+---
+
+Bやってみてください。
+productionのROOT_PASSOWRDは `REDACTED` です
+
+---
+
+arbitrary な artifact seed とは？
+
+---
+
+なるほど、要はデータがあるときに動くか、ということですね。これ、テスト書けそうですね。
+
+---
+
+今回の構造になってことで、とても test friendlyになったんですね。
+testもschedulerから書いていきたいです。できます？
