@@ -1,0 +1,26 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "f529fd0481f4",
+  "strategy": "manual-commit",
+  "branch": "codex/intake-classifier-diagnostics",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "lib/workers/intake-curator.test.ts",
+    "lib/workers/intake-curator/index.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f5/29fd0481f4/0/metadata.json",
+      "transcript": "/f5/29fd0481f4/0/full.jsonl",
+      "content_hash": "/f5/29fd0481f4/0/content_hash.txt",
+      "prompt": "/f5/29fd0481f4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 224991,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5128576,
+    "output_tokens": 34057,
+    "api_call_count": 83
+  }
+}
