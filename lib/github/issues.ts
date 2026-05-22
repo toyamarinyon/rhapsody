@@ -42,6 +42,11 @@ type ListDependenciesBlockedByResponse = Awaited<
 >;
 type ListDependenciesBlockedByDependency =
 	ListDependenciesBlockedByResponse["data"][number];
+type CreateIssueCommentFn = Octokit["rest"]["issues"]["createComment"];
+type CreateIssueCommentResponse = Awaited<ReturnType<CreateIssueCommentFn>>;
+type CreateIssueCommentError = Error & {
+	status?: number;
+};
 type OctokitIssueDependenciesClient = {
 	rest: {
 		issues: {
@@ -119,25 +124,42 @@ export async function createIssueComment(
 		body: string;
 	},
 	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
+	options?: {
+		octokit?: {
+			rest: {
+				issues: {
+					createComment: (
+						...args: Parameters<CreateIssueCommentFn>
+					) => ReturnType<CreateIssueCommentFn>;
+				};
+			};
+		};
+	},
 ): Promise<{ id: number; htmlUrl: string }> {
-	const response = await fetch(
-		`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}/issues/${input.issueNumber}/comments`,
-		{
-			method: "POST",
+	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
+	let response: CreateIssueCommentResponse;
+	try {
+		response = await octokit.rest.issues.createComment({
+			owner: input.owner,
+			repo: input.repository,
+			issue_number: input.issueNumber,
+			body: input.body,
 			headers: {
 				Accept: "application/vnd.github+json",
-				Authorization: `Bearer ${env.GITHUB_TOKEN}`,
 				"X-GitHub-Api-Version": "2022-11-28",
-				"content-type": "application/json",
 			},
-			body: JSON.stringify({ body: input.body }),
-		},
-	);
+		});
+	} catch (error) {
+		const typedError = error as CreateIssueCommentError;
+		const status =
+			typeof typedError?.status === "number" ? typedError.status : 500;
+		const message =
+			typeof typedError?.message === "string"
+				? typedError.message
+				: "GitHub issue comment request failed.";
 
-	if (!response.ok) {
-		const message = await safeResponseText(response);
 		throw new GitHubIssueCommentError(
-			response.status,
+			status,
 			input.owner,
 			input.repository,
 			input.issueNumber,
@@ -145,26 +167,9 @@ export async function createIssueComment(
 		);
 	}
 
-	const payload = await response.json();
-
-	if (
-		typeof payload !== "object" ||
-		payload === null ||
-		typeof (payload as { id?: unknown }).id !== "number" ||
-		typeof (payload as { html_url?: unknown }).html_url !== "string"
-	) {
-		throw new GitHubIssueCommentError(
-			response.status,
-			input.owner,
-			input.repository,
-			input.issueNumber,
-			"GitHub issue comment response had unexpected shape.",
-		);
-	}
-
 	return {
-		id: (payload as { id: number }).id,
-		htmlUrl: (payload as { html_url: string }).html_url,
+		id: response.data.id,
+		htmlUrl: response.data.html_url,
 	};
 }
 
@@ -319,12 +324,4 @@ function isGitHubIssueResponse(value: unknown): value is GitHubIssueResponse {
 		typeof issue.state === "string" &&
 		Array.isArray(issue.labels)
 	);
-}
-
-async function safeResponseText(response: Response): Promise<string> {
-	try {
-		return await response.text();
-	} catch {
-		return `HTTP ${response.status}`;
-	}
 }
