@@ -139,6 +139,47 @@ test("scheduler records ask_human and skips builder for sparse Todo items", asyn
 	}
 });
 
+test("scheduler skips In Progress items with missing PR artifact", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const item = buildProjectItem({
+		issueNumber: 104,
+		projectStatus: "In Progress",
+	});
+
+	try {
+		const result = await runSchedulerTick(client, {
+			config: baseConfig,
+			fetchProjectIssueWorkItems: async () => [item],
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) {
+			return;
+		}
+
+		expect(result.value.created).toBe(0);
+		expect(result.value.skippedIssues).toEqual([
+			{
+				workItemId: "github_issue:toyamarinyon/rhapsody#104",
+				issueNumber: 104,
+				reason: "missing_pr_artifact",
+			},
+		]);
+
+		const graph = await listWorkItemGraph(
+			client,
+			"github_issue:toyamarinyon/rhapsody#104",
+		);
+		expect(graph.decisions).toHaveLength(0);
+		expect(graph.workerRuns).toHaveLength(0);
+		expect(graph.links).toHaveLength(0);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
 test("scheduler runs post-PR curator and repairer planner for failed format checks", async () => {
 	const database = await createTestDatabase();
 	const client = database.client;

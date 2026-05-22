@@ -238,6 +238,7 @@ export async function updateWorkerRunStatus(
 			input.status,
 			startedAt,
 			finishedAt,
+			finishedAt,
 			input.status,
 			finishedAt,
 			now,
