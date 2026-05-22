@@ -103,8 +103,7 @@ export async function runSandboxCodexRunner(
 						model: runnerCodexConfig.config.model,
 						...(runnerCodexConfig.config.reasoningEffort
 							? {
-									reasoning_effort:
-										runnerCodexConfig.config.reasoningEffort,
+									reasoning_effort: runnerCodexConfig.config.reasoningEffort,
 								}
 							: {}),
 					}
