@@ -35,6 +35,18 @@ export type GitHubBlockedByDependency = {
 	};
 };
 
+export type GitHubIssueComment = {
+	id: number;
+	body: string;
+	htmlUrl: string;
+	createdAt: string;
+	updatedAt: string;
+	authorLogin: string | null;
+};
+
+type ListCommentsFn = Octokit["rest"]["issues"]["listComments"];
+type ListCommentsResponse = Awaited<ReturnType<ListCommentsFn>>;
+type ListCommentsResult = ListCommentsResponse["data"][number];
 type ListDependenciesBlockedByFn =
 	Octokit["rest"]["issues"]["listDependenciesBlockedBy"];
 type ListDependenciesBlockedByResponse = Awaited<
@@ -61,6 +73,15 @@ type OctokitIssueDependenciesClient = {
 				...args: Parameters<ListDependenciesBlockedByFn>
 			) => ReturnType<ListDependenciesBlockedByFn>;
 			get: (...args: Parameters<GetIssueFn>) => ReturnType<GetIssueFn>;
+		};
+	};
+};
+type OctokitIssueCommentsClient = {
+	rest: {
+		issues: {
+			listComments: (
+				...args: Parameters<ListCommentsFn>
+			) => ReturnType<ListCommentsFn>;
 		};
 	};
 };
@@ -229,6 +250,53 @@ export async function fetchIssueDependenciesBlockedBy(
 	);
 }
 
+export async function fetchIssueComments(
+	input: { owner: string; repository: string; issueNumber: number },
+	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
+	options?: {
+		octokit?: OctokitIssueCommentsClient;
+	},
+): Promise<GitHubIssueComment[]> {
+	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
+	const comments: ListCommentsResponse["data"] = [];
+	try {
+		let page = 1;
+		let hasNext = true;
+
+		while (hasNext) {
+			const response = await octokit.rest.issues.listComments({
+				owner: input.owner,
+				repo: input.repository,
+				issue_number: input.issueNumber,
+				per_page: 100,
+				page,
+				headers: {
+					Accept: "application/vnd.github+json",
+					"X-GitHub-Api-Version": "2022-11-28",
+				},
+			});
+
+			comments.push(...response.data);
+			hasNext = response.headers.link?.includes('rel="next"') ?? false;
+			page += 1;
+		}
+	} catch (error) {
+		const typedError = error as GitHubIssueCommentError;
+		const status =
+			typeof typedError?.status === "number" ? typedError.status : 500;
+
+		throw new GitHubIssueCommentError(
+			status,
+			input.owner,
+			input.repository,
+			input.issueNumber,
+			"GitHub issue comments request failed.",
+		);
+	}
+
+	return comments.map((comment) => normalizeIssueComment(comment));
+}
+
 function normalizeBlockedByDependency(
 	dependency: ListDependenciesBlockedByDependency,
 ): GitHubBlockedByDependency {
@@ -247,6 +315,17 @@ function normalizeBlockedByDependency(
 			owner,
 			name,
 		},
+	};
+}
+
+function normalizeIssueComment(value: ListCommentsResult): GitHubIssueComment {
+	return {
+		id: value.id,
+		body: value.body ?? "",
+		htmlUrl: value.html_url,
+		createdAt: value.created_at,
+		updatedAt: value.updated_at,
+		authorLogin: value.user?.login ?? null,
 	};
 }
 

@@ -8,8 +8,10 @@ import { z } from "zod";
 import { buildCodexExecCommand, runCodexExec } from "@/lib/codex/cli";
 import {
 	createIssueComment,
+	fetchIssueComments,
 	fetchIssueDependenciesBlockedBy,
 	type GitHubBlockedByDependency,
+	type GitHubIssueComment,
 } from "@/lib/github/issues";
 import type { GitHubProjectIssueWorkItem } from "@/lib/github/project-items";
 import {
@@ -20,6 +22,7 @@ import {
 	type Decision,
 	listWorkItemGraph,
 	updateWorkerRunStatus,
+	type WorkItemGraph,
 } from "@/lib/state";
 
 export type IntakeBlockerState = "open" | "closed" | "unknown";
@@ -181,6 +184,12 @@ export type IssueCommenter = (input: {
 	body: string;
 }) => Promise<{ id: number; htmlUrl: string }>;
 
+type IntakeIssueCommentFetcher = (input: {
+	owner: string;
+	repository: string;
+	issueNumber: number;
+}) => Promise<GitHubIssueComment[]>;
+
 export type IntakeCuratorOptions = {
 	existingDecisions?: Decision[];
 	classify?: IntakeClassifierRunner;
@@ -189,6 +198,7 @@ export type IntakeCuratorOptions = {
 	schemaFilePath?: string;
 	dependencies?: {
 		fetchBlockedBy?: IntakeBlockedByDependencyFetcher;
+		fetchIssueComments?: IntakeIssueCommentFetcher;
 	};
 };
 
@@ -205,9 +215,16 @@ export async function runIntakeCurator(
 		workItem,
 		fetchBlockedBy: options.dependencies?.fetchBlockedBy,
 	});
+	const workItemGraph = await safeListWorkItemGraph(client, workItemId);
+	const humanReplies = await getHumanRepliesForWorkItem({
+		workItem,
+		artifacts: workItemGraph.artifacts,
+		fetcher: options.dependencies?.fetchIssueComments ?? fetchIssueComments,
+	});
 	const inputFingerprint = buildIntakeInputFingerprint(
 		workItem,
 		resolvedBlockers.blockers,
+		humanReplies,
 	);
 	const deterministic = inferDeterministicClassificationFromResolved(
 		resolvedBlockers.blockers,
@@ -251,11 +268,16 @@ export async function runIntakeCurator(
 						"Dependency resolution failed; confirm blockers and issue linkage before continuing.",
 					next_action: "confirm_dependency_relationships",
 				} satisfies IntakeWorkerClassification)
-			: await classifyWithHealing(workItem, resolvedBlockers.blockers, {
-					runner: options.classify ?? runCodexIntakeClassification,
-					schemaFilePath: options.schemaFilePath,
-					nowMs: options.nowMs,
-				});
+			: await classifyWithHealing(
+					workItem,
+					resolvedBlockers.blockers,
+					humanReplies,
+					{
+						runner: options.classify ?? runCodexIntakeClassification,
+						schemaFilePath: options.schemaFilePath,
+						nowMs: options.nowMs,
+					},
+				);
 
 	const workerRun = await createWorkerRun(client, {
 		workItemId,
@@ -280,6 +302,11 @@ export async function runIntakeCurator(
 		reason: getClassificationReason(finalClassification),
 		nextAction: pickNextAction(finalClassification),
 		comment: finalClassification.comment ?? null,
+		humanReplies: humanReplies.map((reply) => ({
+			id: reply.id,
+			updatedAt: reply.updatedAt,
+			body: reply.body,
+		})),
 		policyRuleId: computePolicyRuleId(
 			finalClassification.decision,
 			deterministic,
@@ -387,6 +414,7 @@ export function isIntakeBuildable(item: {
 export function buildIntakeInputFingerprint(
 	workItem: IntakeCuratorWorkItem,
 	resolvedBlockers?: IntakeResolvedBlocker[],
+	humanReplies?: GitHubIssueComment[],
 ): string {
 	const normalized = {
 		issueTitle: (workItem.issueTitle ?? "").trim(),
@@ -394,6 +422,10 @@ export function buildIntakeInputFingerprint(
 		issueNumber: workItem.issueNumber,
 		blockedBy: resolvedBlockers ?? normalizeBlockedBy(workItem.blockedBy),
 		projectStatus: workItem.projectStatus ?? null,
+		humanReplies: (humanReplies ?? []).map((reply) => ({
+			id: reply.id,
+			updatedAt: reply.updatedAt,
+		})),
 	};
 
 	return createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
@@ -402,6 +434,7 @@ export function buildIntakeInputFingerprint(
 async function classifyWithHealing(
 	workItem: IntakeCuratorWorkItem,
 	blockedBy: IntakeResolvedBlocker[],
+	humanReplies: GitHubIssueComment[],
 	options: {
 		runner: IntakeClassifierRunner;
 		nowMs?: number;
@@ -410,7 +443,11 @@ async function classifyWithHealing(
 ): Promise<IntakeClassification> {
 	for (let attempt = 1; attempt <= 2; attempt += 1) {
 		try {
-			const prompt = buildIntakeClassificationPrompt(workItem, blockedBy);
+			const prompt = buildIntakeClassificationPrompt(
+				workItem,
+				blockedBy,
+				humanReplies,
+			);
 			const schemaFilePath = await ensureSchemaFile(options.schemaFilePath);
 			const outputMessagePath = buildOutputMessagePath(options.nowMs, attempt);
 			const result = await options.runner({
@@ -636,6 +673,59 @@ async function hasExistingIntakeCommentForFingerprint(input: {
 	}
 }
 
+async function safeListWorkItemGraph(
+	client: Client,
+	workItemId: string,
+): Promise<WorkItemGraph> {
+	try {
+		return await listWorkItemGraph(client, workItemId);
+	} catch {
+		return {
+			workItemId,
+			workerRuns: [],
+			decisions: [],
+			artifacts: [],
+			links: [],
+		};
+	}
+}
+
+function getLatestIntakeCommentCreatedAtMs(
+	artifacts: WorkItemGraph["artifacts"],
+): number | null {
+	const latest = [...artifacts]
+		.filter((artifact) => artifact.kind === "intake_comment")
+		.sort((left, right) => right.createdAt - left.createdAt)[0];
+
+	return latest ? latest.createdAt : null;
+}
+
+async function getHumanRepliesForWorkItem(input: {
+	workItem: IntakeCuratorWorkItem;
+	artifacts: WorkItemGraph["artifacts"];
+	fetcher: IntakeIssueCommentFetcher;
+}): Promise<GitHubIssueComment[]> {
+	const boundaryMs = getLatestIntakeCommentCreatedAtMs(input.artifacts);
+	if (boundaryMs === null) {
+		return [];
+	}
+
+	try {
+		const comments = await input.fetcher({
+			owner: input.workItem.repository.owner,
+			repository: input.workItem.repository.name,
+			issueNumber: input.workItem.issueNumber,
+		});
+
+		return comments.filter((comment) => {
+			const updatedAtMs = Date.parse(comment.updatedAt);
+			return Number.isFinite(updatedAtMs) && updatedAtMs > boundaryMs;
+		});
+	} catch {
+		return [];
+	}
+}
+
 async function postIntakeComment(input: {
 	client: Client;
 	workItem: IntakeCuratorWorkItem;
@@ -740,6 +830,7 @@ function buildIntakeIssueComment(
 function buildIntakeClassificationPrompt(
 	workItem: IntakeCuratorWorkItem,
 	blockedBy: IntakeResolvedBlocker[],
+	humanReplies?: GitHubIssueComment[],
 ): string {
 	const blockedByText =
 		blockedBy.length > 0
@@ -747,6 +838,15 @@ function buildIntakeClassificationPrompt(
 					.map((entry) => `- ${entry.id} (${entry.state})`)
 					.join("\n")}`
 			: "No configured blockers.";
+	const repliesText =
+		humanReplies && humanReplies.length > 0
+			? `Human replies since Rhapsody asked:\n${humanReplies
+					.map(
+						(reply) =>
+							`- ${reply.id} at ${reply.updatedAt}: ${reply.body || "(empty)"}`,
+					)
+					.join("\n")}`
+			: "";
 
 	return `Classify the following issue for build readiness.
 
@@ -754,6 +854,7 @@ Title: ${workItem.issueTitle}
 Body: ${workItem.issueBody ?? "(empty)"}
 Project status: ${workItem.projectStatus ?? "(none)"}
 ${blockedByText}
+${repliesText}
 
 Return JSON matching the provided schema with:
 - decision: buildable | ask_human | skip

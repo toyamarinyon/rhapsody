@@ -4,7 +4,9 @@ import { expect, test, vi } from "vitest";
 import {
 	createIssueComment,
 	fetchGitHubIssue,
+	fetchIssueComments,
 	fetchIssueDependenciesBlockedBy,
+	type GitHubIssueComment,
 	GitHubIssueCommentError,
 	GitHubIssueFetchError,
 } from "@/lib/github/issues";
@@ -14,16 +16,22 @@ type ListDependenciesBlockedByResponse = Awaited<
 >;
 type ListDependenciesBlockedByDependency =
 	ListDependenciesBlockedByResponse["data"][number];
+type ListIssueCommentsResponse = Awaited<
+	ReturnType<Octokit["rest"]["issues"]["listComments"]>
+>;
+type ListIssueCommentsComment = ListIssueCommentsResponse["data"][number];
 type CreateIssueCommentResponse = Awaited<
 	ReturnType<Octokit["rest"]["issues"]["createComment"]>
 >;
 type ListDependenciesBlockedByMock = ReturnType<typeof vi.fn>;
+type ListIssueCommentsMock = ReturnType<typeof vi.fn>;
 type CreateIssueCommentMock = ReturnType<typeof vi.fn>;
 type GetIssueMock = ReturnType<typeof vi.fn>;
 type MockOctokit = {
 	rest: {
 		issues: {
 			listDependenciesBlockedBy: ListDependenciesBlockedByMock;
+			listComments: ListIssueCommentsMock;
 			createComment: CreateIssueCommentMock;
 			get: GetIssueMock;
 		};
@@ -34,6 +42,7 @@ const createOctokitMock = () => ({
 	rest: {
 		issues: {
 			listDependenciesBlockedBy: vi.fn(),
+			listComments: vi.fn(),
 			createComment: vi.fn(),
 			get: vi.fn(),
 		},
@@ -309,6 +318,260 @@ test("fetchIssueDependenciesBlockedBy fails when Octokit request rejects", async
 			},
 		),
 	).rejects.toBeInstanceOf(GitHubIssueFetchError);
+});
+
+test("fetchIssueComments returns normalized comments from Octokit", async () => {
+	const octokit = createOctokitMock() as MockOctokit;
+	const listComments = octokit.rest.issues
+		.listComments as ListIssueCommentsMock;
+
+	const response: ListIssueCommentsResponse = {
+		data: [
+			{
+				id: 321,
+				node_id: "MDEyOklzc3VlQ29tbWVudDI=",
+				body: "Rhapsody needs more context",
+				html_url: "https://github.com/octo/rhapsody/issues/12#issuecomment-321",
+				issue_url: "https://api.github.com/repos/octo/rhapsody/issues/12",
+				url: "https://api.github.com/repos/octo/rhapsody/issues/comments/321",
+				created_at: "2026-01-01T00:00:00Z",
+				updated_at: "2026-01-01T01:00:00Z",
+				author_association: "CONTRIBUTOR",
+				user: {
+					login: "human",
+					id: 2,
+					node_id: "MDQ6VXNlcjI=",
+					avatar_url: "",
+					gravatar_id: "",
+					url: "https://api.github.com/users/human",
+					html_url: "https://github.com/human",
+					followers_url: "",
+					following_url: "",
+					gists_url: "",
+					starred_url: "",
+					subscriptions_url: "",
+					organizations_url: "",
+					repos_url: "",
+					events_url: "",
+					received_events_url: "",
+					type: "User",
+					site_admin: false,
+				},
+			} satisfies ListIssueCommentsComment,
+		],
+		status: 200,
+		headers: {},
+		url: "",
+	};
+	listComments.mockResolvedValue(response);
+
+	const result = await fetchIssueComments(
+		{
+			owner: "octo",
+			repository: "rhapsody",
+			issueNumber: 12,
+		},
+		{
+			GITHUB_TOKEN: "test-token",
+		},
+		{
+			octokit,
+		},
+	);
+
+	expect(result).toEqual<GitHubIssueComment[]>([
+		{
+			id: 321,
+			body: "Rhapsody needs more context",
+			htmlUrl: "https://github.com/octo/rhapsody/issues/12#issuecomment-321",
+			createdAt: "2026-01-01T00:00:00Z",
+			updatedAt: "2026-01-01T01:00:00Z",
+			authorLogin: "human",
+		},
+	]);
+
+	expect(listComments).toHaveBeenCalledWith({
+		owner: "octo",
+		repo: "rhapsody",
+		issue_number: 12,
+		per_page: 100,
+		page: 1,
+		headers: {
+			Accept: "application/vnd.github+json",
+			"X-GitHub-Api-Version": "2022-11-28",
+		},
+	});
+});
+
+test("fetchIssueComments returns normalized comments from multiple pages", async () => {
+	const octokit = createOctokitMock() as MockOctokit;
+	const listComments = octokit.rest.issues
+		.listComments as ListIssueCommentsMock;
+
+	const firstPage: ListIssueCommentsResponse = {
+		data: [
+			{
+				id: 321,
+				node_id: "MDEyOklzc3VlQ29tbWVudDI=",
+				body: "Rhapsody needs more context",
+				html_url: "https://github.com/octo/rhapsody/issues/12#issuecomment-321",
+				issue_url: "https://api.github.com/repos/octo/rhapsody/issues/12",
+				url: "https://api.github.com/repos/octo/rhapsody/issues/comments/321",
+				created_at: "2026-01-01T00:00:00Z",
+				updated_at: "2026-01-01T01:00:00Z",
+				author_association: "CONTRIBUTOR",
+				user: {
+					login: "human",
+					id: 2,
+					node_id: "MDQ6VXNlcjI=",
+					avatar_url: "",
+					gravatar_id: "",
+					url: "https://api.github.com/users/human",
+					html_url: "https://github.com/human",
+					followers_url: "",
+					following_url: "",
+					gists_url: "",
+					starred_url: "",
+					subscriptions_url: "",
+					organizations_url: "",
+					repos_url: "",
+					events_url: "",
+					received_events_url: "",
+					type: "User",
+					site_admin: false,
+				},
+			} satisfies ListIssueCommentsComment,
+		],
+		status: 200,
+		headers: {
+			link: '<https://api.github.com/repos/octo/rhapsody/issues/12/comments?page=2>; rel="next"',
+		},
+		url: "",
+	};
+	const secondPage: ListIssueCommentsResponse = {
+		data: [
+			{
+				id: 322,
+				node_id: "MDEyOklzc3VlQ29tbWVudDMyMg==",
+				body: "Follow-up: please include logs",
+				html_url: "https://github.com/octo/rhapsody/issues/12#issuecomment-322",
+				issue_url: "https://api.github.com/repos/octo/rhapsody/issues/12",
+				url: "https://api.github.com/repos/octo/rhapsody/issues/comments/322",
+				created_at: "2026-01-02T00:00:00Z",
+				updated_at: "2026-01-02T01:00:00Z",
+				author_association: "CONTRIBUTOR",
+				user: {
+					login: "human",
+					id: 2,
+					node_id: "MDQ6VXNlcjI=",
+					avatar_url: "",
+					gravatar_id: "",
+					url: "https://api.github.com/users/human",
+					html_url: "https://github.com/human",
+					followers_url: "",
+					following_url: "",
+					gists_url: "",
+					starred_url: "",
+					subscriptions_url: "",
+					organizations_url: "",
+					repos_url: "",
+					events_url: "",
+					received_events_url: "",
+					type: "User",
+					site_admin: false,
+				},
+			} satisfies ListIssueCommentsComment,
+		],
+		status: 200,
+		headers: {},
+		url: "",
+	};
+	listComments
+		.mockResolvedValueOnce(firstPage)
+		.mockResolvedValueOnce(secondPage);
+
+	const result = await fetchIssueComments(
+		{
+			owner: "octo",
+			repository: "rhapsody",
+			issueNumber: 12,
+		},
+		{
+			GITHUB_TOKEN: "test-token",
+		},
+		{
+			octokit,
+		},
+	);
+
+	expect(result).toEqual<GitHubIssueComment[]>([
+		{
+			id: 321,
+			body: "Rhapsody needs more context",
+			htmlUrl: "https://github.com/octo/rhapsody/issues/12#issuecomment-321",
+			createdAt: "2026-01-01T00:00:00Z",
+			updatedAt: "2026-01-01T01:00:00Z",
+			authorLogin: "human",
+		},
+		{
+			id: 322,
+			body: "Follow-up: please include logs",
+			htmlUrl: "https://github.com/octo/rhapsody/issues/12#issuecomment-322",
+			createdAt: "2026-01-02T00:00:00Z",
+			updatedAt: "2026-01-02T01:00:00Z",
+			authorLogin: "human",
+		},
+	]);
+
+	expect(listComments).toHaveBeenCalledTimes(2);
+	expect(listComments).toHaveBeenNthCalledWith(1, {
+		owner: "octo",
+		repo: "rhapsody",
+		issue_number: 12,
+		per_page: 100,
+		page: 1,
+		headers: {
+			Accept: "application/vnd.github+json",
+			"X-GitHub-Api-Version": "2022-11-28",
+		},
+	});
+	expect(listComments).toHaveBeenNthCalledWith(2, {
+		owner: "octo",
+		repo: "rhapsody",
+		issue_number: 12,
+		per_page: 100,
+		page: 2,
+		headers: {
+			Accept: "application/vnd.github+json",
+			"X-GitHub-Api-Version": "2022-11-28",
+		},
+	});
+});
+
+test("fetchIssueComments fails when Octokit request rejects", async () => {
+	const octokit = createOctokitMock() as MockOctokit;
+	const listComments = octokit.rest.issues
+		.listComments as ListIssueCommentsMock;
+
+	listComments.mockRejectedValue(
+		Object.assign(new Error("unauthorized"), { status: 401 }),
+	);
+
+	await expect(
+		fetchIssueComments(
+			{
+				owner: "octo",
+				repository: "rhapsody",
+				issueNumber: 12,
+			},
+			{
+				GITHUB_TOKEN: "test-token",
+			},
+			{
+				octokit,
+			},
+		),
+	).rejects.toBeInstanceOf(GitHubIssueCommentError);
 });
 
 test("createIssueComment creates comment via Octokit and returns normalized shape", async () => {
