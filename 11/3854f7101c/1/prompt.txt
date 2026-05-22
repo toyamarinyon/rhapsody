@@ -1,0 +1,30 @@
+[$rhapsody-diagnostics](/Users/toyamarinyon/Documents/rhapsody/.agents/skills/rhapsody-diagnostics/SKILL.md) [toyamarinyon/rhapsody#60](https://github.com/toyamarinyon/rhapsody/pull/60) CI落ちてるんですが、 [toyamarinyon/rhapsody#58](https://github.com/toyamarinyon/rhapsody/pull/58) でrepairを導入したんです。なんで動いてないんでしょう？
+ROOT_PASSWORDは `REDACTED` です。
+
+---
+
+> Rhapsody state では run run_90e984a202534d2f8c08c708951e9a54 / attempt att_d632e81435ab47d2bd8b05b869017e75 が PR #60 を作成し、その直後に issue #59 を Human Review に移しています
+
+なるほど、これが本質ですね。
+
+> PR 作成直後にすぐ Human Review へ送らず、checks が pending の間は In Progress に残して post-PR curator/repairer が観測できるようにする。
+
+これですね。builderの中で、post-buildしていて、Human Reviewに送っていると思うのですが、これは最初の実装で、今は、post-buildようのworkerを他に実行できるので、そっちでやって、そっちで、諸々うまくいったらhuman-reviewにした方が良さそうですね。
+
+> 現状の repair 判定は GitHub の CheckRun 名を見ています。今回の CheckRun 名は Static checks で、step 名の Format check までは見えていません。なので format_fixable ではなく not_deterministically_fixable 扱いになりやすいです。
+
+これはrepositoryによって変わると思うのですが、github actionsのファイル名などで特定できるんですか？configにした方がいいのかが知りたいです。
+
+---
+
+# Selected text:
+
+## Selection 1
+failed_step_names
+
+## My request for Codex:
+ここだけ`failed`があるの不自然じゃないです？
+
+---
+
+これの実装Planを作ってみましょう

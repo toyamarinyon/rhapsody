@@ -1,0 +1,60 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "113854f7101c",
+  "session_id": "019e4ece-3820-7830-853b-8557f686d9bf",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-22T14:04:12.952893Z",
+  "branch": "codex/intake-curator-codex-classifier",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "lib/github/checks.ts",
+    "lib/github/issues.test.ts",
+    "lib/github/issues.ts",
+    "lib/github/pull-requests.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "5b0095fe35e4",
+  "token_usage": {
+    "input_tokens": 253036,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1532928,
+    "output_tokens": 8124,
+    "api_call_count": 24
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-22T14:04:12.932568Z",
+    "agent_lines": 0,
+    "agent_removed": 8,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 399,
+    "total_committed": 69,
+    "total_lines_changed": 407,
+    "agent_percentage": 1.9656019656019657,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 370,
+      "user_lines_removed": 399,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "lib/github/checks.ts": 92,
+        "lib/github/issues.test.ts": 103,
+        "lib/github/issues.ts": 25,
+        "lib/github/pull-requests.ts": 150
+      },
+      "user_removed_per_file": {
+        "lib/github/checks.ts": 124,
+        "lib/github/issues.ts": 56,
+        "lib/github/pull-requests.ts": 219
+      }
+    }
+  ]
+}
