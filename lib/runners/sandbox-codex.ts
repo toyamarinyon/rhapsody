@@ -10,6 +10,7 @@ import {
 	loadRhapsodyMediatorEnv,
 	loadRhapsodyProtectionBypassEnv,
 } from "@/lib/config";
+import { loadRunnerCodexConfig } from "@/lib/runner-codex-config";
 import {
 	buildInstructionContext,
 	InstructionTemplateError,
@@ -90,6 +91,31 @@ export async function runSandboxCodexRunner(
 
 	try {
 		const config = loadRhapsodyConfig();
+		const runnerCodexConfig = await loadRunnerCodexConfig();
+		const codexConfigOverrides = {
+			model_provider: "openai-http",
+			"model_providers.openai-http.name": "OpenAI without WebSockets",
+			"model_providers.openai-http.requires_openai_auth": true,
+			"model_providers.openai-http.supports_websockets": false,
+			"model_providers.openai-http.wire_api": "responses",
+			...(runnerCodexConfig.config
+				? {
+						model: runnerCodexConfig.config.model,
+						...(runnerCodexConfig.config.reasoningEffort
+							? {
+									reasoning_effort: runnerCodexConfig.config.reasoningEffort,
+								}
+							: {}),
+					}
+				: {}),
+		};
+		const effectiveCodexConfig = {
+			model: runnerCodexConfig.config?.model ?? null,
+			reasoningEffort: runnerCodexConfig.config?.reasoningEffort ?? null,
+			sourcePath: runnerCodexConfig.config
+				? runnerCodexConfig.loadedFromPath
+				: null,
+		};
 		const targetSandboxMode = "workspace-write";
 		const instructions = await loadRepositoryInstructions();
 		const prompt = renderRepositoryInstructions({
@@ -138,13 +164,7 @@ export async function runSandboxCodexRunner(
 			skipGitRepoCheck: true,
 			ephemeral: true,
 			dangerouslyBypassApprovalsAndSandbox: true,
-			configOverrides: {
-				model_provider: "openai-http",
-				"model_providers.openai-http.name": "OpenAI without WebSockets",
-				"model_providers.openai-http.requires_openai_auth": true,
-				"model_providers.openai-http.supports_websockets": false,
-				"model_providers.openai-http.wire_api": "responses",
-			},
+			configOverrides: codexConfigOverrides,
 			timeoutMs: CODEX_TIMEOUT_MS,
 		});
 		const mediatorEnv = loadRhapsodyMediatorEnv();
@@ -219,6 +239,7 @@ export async function runSandboxCodexRunner(
 								argv: codexCommand.argv,
 								cwd: codexCommand.cwd,
 							},
+							runner_codex_config: effectiveCodexConfig,
 							codex_mode: CODEX_MODE,
 							target_repository: expectedRepositoryUrl,
 							target_branch: requestedBranchName,
@@ -340,6 +361,7 @@ export async function runSandboxCodexRunner(
 				sandboxId: getVercelSandboxId(sandbox),
 				sourceSnapshotId,
 				codexMode: CODEX_MODE,
+				runnerCodexConfig: effectiveCodexConfig,
 				targetBranchName: branchName,
 				targetRepositoryUrl: expectedRepositoryUrl,
 				useSnapshot: sourceSnapshotId !== null,
@@ -392,6 +414,7 @@ export async function runSandboxCodexRunner(
 			command,
 			hookToken,
 			sourceSnapshotId,
+			runnerCodexConfig: effectiveCodexConfig,
 			prompt: {
 				...promptSummary,
 				eventId: promptEvent.id,

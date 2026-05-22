@@ -1,3 +1,7 @@
+[runner.codex]
+model = "gpt-5.4"
+reasoning_effort = "low"
+
 [post_run]
 auto_merge_success_status = "Done"
 human_review_status = "Human Review"
