@@ -1,0 +1,26 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "98462c0faf79",
+  "strategy": "manual-commit",
+  "branch": "rhapsody/issue-48-1",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".rhapsody/config.toml",
+    "lib/runners/sandbox-codex.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/98/462c0faf79/0/metadata.json",
+      "transcript": "/98/462c0faf79/0/full.jsonl",
+      "content_hash": "/98/462c0faf79/0/content_hash.txt",
+      "prompt": "/98/462c0faf79/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 88441,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 849280,
+    "output_tokens": 4234,
+    "api_call_count": 19
+  }
+}

@@ -1,0 +1,11 @@
+rhapsodyのrunnerでcodexを実行するときのモデルを指定するconfigを .rhapsody/config.toml に追加したいです。adrでは `.codex/config.toml`を参照するようにしていましたが、ここに書くと、ローカルのcodexでモデルが変更できなくなるので、rhapsodyのrunnerとしての実行モデルは `..rhapsody/config.toml`に指定するようにしたいです。どんなconfigにしてrunner側はどんなふうに変えましょう
+
+---
+
+いいですね。これissueにして[users/toyamarinyon](https://github.com/users/toyamarinyon/projects/4)のtodoに追加してください。
+「なぜやるか」や「ゴールイメージ」をわかりやすく英語で表現してください。
+
+---
+
+rhapsody/issue-48-1 でやっていて途中で終わっていました。
+これcheckoutしてpnpm formatして、modelを`gpt-5.4` reasoning effortを'low'にしてpushしてください。

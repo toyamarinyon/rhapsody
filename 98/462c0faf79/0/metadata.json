@@ -1,0 +1,44 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "98462c0faf79",
+  "session_id": "019e49aa-dcc7-79b3-bfc6-6745e67ce1f8",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-22T04:17:50.363791Z",
+  "branch": "rhapsody/issue-48-1",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".rhapsody/config.toml",
+    "lib/runners/sandbox-codex.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "6c73882c6b5b",
+  "token_usage": {
+    "input_tokens": 88441,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 849280,
+    "output_tokens": 4234,
+    "api_call_count": 19
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-22T04:17:50.350705Z",
+    "agent_lines": 34,
+    "agent_removed": 7,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 34,
+    "total_lines_changed": 41,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
