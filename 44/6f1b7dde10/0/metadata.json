@@ -1,0 +1,59 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "446f1b7dde10",
+  "session_id": "019e4ebe-3331-7e23-9edb-c5dc998bc1a6",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-22T15:13:42.619921Z",
+  "branch": "codex/intake-comment-replies-retrigger",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "lib/github/issues.test.ts",
+    "lib/github/issues.ts",
+    "lib/scheduler/tick.test.ts",
+    "lib/workers/intake-curator.test.ts",
+    "lib/workers/intake-curator/index.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "18becce47f2e",
+  "checkpoint_transcript_start": 2596,
+  "transcript_lines_at_start": 2596,
+  "session_metrics": {
+    "turn_count": 34
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-22T15:13:42.588688Z",
+    "agent_lines": 784,
+    "agent_removed": 7,
+    "human_added": 78,
+    "human_modified": 32,
+    "human_removed": 0,
+    "total_committed": 894,
+    "total_lines_changed": 910,
+    "agent_percentage": 86.92307692307692,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 659,
+      "agent_lines_removed": 7
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 816,
+      "agent_lines_removed": 7
+    }
+  ]
+}

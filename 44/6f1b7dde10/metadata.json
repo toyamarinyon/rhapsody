@@ -1,0 +1,22 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "446f1b7dde10",
+  "strategy": "manual-commit",
+  "branch": "codex/intake-comment-replies-retrigger",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "lib/github/issues.test.ts",
+    "lib/github/issues.ts",
+    "lib/scheduler/tick.test.ts",
+    "lib/workers/intake-curator.test.ts",
+    "lib/workers/intake-curator/index.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/44/6f1b7dde10/0/metadata.json",
+      "transcript": "/44/6f1b7dde10/0/full.jsonl",
+      "content_hash": "/44/6f1b7dde10/0/content_hash.txt",
+      "prompt": "/44/6f1b7dde10/0/prompt.txt"
+    }
+  ]
+}

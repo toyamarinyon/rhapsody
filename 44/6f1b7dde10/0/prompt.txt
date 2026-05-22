@@ -1,0 +1,110 @@
+[toyamarinyon/rhapsody#61](https://github.com/toyamarinyon/rhapsody/pull/61) titleとbody間違っている、やっていること矮小化しているので、書き直して。あと、英語で書いてほしい
+
+---
+
+mergeして、新しいissue作ってみたら、早速コメントが来ました。
+今って、これにコメントで回答したら、また、動きますか？
+
+---
+
+[https://github.com/toyamarinyon/rhapsody/issues/62](https://github.com/toyamarinyon/rhapsody/issues/62)
+
+---
+
+今、webhookじゃないんですよね。scheduler tickで上手いことできないですかね。
+
+---
+
+create plan
+
+---
+
+main pullして新しくブランチ作って、
+
+---
+
+実装しましょう。実装は [@builder](subagent://builder) に依頼して、あなたは評価・フィードバック・タスクの推進について責任を持って進めてください。
+
+---
+
+進めましょう
+
+---
+
+Rhapsody repo `/Users/toyamarinyon/Documents/rhapsody` on branch `codex/intake-comment-replies-retrigger`.
+
+You are the implementation worker. Please edit files directly, but do not commit. The parent agent will review, run verification, and commit.
+
+Goal: implement scheduler-tick reintake from human issue comments, no webhook.
+
+Problem:
+- Intake can produce `ask_human` and post a question comment.
+- Today, if a user replies in an issue comment, scheduler tick still reuses the stale `ask_human` decision because the intake fingerprint only includes issue title/body/blockers/status.
+- We want scheduler polling to notice comments added after the Rhapsody intake question and re-run intake with those replies as context.
+
+Implementation requirements:
+1. Add Octokit-based issue comment listing in `lib/github/issues.ts`.
+   - Use `octokit.rest.issues.listComments` with endpoint-derived types.
+   - Return small domain type, e.g. `GitHubIssueComment = { id: number; body: string; htmlUrl: string; createdAt: string; updatedAt: string; authorLogin: string | null }`.
+   - Add injectable `octokit` option for tests, consistent with existing helpers.
+   - Use `Accept: application/vnd.github+json`, `X-GitHub-Api-Version: 2022-11-28`.
+   - Avoid hand-written API response shape types; derive from `Octokit["rest"]["issues"]["listComments"]`.
+2. Extend intake curator to use human replies.
+   - Add dependency option, e.g. `fetchIssueComments`, to `IntakeCuratorOptions.dependencies`.
+   - During `runIntakeCurator`, resolve issue comments for the current issue.
+   - Find latest recorded `intake_comment` artifact for the work item from graph/artifacts. Scheduler currently passes `existingDecisions`; if needed, inspect artifacts via `listWorkItemGraph` inside intake.
+   - Treat comments created/updated after the latest `intake_comment` artifact as human replies.
+   - Do not filter by author, because Rhapsody may post through a human-owned token. Use the artifact boundary as the source of truth.
+   - Include selected reply `id` and `updatedAt` in intake fingerprint.
+   - Include reply body in classifier prompt under `Human replies since Rhapsody asked:`.
+   - Add replies to decision evidence for observability.
+   - If comment fetching fails, fall back to current safe behavior: do not use replies, do not start builder solely due to fetch failure.
+3. Preserve current behavior without replies.
+   - Existing fresh `ask_human` decision should still be reused when no newer comments exist.
+   - No repeated reclassification loops caused by Rhapsody’s own intake comment.
+4. Scheduler behavior.
+   - Existing scheduler should call intake as before.
+   - A Todo item with prior `ask_human` and newer issue comment should re-run intake on next scheduler tick and can start builder if classifier returns `buildable`.
+5. Tests.
+   - Add/update `lib/github/issues.test.ts`: list comments success and failure if useful.
+   - Add/update `lib/workers/intake-curator.test.ts`:
+     - no new replies after `ask_human` reuses existing decision.
+     - new comment after latest intake comment changes fingerprint and classifier runs again.
+     - prompt includes human reply text.
+     - buildable reclassification returns `shouldStartBuilder: true`.
+   - Add/update `lib/scheduler/tick.test.ts`:
+     - previous `ask_human` plus newer comment can proceed to builder.
+   - Keep tests deterministic with injected fetchers/commenters/classifiers.
+6. Verification to run before reporting:
+   - `pnpm exec biome check lib/github/issues.ts lib/github/issues.test.ts lib/workers/intake-curator/index.ts lib/workers/intake-curator.test.ts lib/scheduler/tick.ts lib/scheduler/tick.test.ts`
+   - `pnpm exec vitest run lib/github/issues.test.ts lib/workers/intake-curator.test.ts lib/scheduler/tick.test.ts`
+   - `pnpm typecheck`
+   - `pnpm lint`
+
+Notes:
+- You are not alone in the codebase. Do not revert unrelated edits.
+- Keep scope focused. No webhook work.
+- Do not commit.
+
+Report changed files, behavior, and verification results when done.
+
+---
+
+レビューです。大筋は良いです。1点だけ修正してください。
+
+`fetchIssueComments` が `octokit.rest.issues.listComments` を1回だけ呼んでいて、デフォルトページだけになっています。scheduler tick で最新の human reply を拾う用途なので、コメント数が30件を超えた issue で後続コメントを見落とす可能性があります。
+
+修正方針:
+- `fetchIssueComments` を pagination 対応にしてください。
+- 既存の repo style に合わせるなら、`per_page: 100`, `page` loop + `response.headers.link?.includes('rel="next"')` でOKです。
+- Octokit の `paginate` を使うなら injection type と test がやや複雑になるので、明示 page loop が無難です。
+- 各 request に headers を維持してください。
+- Test で2ページ目も取得するケースを追加してください。
+
+検証:
+- `pnpm exec biome check lib/github/issues.ts lib/github/issues.test.ts lib/workers/intake-curator/index.ts lib/workers/intake-curator.test.ts lib/scheduler/tick.ts lib/scheduler/tick.test.ts`
+- `pnpm exec vitest run lib/github/issues.test.ts lib/workers/intake-curator.test.ts lib/scheduler/tick.test.ts`
+- `pnpm typecheck`
+- `pnpm lint`
+
+コミットはしないでください。
