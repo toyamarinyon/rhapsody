@@ -1,3 +1,5 @@
+import { Octokit } from "@octokit/rest";
+
 import { loadRhapsodyGitHubEnv, type RhapsodyGitHubEnv } from "@/lib/config";
 
 export type GitHubIssueLabel = {
@@ -30,6 +32,23 @@ export type GitHubBlockedByDependency = {
 	repository: {
 		owner: string;
 		name: string;
+	};
+};
+
+type ListDependenciesBlockedByFn =
+	Octokit["rest"]["issues"]["listDependenciesBlockedBy"];
+type ListDependenciesBlockedByResponse = Awaited<
+	ReturnType<ListDependenciesBlockedByFn>
+>;
+type ListDependenciesBlockedByDependency =
+	ListDependenciesBlockedByResponse["data"][number];
+type OctokitIssueDependenciesClient = {
+	rest: {
+		issues: {
+			listDependenciesBlockedBy: (
+				...args: Parameters<ListDependenciesBlockedByFn>
+			) => ReturnType<ListDependenciesBlockedByFn>;
+		};
 	};
 };
 
@@ -152,21 +171,33 @@ export async function createIssueComment(
 export async function fetchIssueDependenciesBlockedBy(
 	input: { owner: string; repository: string; issueNumber: number },
 	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
+	options?: {
+		octokit?: OctokitIssueDependenciesClient;
+	},
 ): Promise<GitHubBlockedByDependency[]> {
-	const response = await fetch(
-		`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}/issues/${input.issueNumber}/dependencies/blocked_by`,
-		{
+	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
+	let response: ListDependenciesBlockedByResponse;
+	try {
+		response = await octokit.rest.issues.listDependenciesBlockedBy({
+			owner: input.owner,
+			repo: input.repository,
+			issue_number: input.issueNumber,
 			headers: {
 				Accept: "application/vnd.github+json",
-				Authorization: `Bearer ${env.GITHUB_TOKEN}`,
 				"X-GitHub-Api-Version": "2026-03-10",
 			},
-		},
-	);
+		});
+	} catch (error) {
+		const status =
+			typeof error === "object" &&
+			error !== null &&
+			"status" in error &&
+			typeof error.status === "number"
+				? error.status
+				: 500;
 
-	if (!response.ok) {
 		throw new GitHubIssueFetchError(
-			response.status,
+			status,
 			input.owner,
 			input.repository,
 			input.issueNumber,
@@ -174,20 +205,71 @@ export async function fetchIssueDependenciesBlockedBy(
 		);
 	}
 
-	const payload = await response.json();
-	const entries = Array.isArray(payload?.nodes)
-		? payload.nodes
-		: Array.isArray(payload)
-			? payload
-			: null;
+	const rawDependencies = response.data;
 
-	if (!Array.isArray(entries)) {
-		throw new Error(
-			"GitHub issue dependencies endpoint returned an unexpected response shape.",
-		);
+	const normalizedDependencies = rawDependencies.map(
+		(dependency: ListDependenciesBlockedByDependency) => {
+			if (typeof dependency.repository_url !== "string") {
+				throw new Error(
+					`GitHub issue dependency payload had invalid field values for ${input.owner}/${input.repository}#${input.issueNumber}.`,
+				);
+			}
+			const repositoryUrl = dependency.repository_url;
+			const [owner, name] = parseRepositoryOwnerAndNameFromUrl(repositoryUrl);
+			if (
+				typeof dependency.id !== "string" &&
+				typeof dependency.id !== "number"
+			) {
+				throw new Error("GitHub issue dependency missing id.");
+			}
+
+			if (
+				typeof dependency.node_id !== "string" ||
+				typeof dependency.number !== "number" ||
+				typeof dependency.title !== "string" ||
+				typeof dependency.html_url !== "string" ||
+				typeof dependency.state !== "string" ||
+				name === "" ||
+				owner === ""
+			) {
+				throw new Error(
+					`GitHub issue dependency payload had invalid field values for ${input.owner}/${input.repository}#${input.issueNumber}.`,
+				);
+			}
+
+			return {
+				id: `${dependency.id}`,
+				nodeId: dependency.node_id,
+				number: dependency.number,
+				title: dependency.title,
+				htmlUrl: dependency.html_url,
+				repositoryUrl,
+				state: dependency.state,
+				repository: {
+					owner,
+					name,
+				},
+			};
+		},
+	);
+
+	return normalizedDependencies;
+}
+
+function parseRepositoryOwnerAndNameFromUrl(url: string): [string, string] {
+	try {
+		const parsed = new URL(url);
+		const parts = parsed.pathname.split("/");
+		const repoIndex = parts.indexOf("repos");
+
+		if (repoIndex >= 0 && parts[repoIndex + 1] && parts[repoIndex + 2]) {
+			return [parts[repoIndex + 1], parts[repoIndex + 2]];
+		}
+	} catch {
+		// Ignore invalid repository URL.
 	}
 
-	return entries.map((entry) => normalizeIssueDependency(entry, input));
+	return ["", ""];
 }
 
 function normalizeIssue(value: unknown): GitHubIssue {
@@ -262,79 +344,6 @@ function isGitHubIssueResponse(value: unknown): value is GitHubIssueResponse {
 		typeof issue.state === "string" &&
 		Array.isArray(issue.labels)
 	);
-}
-
-type GitHubBlockedByDependencyResponse = {
-	id: number;
-	node_id: string;
-	number: number;
-	title: string;
-	html_url: string;
-	state: string;
-	repository_url: string;
-};
-
-function normalizeIssueDependency(
-	value: unknown,
-	fallbackRepository: { owner: string; repository: string },
-): GitHubBlockedByDependency {
-	if (!isGitHubBlockedByDependencyResponse(value)) {
-		throw new Error("GitHub issue dependency response had unexpected shape.");
-	}
-
-	const repository = parseRepositoryUrl(value.repository_url) ?? {
-		owner: fallbackRepository.owner,
-		name: fallbackRepository.repository,
-	};
-
-	return {
-		id: String(value.id),
-		nodeId: value.node_id,
-		number: value.number,
-		title: value.title,
-		htmlUrl: value.html_url,
-		repositoryUrl: value.repository_url,
-		state: value.state,
-		repository,
-	};
-}
-
-function isGitHubBlockedByDependencyResponse(
-	value: unknown,
-): value is GitHubBlockedByDependencyResponse {
-	if (typeof value !== "object" || value === null) {
-		return false;
-	}
-
-	const issue = value as Partial<GitHubBlockedByDependencyResponse>;
-
-	return (
-		typeof issue.id === "number" &&
-		typeof issue.node_id === "string" &&
-		typeof issue.number === "number" &&
-		typeof issue.title === "string" &&
-		typeof issue.html_url === "string" &&
-		typeof issue.state === "string" &&
-		typeof issue.repository_url === "string"
-	);
-}
-
-function parseRepositoryUrl(
-	value: string,
-): { owner: string; name: string } | null {
-	try {
-		const url = new URL(value);
-		const parts = url.pathname.split("/").filter(Boolean);
-		if (parts[0] !== "repos" || !parts[1] || !parts[2]) {
-			return null;
-		}
-		return {
-			owner: parts[1],
-			name: parts[2],
-		};
-	} catch {
-		return null;
-	}
 }
 
 async function safeResponseText(response: Response): Promise<string> {
