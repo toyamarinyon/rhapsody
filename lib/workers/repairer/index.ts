@@ -12,7 +12,9 @@ import type {
 } from "@/lib/github/checks";
 import type { GitHubProjectIssueWorkItem } from "@/lib/github/project-items";
 
-const MAX_FORMAT_REPAIR_ATTEMPTS = 2;
+export const MAX_FORMAT_REPAIR_ATTEMPTS_PER_HEAD_SHA = 2;
+export const MAX_FORMAT_REPAIR_ATTEMPTS_PER_PULL_REQUEST = 6;
+export const MAX_FORMAT_REPAIR_ATTEMPTS_PER_FAILURE_FINGERPRINT = 2;
 
 export type RepairerClassification =
 	| "format_fixable"
@@ -20,13 +22,79 @@ export type RepairerClassification =
 
 export type RepairerDecisionOutcome = "repair_allowed" | "repair_blocked";
 
-export type RepairerResult = {
+export type RepairerAttemptOutcome =
+	| "repair_allowed"
+	| "repair_applied"
+	| "repair_noop"
+	| "repair_failed";
+
+export type RepairerAttemptCounts = {
+	headSha: number;
+	pullRequest: number;
+	fingerprint: number;
+};
+
+export type RepairerAttemptBudgets = {
+	headSha: number;
+	pullRequest: number;
+	fingerprint: number;
+};
+
+export type RepairerPlannerResult = {
 	workerRunId: string;
 	decisionId: string;
 	outcome: RepairerDecisionOutcome;
 	classification: RepairerClassification;
 	attemptCount: number;
+	attemptCounts: RepairerAttemptCounts;
+	maxAttempts: RepairerAttemptBudgets;
+	repairExecutionKey: string;
+	failureFingerprint: string;
 };
+
+export type RepairerExecutionKeyInput = {
+	pullRequestNumber: number;
+	headSha: string | null;
+	failureFingerprint: string;
+};
+
+export function buildRepairExecutionKey(input: RepairerExecutionKeyInput) {
+	const headKey = input.headSha ?? "unknown";
+	return `${input.pullRequestNumber}:${headKey}:${input.failureFingerprint}`;
+}
+
+export function buildFailureFingerprint(
+	checkSummary: Pick<PullRequestCheckSummary, "checkRuns">,
+): string {
+	const failures = checkSummary.checkRuns
+		.filter(isFailedCheckRun)
+		.map((checkRun) => {
+			return [
+				normalizeCheckName(checkRun.name),
+				normalizeStatus(checkRun.status),
+				normalizeConclusion(checkRun.conclusion),
+			].join("::");
+		})
+		.sort();
+
+	if (failures.length === 0) {
+		return "no_failed_checks";
+	}
+
+	return failures.join("|");
+}
+
+function normalizeCheckName(value: string) {
+	return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function normalizeStatus(value: string) {
+	return (value ?? "").trim().toLowerCase();
+}
+
+function normalizeConclusion(value: string | null) {
+	return (value ?? "").trim().toLowerCase();
+}
 
 export async function runRepairerPlanner(
 	client: Client,
@@ -39,19 +107,34 @@ export async function runRepairerPlanner(
 		checkSummary: PullRequestCheckSummary;
 		existingDecisions: Decision[];
 	},
-): Promise<RepairerResult> {
+): Promise<RepairerPlannerResult> {
 	const classification = classifyRepair(input.checkSummary);
-	const attemptCount = countPriorFormatRepairAttempts({
+	const failureFingerprint = buildFailureFingerprint(input.checkSummary);
+	const repairExecutionKey = buildRepairExecutionKey({
+		pullRequestNumber: input.pullRequestNumber,
+		headSha: input.checkSummary.headSha,
+		failureFingerprint,
+	});
+	const attemptCounts = countPriorFormatRepairAttempts({
 		decisions: input.existingDecisions,
 		pullRequestNumber: input.pullRequestNumber,
 		headSha: input.checkSummary.headSha,
+		failureFingerprint,
 	});
+	const maxAttempts = {
+		headSha: MAX_FORMAT_REPAIR_ATTEMPTS_PER_HEAD_SHA,
+		pullRequest: MAX_FORMAT_REPAIR_ATTEMPTS_PER_PULL_REQUEST,
+		fingerprint: MAX_FORMAT_REPAIR_ATTEMPTS_PER_FAILURE_FINGERPRINT,
+	};
 	const allowed =
 		classification === "format_fixable" &&
-		attemptCount < MAX_FORMAT_REPAIR_ATTEMPTS;
+		attemptCounts.headSha < maxAttempts.headSha &&
+		attemptCounts.pullRequest < maxAttempts.pullRequest &&
+		attemptCounts.fingerprint < maxAttempts.fingerprint;
 	const outcome: RepairerDecisionOutcome = allowed
 		? "repair_allowed"
 		: "repair_blocked";
+
 	const workerRun = await createWorkerRun(client, {
 		workItemId: input.workItemId,
 		kind: "repairer",
@@ -59,11 +142,15 @@ export async function runRepairerPlanner(
 		metadata: {
 			issueNumber: input.workItem.issueNumber,
 			pullRequestNumber: input.pullRequestNumber,
+			pullRequestUrl: input.pullRequestUrl,
 			classification,
-			attemptCount,
-			maxAttempts: MAX_FORMAT_REPAIR_ATTEMPTS,
+			attemptCounts,
+			maxAttempts,
+			repairExecutionKey,
+			failureFingerprint,
 		},
 	});
+
 	const decisionId = await createDecision(client, {
 		workItemId: input.workItemId,
 		workerRunId: workerRun.id,
@@ -73,16 +160,22 @@ export async function runRepairerPlanner(
 		policyRuleId: classification,
 		nextWorkerKind: allowed ? "repairer" : null,
 		nextAction: allowed
-			? "Run a narrow format repair on the pull request branch."
+			? `Run a narrow format repair for execution key ${repairExecutionKey}.`
 			: "Escalate because the failure is not safely repairable or repair budget is exhausted.",
 		evidence: {
 			issueNumber: input.workItem.issueNumber,
 			pullRequestNumber: input.pullRequestNumber,
 			pullRequestUrl: input.pullRequestUrl,
 			classification,
-			attemptCount,
-			maxAttempts: MAX_FORMAT_REPAIR_ATTEMPTS,
-			checks: input.checkSummary,
+			attemptCount: attemptCounts.headSha,
+			attemptCounts,
+			maxAttempts,
+			repairExecutionKey,
+			failureFingerprint,
+			checks: {
+				headSha: input.checkSummary.headSha,
+			},
+			checkSummary: input.checkSummary,
 		},
 	});
 
@@ -96,6 +189,7 @@ export async function runRepairerPlanner(
 			relation: "starts",
 			metadata: {
 				reason: classification,
+				repairExecutionKey,
 			},
 		}),
 		createLink(client, {
@@ -107,6 +201,7 @@ export async function runRepairerPlanner(
 			relation: "decides",
 			metadata: {
 				outcome,
+				repairExecutionKey,
 			},
 		}),
 		updateWorkerRunStatus(client, {
@@ -120,7 +215,11 @@ export async function runRepairerPlanner(
 		decisionId,
 		outcome,
 		classification,
-		attemptCount,
+		attemptCount: attemptCounts.headSha,
+		attemptCounts,
+		maxAttempts,
+		repairExecutionKey,
+		failureFingerprint,
 	};
 }
 
@@ -143,25 +242,148 @@ export function classifyRepair(
 	return "not_deterministically_fixable";
 }
 
-function countPriorFormatRepairAttempts(input: {
+export function countPriorFormatRepairAttempts(input: {
 	decisions: Decision[];
 	pullRequestNumber: number;
 	headSha: string | null;
-}) {
-	return input.decisions.filter((decision) => {
+	failureFingerprint: string;
+}): RepairerAttemptCounts {
+	const relevant = input.decisions.filter((decision) => {
 		if (decision.phase !== "repair") {
 			return false;
 		}
 
-		const evidence = asRecord(decision.evidence);
-		const checks = asRecord(evidence?.checks);
+		if (!isRepairAttemptOutcome(decision.outcome)) {
+			return false;
+		}
 
-		return (
-			evidence?.pullRequestNumber === input.pullRequestNumber &&
-			evidence?.classification === "format_fixable" &&
-			checks?.headSha === input.headSha
-		);
-	}).length;
+		const evidence = asRepairDecisionRecord(decision.evidence);
+
+		if (
+			evidence?.pullRequestNumber !== input.pullRequestNumber ||
+			evidence?.classification !== "format_fixable"
+		) {
+			return false;
+		}
+
+		return true;
+	});
+
+	return relevant.reduce(
+		(total, decision) => {
+			const evidence = asRepairDecisionRecord(decision.evidence);
+			const checks = asRecord(evidence?.checks);
+			const thisHeadSha =
+				typeof checks?.headSha === "string" ? checks.headSha : null;
+			const thisFailureFingerprint =
+				typeof evidence?.failureFingerprint === "string"
+					? evidence.failureFingerprint
+					: null;
+
+			return {
+				headSha: total.headSha + (thisHeadSha === input.headSha ? 1 : 0),
+				pullRequest: total.pullRequest + 1,
+				fingerprint:
+					total.fingerprint +
+					(thisFailureFingerprint === input.failureFingerprint ? 1 : 0),
+			};
+		},
+		{ headSha: 0, pullRequest: 0, fingerprint: 0 },
+	);
+}
+
+export function hasTerminalRepairDecisionOutcome(decision: Decision): boolean {
+	return (
+		decision.phase === "repair" &&
+		(decision.outcome === "repair_applied" ||
+			decision.outcome === "repair_noop")
+	);
+}
+
+export function buildRepairPlanFromRepairDecision(decision: Decision): {
+	decisionId: string;
+	repairExecutionKey: string;
+	failureFingerprint: string;
+	attemptCounts: RepairerAttemptCounts;
+	maxAttempts: RepairerAttemptBudgets;
+} | null {
+	const evidence = asRepairDecisionRecord(decision.evidence);
+	if (decision.phase !== "repair" || decision.outcome !== "repair_allowed") {
+		return null;
+	}
+
+	if (
+		typeof evidence?.repairExecutionKey !== "string" ||
+		typeof evidence?.failureFingerprint !== "string"
+	) {
+		return null;
+	}
+
+	const attemptCounts = isRepairAttemptCounts(evidence.attemptCounts)
+		? evidence.attemptCounts
+		: null;
+	const maxAttempts = isRepairAttemptBudgets(evidence.maxAttempts)
+		? evidence.maxAttempts
+		: {
+				headSha: MAX_FORMAT_REPAIR_ATTEMPTS_PER_HEAD_SHA,
+				pullRequest: MAX_FORMAT_REPAIR_ATTEMPTS_PER_PULL_REQUEST,
+				fingerprint: MAX_FORMAT_REPAIR_ATTEMPTS_PER_FAILURE_FINGERPRINT,
+			};
+
+	if (!attemptCounts) {
+		return null;
+	}
+
+	return {
+		decisionId: decision.id,
+		repairExecutionKey: evidence.repairExecutionKey,
+		failureFingerprint: evidence.failureFingerprint,
+		attemptCounts,
+		maxAttempts,
+	};
+}
+
+export function asRepairDecisionRecord(
+	value: unknown,
+): Record<string, unknown> | null {
+	return asRecord(value);
+}
+
+function isRepairAttemptOutcome(
+	outcome: string,
+): outcome is RepairerAttemptOutcome {
+	return (
+		outcome === "repair_allowed" ||
+		outcome === "repair_applied" ||
+		outcome === "repair_noop" ||
+		outcome === "repair_failed"
+	);
+}
+
+function isRepairAttemptCounts(value: unknown): value is RepairerAttemptCounts {
+	const record = asRecord(value);
+	if (!record) {
+		return false;
+	}
+	return (
+		typeof record.headSha === "number" &&
+		typeof record.pullRequest === "number" &&
+		typeof record.fingerprint === "number"
+	);
+}
+
+function isRepairAttemptBudgets(
+	value: unknown,
+): value is RepairerAttemptBudgets {
+	const record = asRecord(value);
+	if (!record) {
+		return false;
+	}
+	return (
+		typeof record.headSha === "number" &&
+		typeof record.pullRequest === "number" &&
+		typeof record.fingerprint === "number"
+	);
 }
 
 function isFailedCheckRun(checkRun: PullRequestCheckRunSummary) {

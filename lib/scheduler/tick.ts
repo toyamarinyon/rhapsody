@@ -14,6 +14,7 @@ import {
 	createWorkerRun,
 	getStateSummary,
 	listWorkItemGraph,
+	type Decision,
 } from "@/lib/state";
 import {
 	findPullRequestArtifactFromArtifacts,
@@ -23,7 +24,12 @@ import {
 	linkIntakeToBuilder,
 	runIntakeCurator as runIntakeCuratorNode,
 } from "@/lib/workers/intake-curator";
-import { runRepairerPlanner } from "@/lib/workers/repairer";
+import {
+	buildRepairPlanFromRepairDecision,
+	buildFailureFingerprint,
+	runRepairerPlanner,
+} from "@/lib/workers/repairer";
+import { runRepairerExecutor } from "@/lib/workers/repairer/format-executor";
 import { loadRhapsodyConfig } from "@/lib/config";
 
 type SchedulerTickCreatedRun = {
@@ -84,6 +90,8 @@ export type SchedulerTickDependencies = {
 	fetchProjectIssueWorkItems?: typeof fetchProjectIssueWorkItems;
 	updateProjectIssueStatus?: typeof updateProjectIssueStatus;
 	getPullRequestCheckSummary?: typeof getPullRequestCheckSummary;
+	runRepairerPlanner?: typeof runRepairerPlanner;
+	runRepairerExecutor?: typeof runRepairerExecutor;
 };
 
 const ACTIVE_STATUSES = ["Todo", "In Progress"];
@@ -148,6 +156,8 @@ export async function runSchedulerTick(
 					client,
 					config,
 					dependencies.getPullRequestCheckSummary,
+					dependencies.runRepairerPlanner,
+					dependencies.runRepairerExecutor,
 					item,
 					workItemId,
 				);
@@ -486,6 +496,8 @@ async function runPostPrCuratorForInProgress(
 	getPullRequestCheckSummaryDependency:
 		| typeof getPullRequestCheckSummary
 		| undefined,
+	runRepairerPlannerDependency: typeof runRepairerPlanner | undefined,
+	runRepairerExecutorDependency: typeof runRepairerExecutor | undefined,
 	item: GitHubProjectIssueWorkItem,
 	workItemId: string,
 ) {
@@ -516,7 +528,8 @@ async function runPostPrCuratorForInProgress(
 			postPrResult.classification === "ci_failed" &&
 			!postPrResult.skippedFreshDuplicate
 		) {
-			await runRepairerPlanner(client, {
+			const planner = runRepairerPlannerDependency ?? runRepairerPlanner;
+			const plan = await planner(client, {
 				workItem: item,
 				workItemId,
 				postPrDecisionId: postPrResult.decisionId,
@@ -525,6 +538,74 @@ async function runPostPrCuratorForInProgress(
 				checkSummary: postPrResult.checkSummary,
 				existingDecisions: graph.decisions,
 			});
+
+			if (plan.outcome === "repair_allowed") {
+				await (runRepairerExecutorDependency ?? runRepairerExecutor)({
+					client,
+					workItem: item,
+					workItemId,
+					pullRequestNumber: pullRequestArtifact.number,
+					pullRequestUrl: pullRequestArtifact.url ?? "",
+					checkSummary: postPrResult.checkSummary,
+					repositoryBaseBranch: config.repository.defaultBranch,
+					plan,
+					owner: config.repository.owner,
+					repository: config.repository.name,
+				});
+			}
+		}
+
+		if (
+			postPrResult.classification === "ci_failed" &&
+			postPrResult.skippedFreshDuplicate
+		) {
+			const failureFingerprint = buildFailureFingerprint(
+				postPrResult.checkSummary,
+			);
+			const duplicateAllowedDecision = findLatestRepairAllowedDecision({
+				decisions: graph.decisions,
+				pullRequestNumber: pullRequestArtifact.number,
+				failureFingerprint,
+			});
+
+			if (duplicateAllowedDecision) {
+				const duplicatePlan = buildRepairPlanFromRepairDecision(
+					duplicateAllowedDecision,
+				);
+				if (duplicatePlan) {
+					const planner = runRepairerPlannerDependency ?? runRepairerPlanner;
+					const plan = await planner(client, {
+						workItem: item,
+						workItemId,
+						postPrDecisionId: postPrResult.decisionId,
+						pullRequestNumber: pullRequestArtifact.number,
+						pullRequestUrl: pullRequestArtifact.url ?? "",
+						checkSummary: postPrResult.checkSummary,
+						existingDecisions: graph.decisions,
+					});
+
+					if (plan.outcome !== "repair_allowed") {
+						// Budget check blocked repair attempts on this execution key.
+						return {
+							handled: true,
+							skipReason: "",
+						};
+					}
+
+					await (runRepairerExecutorDependency ?? runRepairerExecutor)({
+						client,
+						workItem: item,
+						workItemId,
+						pullRequestNumber: pullRequestArtifact.number,
+						pullRequestUrl: pullRequestArtifact.url ?? "",
+						checkSummary: postPrResult.checkSummary,
+						repositoryBaseBranch: config.repository.defaultBranch,
+						plan,
+						owner: config.repository.owner,
+						repository: config.repository.name,
+					});
+				}
+			}
 		}
 
 		return {
@@ -550,6 +631,39 @@ async function runPostPrCuratorForInProgress(
 			skipReason: "post_pr_graph_error",
 		};
 	}
+}
+
+function findLatestRepairAllowedDecision(input: {
+	decisions: Decision[];
+	pullRequestNumber: number;
+	failureFingerprint: string;
+}): Decision | null {
+	const candidates = input.decisions.filter((candidate) => {
+		if (
+			candidate.phase !== "repair" ||
+			candidate.outcome !== "repair_allowed"
+		) {
+			return false;
+		}
+		const evidence = asObject(candidate.evidence);
+		return (
+			evidence?.pullRequestNumber === input.pullRequestNumber &&
+			evidence?.classification === "format_fixable" &&
+			evidence?.failureFingerprint === input.failureFingerprint
+		);
+	});
+
+	if (candidates.length === 0) {
+		return null;
+	}
+
+	return candidates.sort((left, right) => right.createdAt - left.createdAt)[0];
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+	return typeof value === "object" && value !== null
+		? (value as Record<string, unknown>)
+		: null;
 }
 
 function serializeError(error: unknown) {
