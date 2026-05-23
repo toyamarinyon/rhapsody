@@ -105,44 +105,34 @@ export const intakeClassificationJsonSchema = {
 	$schema: "https://json-schema.org/draft/2020-12/schema",
 	$title: "IntakeClassification",
 	title: "IntakeClassification",
-	oneOf: [
-		{
-			type: "object",
-			additionalProperties: false,
-			required: ["decision", "summary", "implementation_plan", "comment"],
-			properties: {
-				decision: { enum: ["buildable"] },
-				summary: { type: "string", minLength: 1, maxLength: 1200 },
-				implementation_plan: { type: "string", minLength: 1, maxLength: 4000 },
-				comment: { type: "string", minLength: 1 },
-				next_action: { type: "string" },
-			},
-		},
-		{
-			type: "object",
-			additionalProperties: false,
-			required: ["decision", "summary", "question", "comment"],
-			properties: {
-				decision: { enum: ["ask_human"] },
-				summary: { type: "string", minLength: 1, maxLength: 1200 },
-				question: { type: "string", minLength: 1, maxLength: 2000 },
-				comment: { type: "string", minLength: 1 },
-				next_action: { type: "string" },
-			},
-		},
-		{
-			type: "object",
-			additionalProperties: false,
-			required: ["decision", "summary", "reason", "comment"],
-			properties: {
-				decision: { enum: ["skip"] },
-				summary: { type: "string", minLength: 1, maxLength: 1200 },
-				reason: { type: "string", minLength: 1 },
-				comment: { type: "string", minLength: 1 },
-				next_action: { type: "string" },
-			},
-		},
+	type: "object",
+	additionalProperties: false,
+	required: [
+		"decision",
+		"summary",
+		"implementation_plan",
+		"question",
+		"reason",
+		"comment",
+		"next_action",
 	],
+	properties: {
+		decision: { enum: ["buildable", "ask_human", "skip"] },
+		summary: { type: "string", minLength: 1, maxLength: 1200 },
+		implementation_plan: {
+			type: ["string", "null"],
+			minLength: 1,
+			maxLength: 4000,
+		},
+		question: {
+			type: ["string", "null"],
+			minLength: 1,
+			maxLength: 2000,
+		},
+		reason: { type: ["string", "null"], minLength: 1 },
+		comment: { type: "string", minLength: 1 },
+		next_action: { type: ["string", "null"] },
+	},
 };
 
 export type IntakeClassification = z.infer<typeof intakeClassificationSchema>;
@@ -855,7 +845,7 @@ function normalizeBlockedByDependency(
 	};
 }
 
-function parseClassifierOutput(raw: string): IntakeClassification {
+export function parseClassifierOutput(raw: string): IntakeClassification {
 	const trimmed = raw.trim();
 	if (!trimmed) {
 		throw new Error("Classifier output was empty.");
@@ -874,7 +864,7 @@ function parseClassifierOutput(raw: string): IntakeClassification {
 	) {
 		const nested = tryParseJson((parsed as { content: string }).content);
 		if (nested) {
-			return intakeClassificationSchema.parse(nested);
+			return intakeClassificationSchema.parse(stripNullFields(nested));
 		}
 	}
 
@@ -883,10 +873,20 @@ function parseClassifierOutput(raw: string): IntakeClassification {
 		if (!nested) {
 			throw new Error("Classifier output was not parseable JSON.");
 		}
-		return intakeClassificationSchema.parse(nested);
+		return intakeClassificationSchema.parse(stripNullFields(nested));
 	}
 
-	return intakeClassificationSchema.parse(parsed);
+	return intakeClassificationSchema.parse(stripNullFields(parsed));
+}
+
+function stripNullFields(value: unknown): unknown {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return value;
+	}
+
+	return Object.fromEntries(
+		Object.entries(value).filter(([, entryValue]) => entryValue !== null),
+	);
 }
 
 function errorMessage(error: unknown): string {
@@ -1160,6 +1160,7 @@ Return JSON matching the provided schema with:
 - reason: required only for skip
 - comment: required, include concrete next step or question
 - next_action: optional next step
+- Set fields that do not apply to the decision to null
 
 Notes:
 - Use ask_human only when a human response is needed now.
