@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { type Client, createClient } from "@libsql/client";
@@ -11,6 +12,8 @@ import {
 	listWorkItemGraph,
 	migrateStateStore,
 } from "@/lib/state";
+import type { IntakeClassifierSandboxDependencies } from "@/lib/workers/intake-classifier-sandbox";
+import * as intakeClassifierSandbox from "@/lib/workers/intake-classifier-sandbox";
 import {
 	buildIntakeInputFingerprint,
 	type IntakeClassification,
@@ -54,6 +57,9 @@ type ClassifierEvidence = {
 		body: string;
 	}>;
 };
+type NetworkPolicy = {
+	allow?: Record<string, Array<{ forwardURL?: string }>>;
+};
 
 type MockComment = {
 	owner: string;
@@ -75,6 +81,121 @@ async function createTestDatabase(): Promise<{
 		client,
 		cleanup: () => rmSync(directory, { force: true, recursive: true }),
 	};
+}
+
+function createSandboxIntakeClassifierDeps(
+	overrides: Partial<IntakeClassifierSandboxDependencies> = {},
+): {
+	deps: IntakeClassifierSandboxDependencies;
+	writeFiles: Array<{ path: string; content: string }>;
+	commands: Array<{
+		cmd?: string;
+		args: string[];
+		serializedInput: string;
+		cwd: string | undefined;
+		stdout: string;
+		exitCode: number;
+		timedOut?: boolean;
+		stderr?: string;
+		error?: string;
+	}>;
+} {
+	const writeFiles: Array<{ path: string; content: string }> = [];
+	const commands: Array<{
+		cmd?: string;
+		args: string[];
+		serializedInput: string;
+		cwd: string | undefined;
+		stdout: string;
+		exitCode: number;
+		timedOut?: boolean;
+		stderr?: string;
+		error?: string;
+	}> = [];
+	let commandInvocation = 0;
+
+	const sandbox = {
+		sandboxId: "sandbox-intake",
+	} as const;
+
+	const deps: IntakeClassifierSandboxDependencies = {
+		createVercelSandbox: vi.fn().mockResolvedValue(sandbox as never),
+		runVercelSandboxCommand: vi.fn().mockImplementation(
+			async (
+				_sandbox: { sandboxId: string },
+				input: {
+					cmd?: string;
+					args?: string[];
+					argv?: string[];
+					cwd?: string;
+					timeoutMs?: number;
+				} = {},
+			) => {
+				commandInvocation += 1;
+				const commandArgs: string[] = input.args ?? input.argv ?? [];
+				commands.push({
+					cmd: input.cmd,
+					args: commandArgs,
+					serializedInput: JSON.stringify(input),
+					cwd: input.cwd,
+					stdout: "",
+					exitCode: 0,
+				});
+
+				if (commandInvocation >= 2) {
+					return {
+						commandId: "cmd-cat",
+						cwd: input.cwd ?? "/vercel/sandbox",
+						startedAt: Date.now(),
+						exitCode: 0,
+						stdout: JSON.stringify({
+							decision: "buildable",
+							summary: "Test buildable",
+							implementation_plan: "Implement test plan",
+							comment: "All good.",
+						}),
+						stderr: "",
+					};
+				}
+
+				return {
+					commandId: "cmd-1",
+					cwd: input.cwd ?? "/vercel/sandbox",
+					startedAt: Date.now(),
+					exitCode: 0,
+					stdout: "",
+					stderr: "",
+				};
+			},
+		),
+		stopVercelSandbox: vi.fn().mockResolvedValue(undefined),
+		writeVercelSandboxFiles: vi.fn(async (_sandbox, files) => {
+			for (const file of files) {
+				const content =
+					typeof file.content === "string"
+						? file.content
+						: Buffer.isBuffer(file.content)
+							? file.content.toString()
+							: Buffer.from(file.content as Uint8Array).toString();
+				writeFiles.push({ path: file.path, content });
+			}
+		}),
+		loadMediatorCredentialState: vi.fn().mockResolvedValue({
+			accountId: "acct_test",
+		}),
+		loadRhapsodyMediatorEnv: vi.fn().mockReturnValue({
+			MEDIATOR_SECRET: "medsec",
+		}),
+		loadRhapsodyProtectionBypassEnv: vi.fn().mockReturnValue({
+			VERCEL_PROTECTION_BYPASS_SECRET: "bypass",
+		}),
+		loadRhapsodyCodexBaseSnapshotEnv: vi.fn().mockReturnValue({
+			RHAPSODY_CODEX_BASE_SNAPSHOT_ID: null,
+		}),
+		...(overrides as object),
+	};
+
+	return { deps, writeFiles, commands };
 }
 
 function buildIssueCommentPayload(input: {
@@ -1029,6 +1150,234 @@ test("runIntakeCurator heals once and then succeeds", async () => {
 		expect(
 			evidence?.classifierDiagnostics?.failedAttempts?.[0]?.runner,
 		).toBeUndefined();
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("default intake classifier runner executes through sandbox pathway", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItem = buildProjectItem({
+		issueNumber: 306,
+		issueTitle: "Sandbox default classification path",
+		issueBody:
+			"This has enough context to run through the default classifier path in the sandbox.",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#306";
+
+	const sandboxRunner = vi
+		.spyOn(intakeClassifierSandbox, "runIntakeClassifierInSandbox")
+		.mockResolvedValue({
+			raw: JSON.stringify({
+				decision: "buildable",
+				summary: "Default sandbox runner test",
+				implementation_plan: "Implement plan.",
+				comment: "I can do it.",
+			}),
+			command: "codex exec",
+			rawOutputAvailable: true,
+			runner: {
+				exitCode: 0,
+				signal: null,
+				timedOut: false,
+				durationMs: 123,
+			},
+		});
+
+	try {
+		const result = await runIntakeCurator(client, workItem, workItemId, {
+			dependencies: {
+				fetchBlockedBy: noNativeDependenciesFetcher,
+			},
+		});
+
+		expect(result.outcome).toBe("buildable");
+		expect(sandboxRunner).toHaveBeenCalledTimes(1);
+	} finally {
+		client.close();
+		database.cleanup();
+		sandboxRunner.mockRestore();
+	}
+});
+
+test("intake sandbox runner writes classified prompt, schema, and codex proxy path", async () => {
+	const previousVercelUrl = process.env.VERCEL_URL;
+	process.env.VERCEL_URL = "https://example.vercel.app";
+	const { deps, commands, writeFiles } = createSandboxIntakeClassifierDeps();
+	const result = await intakeClassifierSandbox.runIntakeClassifierInSandbox({
+		prompt: "Classify issue",
+		schemaFilePath: await (async () => {
+			const tempDir = mkdtempSync(
+				path.join(tmpdir(), "rhapsody-intake-schema-"),
+			);
+			const schemaPath = path.join(tempDir, "schema.json");
+			await writeFile(schemaPath, JSON.stringify({ type: "object" }), "utf8");
+			return schemaPath;
+		})(),
+		dependencies: deps,
+	});
+
+	try {
+		expect(result.rawOutputAvailable).toBe(true);
+		expect(result.raw).toContain('"decision":"buildable"');
+		expect(deps.createVercelSandbox).toHaveBeenCalledTimes(1);
+		const firstSerializedCommand = commands[0]?.serializedInput ?? "";
+		expect(firstSerializedCommand).toContain("RHAPSODY_PROMPT_PATH");
+		expect(firstSerializedCommand).toContain(
+			'CODEX_HOME":"/vercel/sandbox/.codex"',
+		);
+		expect(commands[1]?.cmd).toBe("cat");
+		expect(commands[1]?.args?.[0]).toContain(
+			"/vercel/sandbox/intake-classifier/output.json",
+		);
+		const createSandboxCalls = vi.mocked(deps.createVercelSandbox).mock.calls;
+		let networkPolicy: NetworkPolicy | undefined;
+		if (createSandboxCalls[0]?.[0]) {
+			networkPolicy = createSandboxCalls[0][0].networkPolicy as NetworkPolicy;
+		}
+		const chatgptPolicy = networkPolicy?.allow?.["chatgpt.com"] ?? [];
+		expect(chatgptPolicy[0]?.forwardURL).toContain(
+			"/api/internal/codex-chatgpt-proxy/runs/",
+		);
+		expect(commands).toHaveLength(2);
+		expect(commands[0]?.cmd).toBe("node");
+		expect(commands[0]?.args).toContain(
+			"/vercel/sandbox/intake-classifier/wrapper.cjs",
+		);
+		expect(commands[0]?.serializedInput).toContain("RHAPSODY_PROMPT_PATH");
+
+		expect(writeFiles.some((file) => file.path.endsWith("auth.json"))).toBe(
+			true,
+		);
+		expect(writeFiles.some((file) => file.path.includes("prompt.txt"))).toBe(
+			true,
+		);
+		expect(writeFiles.some((file) => file.path.includes("schema.json"))).toBe(
+			true,
+		);
+	} finally {
+		if (previousVercelUrl === undefined) {
+			delete process.env.VERCEL_URL;
+		} else {
+			process.env.VERCEL_URL = previousVercelUrl;
+		}
+		expect(deps.stopVercelSandbox).toHaveBeenCalledTimes(1);
+	}
+});
+
+test("runner output read failure is preserved as runner_error metadata", async () => {
+	const { deps } = createSandboxIntakeClassifierDeps({
+		runVercelSandboxCommand: vi
+			.fn()
+			.mockResolvedValueOnce({
+				commandId: "cmd-intake-1",
+				cwd: "/vercel/sandbox",
+				startedAt: Date.now(),
+				exitCode: 0,
+				stdout: "",
+				stderr: "",
+			})
+			.mockResolvedValueOnce({
+				commandId: "cmd-intake-2",
+				cwd: "/vercel/sandbox",
+				startedAt: Date.now(),
+				exitCode: 1,
+				stdout: "",
+				stderr: "token=topsecret secret=classified-password",
+				error: "cat: no such file",
+			}),
+	});
+
+	const result = await intakeClassifierSandbox.runIntakeClassifierInSandbox({
+		prompt: "Classify issue",
+		schemaFilePath: await (async () => {
+			const tempDir = mkdtempSync(
+				path.join(tmpdir(), "rhapsody-intake-schema-"),
+			);
+			const schemaPath = path.join(tempDir, "schema.json");
+			await writeFile(schemaPath, JSON.stringify({ type: "object" }), "utf8");
+			return schemaPath;
+		})(),
+		dependencies: deps,
+	});
+
+	expect(result.rawOutputAvailable).toBe(false);
+	expect(result.raw).toBe("");
+	expect(result.runner.exitCode).toBe(1);
+	expect(result.runner.stderrPreview).toContain("[redacted]");
+	expect(result.runner.error).toContain("Output read failed");
+
+	expect(deps.stopVercelSandbox).toHaveBeenCalledTimes(1);
+});
+
+test("parse failure records raw output preview when raw output exists", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItem = buildProjectItem({
+		issueNumber: 307,
+		issueTitle: "Parse preview test",
+		issueBody: "Body that should parse but returns malformed output first.",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#307";
+
+	const metadata: IntakeClassifierOutputFailureMetadata = {
+		rawOutput: {
+			available: true,
+			preview: `secret=tok_secret_1234 ${"x".repeat(700)} api_key=visible_secret_5678`,
+		},
+		command: "codex exec",
+		runner: {
+			exitCode: 0,
+			signal: null,
+			timedOut: false,
+			durationMs: 111,
+		},
+	};
+
+	const parseFailure = new IntakeClassifierOutputError(
+		"Classifier output could not be parsed.",
+		metadata,
+		"parse_error",
+	);
+
+	const runner: IntakeClassifierRunner = async () => {
+		throw parseFailure;
+	};
+
+	try {
+		const result = await runIntakeCurator(client, workItem, workItemId, {
+			dependencies: {
+				fetchBlockedBy: noNativeDependenciesFetcher,
+			},
+			classify: runner,
+		});
+
+		expect(result.outcome).toBe("ask_human");
+
+		const graph = await listWorkItemGraph(client, workItemId);
+		const latestDecision = graph.decisions.find(
+			(entry) => entry.phase === "intake",
+		);
+		const evidence = latestDecision?.evidence as
+			| {
+					classifierDiagnostics?: {
+						failedAttempts: Array<ClassifierDiagnosticAttemptEvidence>;
+					};
+			  }
+			| undefined;
+		const firstFailure = evidence?.classifierDiagnostics?.failedAttempts[0];
+		expect(firstFailure?.rawOutput?.available).toBe(true);
+		expect(firstFailure?.rawOutput?.preview?.length ?? 0).toBeLessThanOrEqual(
+			500,
+		);
+		expect(
+			firstFailure?.rawOutput?.preview?.includes("secret=tok" as string),
+		).toBe(false);
+		expect(
+			firstFailure?.rawOutput?.preview?.includes("api_key" as string),
+		).toBe(false);
 	} finally {
 		client.close();
 		database.cleanup();
