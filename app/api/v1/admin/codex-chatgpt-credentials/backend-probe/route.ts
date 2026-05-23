@@ -1,11 +1,11 @@
 import { loadMediatorCredentialState } from "@/lib/codex/credentials";
 import { requireAdminAuth } from "@/lib/server/admin-auth";
+import { safeBodyPreview, safeProbeUrl, serializeError } from "../_probe";
 
 export const runtime = "nodejs";
 
 const DEFAULT_BACKEND_PROBE_URL =
 	"https://chatgpt.com/backend-api/codex/models?client_version=0.130.0";
-const BODY_PREVIEW_LIMIT = 1000;
 
 export async function POST(request: Request) {
 	const auth = requireAdminAuth(request);
@@ -66,41 +66,4 @@ export async function POST(request: Request) {
 			{ status: 502 },
 		);
 	}
-}
-
-function safeProbeUrl(raw: string) {
-	const url = new URL(raw);
-	return `${url.origin}${url.pathname}`;
-}
-
-function safeBodyPreview(body: string) {
-	return redactSensitiveText(body)
-		.replace(/\s+/g, " ")
-		.trim()
-		.slice(0, BODY_PREVIEW_LIMIT);
-}
-
-function redactSensitiveText(input: string) {
-	return input
-		.replace(
-			/"(?:access[_-]?token|refresh[_-]?token|id[_-]?token|token|secret|password)"\s*:\s*"[^"]+"/gi,
-			'"[redacted]":"[redacted]"',
-		)
-		.replace(
-			/\b(?:api[_-]?key|token|secret|password|credential|pat|bearer)\s*[:=]\s*[^\s,"]{4,}/gi,
-			"[redacted]",
-		)
-		.replace(
-			/\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token)\s*[:=]\s*[^\s,"]{4,}/gi,
-			"[redacted]",
-		)
-		.replace(/\bbearer\s+[\w.-]+/gi, "bearer [redacted]");
-}
-
-function serializeError(error: unknown) {
-	if (error instanceof Error) {
-		return { name: error.name, message: error.message };
-	}
-
-	return { name: "UnknownError", message: String(error) };
 }
