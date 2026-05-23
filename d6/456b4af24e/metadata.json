@@ -1,0 +1,25 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "d6456b4af24e",
+  "strategy": "manual-commit",
+  "branch": "codex/sandbox-codex-progress-callbacks",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "app/api/internal/runs/callback/route.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d6/456b4af24e/0/metadata.json",
+      "transcript": "/d6/456b4af24e/0/full.jsonl",
+      "content_hash": "/d6/456b4af24e/0/content_hash.txt",
+      "prompt": "/d6/456b4af24e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1554914,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 33461248,
+    "output_tokens": 85950,
+    "api_call_count": 332
+  }
+}
