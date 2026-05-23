@@ -1,11 +1,10 @@
 import { createHash } from "node:crypto";
 import { mkdtempSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Client } from "@libsql/client";
 import { z } from "zod";
-import { buildCodexExecCommand, runCodexExec } from "@/lib/codex/cli";
 import {
 	createIssueComment,
 	fetchIssueComments,
@@ -24,6 +23,7 @@ import {
 	updateWorkerRunStatus,
 	type WorkItemGraph,
 } from "@/lib/state";
+import { runIntakeClassifierInSandbox } from "@/lib/workers/intake-classifier-sandbox";
 
 export type IntakeBlockerState = "open" | "closed" | "unknown";
 
@@ -165,6 +165,8 @@ export type IntakeClassifierRunner = (input: {
 	outputMessagePath: string;
 	workItem: IntakeCuratorWorkItem;
 	attempt: number;
+	workerRunId?: string;
+	workItemId?: string;
 }) => Promise<{
 	classification: IntakeClassification;
 	raw: string;
@@ -271,9 +273,6 @@ export type IntakeCuratorOptions = {
 	};
 };
 
-const DEFAULT_CLASSIFIER_MODEL = "gpt-5.4-mini";
-const DEFAULT_CLASSIFIER_TIMEOUT_MS = 120_000;
-
 export async function runIntakeCurator(
 	client: Client,
 	workItem: IntakeCuratorWorkItem,
@@ -327,6 +326,22 @@ export async function runIntakeCurator(
 
 	let finalClassification: IntakeWorkerClassification;
 	let classifierDiagnostics: IntakeClassifierDiagnostics | null = null;
+	const shouldClassify =
+		!deterministic && !resolvedBlockers.requiresHumanFallback;
+	let classifierWorkerRun: Awaited<ReturnType<typeof createWorkerRun>> | null =
+		null;
+
+	if (shouldClassify) {
+		classifierWorkerRun = await createWorkerRun(client, {
+			workItemId,
+			kind: "intake_curator",
+			status: "running",
+			metadata: {
+				issueNumber: workItem.issueNumber,
+				issueTitle: workItem.issueTitle,
+			},
+		});
+	}
 
 	if (deterministic) {
 		finalClassification = deterministic;
@@ -349,21 +364,25 @@ export async function runIntakeCurator(
 				runner: options.classify ?? runCodexIntakeClassification,
 				schemaFilePath: options.schemaFilePath,
 				nowMs: options.nowMs,
+				workerRunId: classifierWorkerRun?.id,
+				workItemId,
 			},
 		);
 		finalClassification = healingResult.classification;
 		classifierDiagnostics = healingResult.diagnostics;
 	}
 
-	const workerRun = await createWorkerRun(client, {
-		workItemId,
-		kind: "intake_curator",
-		status: "completed",
-		metadata: {
-			issueNumber: workItem.issueNumber,
-			issueTitle: workItem.issueTitle,
-		},
-	});
+	const workerRun =
+		classifierWorkerRun ??
+		(await createWorkerRun(client, {
+			workItemId,
+			kind: "intake_curator",
+			status: "completed",
+			metadata: {
+				issueNumber: workItem.issueNumber,
+				issueTitle: workItem.issueTitle,
+			},
+		}));
 
 	const decisionEvidence: {
 		inputFingerprint: string;
@@ -539,6 +558,8 @@ async function classifyWithHealing(
 		runner: IntakeClassifierRunner;
 		nowMs?: number;
 		schemaFilePath?: string;
+		workerRunId?: string;
+		workItemId?: string;
 	},
 ): Promise<IntakeClassifierHealingResult> {
 	const failedAttempts: IntakeClassifierAttemptDiagnostic[] = [];
@@ -560,6 +581,8 @@ async function classifyWithHealing(
 				outputMessagePath,
 				workItem,
 				attempt,
+				workerRunId: options.workerRunId,
+				workItemId: options.workItemId,
 			});
 			raw = result.raw;
 			command = result.command;
@@ -600,7 +623,7 @@ async function classifyWithHealing(
 					}
 				: undefined;
 			const boundedMetadataPreview = outputPreviewFromError
-				? boundedErrorMessage(outputPreviewFromError, 320)
+				? boundedRedactedOutputPreview(outputPreviewFromError, 320)
 				: undefined;
 			const commandFromError =
 				metadata?.command ?? (command ? command : undefined);
@@ -666,50 +689,36 @@ async function runCodexIntakeClassification(
 	raw: string;
 	command: string;
 }> {
-	const outputMessagePath = input.outputMessagePath;
-	const options = {
-		cwd: process.cwd(),
+	const result = await runIntakeClassifierInSandbox({
 		prompt: input.prompt,
-		approvalPolicy: "never" as const,
-		sandboxMode: "workspace-write" as const,
-		json: true,
-		skipGitRepoCheck: true,
-		outputSchemaFile: input.schemaFilePath,
-		outputLastMessageFile: outputMessagePath,
-		timeoutMs: DEFAULT_CLASSIFIER_TIMEOUT_MS,
-		configOverrides: {
-			model: DEFAULT_CLASSIFIER_MODEL,
-		},
-	};
-	const command = buildCodexExecCommand(options);
-	const result = await runCodexExec(options);
+		schemaFilePath: input.schemaFilePath,
+		workerRunId: input.workerRunId,
+		workItemId: input.workItemId,
+	});
 
-	if (result.exitCode !== 0 || result.timedOut || result.error) {
+	if (result.rawOutputAvailable === false) {
 		throw new IntakeClassifierOutputError(
-			`Codex intake classification failed (code=${result.exitCode}, timedOut=${result.timedOut}).`,
+			"Classifier output was not available.",
 			{
 				rawOutput: {
 					available: false,
 				},
-				command: command.argv.join(" "),
+				command: result.command,
 				runner: {
-					exitCode: result.exitCode,
-					signal: result.signal ? String(result.signal) : null,
-					timedOut: result.timedOut,
-					durationMs: result.durationMs,
-					stdoutPreview: boundedRedactedOutputPreview(result.stdout),
-					stderrPreview: boundedRedactedOutputPreview(result.stderr),
-					error:
-						typeof result.error === "string"
-							? boundedErrorMessage(result.error, 500)
-							: undefined,
+					exitCode: result.runner.exitCode,
+					signal: result.runner.signal,
+					timedOut: result.runner.timedOut,
+					durationMs: result.runner.durationMs,
+					stdoutPreview: result.runner.stdoutPreview,
+					stderrPreview: result.runner.stderrPreview,
+					error: result.runner.error,
 				},
 			},
 			"runner_error",
 		);
 	}
 
-	const raw = await readFile(outputMessagePath, "utf8");
+	const raw = result.raw;
 	let parsed: IntakeClassification;
 	try {
 		parsed = parseClassifierOutput(raw);
@@ -722,7 +731,7 @@ async function runCodexIntakeClassification(
 						available: true,
 						preview: safeTextPreview(raw, 320),
 					},
-					command: command.argv.join(" "),
+					command: result.command,
 				},
 				"schema_error",
 			);
@@ -737,7 +746,7 @@ async function runCodexIntakeClassification(
 					available: true,
 					preview: safeTextPreview(raw, 320),
 				},
-				command: command.argv.join(" "),
+				command: result.command,
 			},
 			"parse_error",
 		);
@@ -746,7 +755,7 @@ async function runCodexIntakeClassification(
 	return {
 		classification: parsed,
 		raw,
-		command: command.argv.join(" "),
+		command: result.command,
 	};
 }
 
