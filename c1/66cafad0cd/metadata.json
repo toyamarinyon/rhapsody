@@ -1,0 +1,25 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "c166cafad0cd",
+  "strategy": "manual-commit",
+  "branch": "codex/intake-classifier-sandbox-codex",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "app/api/internal/codex-chatgpt-proxy/[...path]/route.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/c1/66cafad0cd/0/metadata.json",
+      "transcript": "/c1/66cafad0cd/0/full.jsonl",
+      "content_hash": "/c1/66cafad0cd/0/content_hash.txt",
+      "prompt": "/c1/66cafad0cd/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1554914,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 33461248,
+    "output_tokens": 85950,
+    "api_call_count": 332
+  }
+}
