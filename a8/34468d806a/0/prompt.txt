@@ -1,0 +1,301 @@
+proxyに変更が結構入っていますかどうして必要なのか教えてください。
+
+---
+
+exportが増えてるのはテスト用？
+
+---
+
+それは今後のやりたいのでissueにしておきましょう。projectには追加しなくていいです
+
+---
+
+コンテキスト知らない人、aiが読んでわかるようにしてくださいね
+
+---
+
+okです。では作ってもらったpr mergeしたのでデプロイされたら再度コメントしましょう
+
+---
+
+変わってなさそう？
+
+---
+
+authって、envの値から、dbに更新してると思うんですけど、seed/refreshする時はどうしたらいいですか？
+
+---
+
+refresh tokenって、dbにも随時更新していますよね
+
+---
+
+今のrefresh tokenがいつexpireするかってわかるんですかね？
+
+---
+
+今の理由はわかってるんですが、再発しないようにどうできるかなと考えています。
+
+---
+
+> 定期的な refresh probe を Cron で走らせる
+たとえば1日1回、または数時間ごとに health check を走らせる。失敗したら GitHub issue / log / dashboard に通知する。これなら実作業時に初めて壊れるのを避けられます。
+
+やはりこれですよね。これissueにしておいてください。projectには追加しなくていいです。
+
+---
+
+`INITIAL_CHATGPT_AUTH_JSON`更新してdeployしたので、seedやって欲しいです。 `REDACTED` です。
+
+---
+
+では改めて　[https://github.com/toyamarinyon/rhapsody/issues/62](https://github.com/toyamarinyon/rhapsody/issues/62) にコメントしましょう。
+
+> Could you clarify the expected change and acceptance criteria before Rhapsody starts implementation?
+
+に回答しましょう。
+
+---
+
+[https://github.com/toyamarinyon/rhapsody/issues/62#issuecomment-4523391536](https://github.com/toyamarinyon/rhapsody/issues/62#issuecomment-4523391536) まだダメですね。
+
+---
+
+> Vercel deployment が、その env 更新後に作られたものか
+
+そうです。
+検証用のroute作れますかね？
+
+---
+
+<turn_aborted>
+The user interrupted the previous turn on purpose. Any running unified exec processes may still be running in the background. If any tools/commands were aborted, they may have partially executed.
+</turn_aborted>
+
+---
+
+実際にOpenAIのbackendapiを実行して疎通確認がしたいです。
+
+---
+
+mergeしておいたのでdeploy状態チェックして、deployされたらapi試してみてください。
+
+---
+
+では何が問題なんでしょう
+
+---
+
+ではそれを進めましょう。実装は [@ikura the 2nd](agent://019e5206-54fd-7f93-aac3-feb7688fb547) に依頼しましょう。
+
+---
+
+okなのでmergeしてvercelのdeployを待って、動作確認してください
+
+---
+
+じゃあなんでなんでしょう
+
+---
+
+いいですね。それやりましょう。軽微な修正だと思うので、 [@ikura the 2nd](agent://019e5206-54fd-7f93-aac3-feb7688fb547) に依頼して、あなたがチェックしてokならpull requst作成してmerge,動作確認まで進めてください。
+
+---
+
+なるほど base64urlが良さそうですね。やってみましょう。さっきの感じで、 [@ikura the 2nd](agent://019e5206-54fd-7f93-aac3-feb7688fb547) を使って実装して、pull request作成、merge, 動作確認までお願いします。
+
+---
+
+毎回デプロイして確認するの手間なので、まずはローカルで同じようなprompt, スキーマを試して、うまくいくか試したいですね。検証用のプロジェクトを作っても構いません。
+
+---
+
+nullableはちょっとworkaroundな感じがするので、ドキュメント調べて、strictだけど動く形を追求したいです。
+
+---
+
+<turn_aborted>
+The user interrupted the previous turn on purpose. Any running unified exec processes may still be running in the background. If any tools/commands were aborted, they may have partially executed.
+</turn_aborted>
+
+---
+
+optionalがnullならnullでいいです。
+
+---
+
+今までの問題はなんだったんでしょう？
+
+---
+
+tools/intake-classifier-probe.mjs このレポジトリにあると混乱するので、別のところに置いておきたいですね。もしくはGitHubのdiscussionかissueにコードを貼り付けて、経緯と共においておきたい
+
+---
+
+ではcommit, push, pull request作成し、mergeしてdeployを待って動作確認しましょう。
+
+---
+
+sandboxがタイムアウトしてるかも
+
+---
+
+builder timeout の改善はイメージがつきますが、tdout/progress diagnostics の改善はどうやりますか？
+
+---
+
+それ、できそうかSandboxの仕様調べてみてください。
+
+---
+
+APIあるなら過去のコマンドのログを見ることもできるんですかね？
+
+---
+
+<environment_context>
+  <current_date>2026-05-24</current_date>
+  <timezone>Asia/Tokyo</timezone>
+</environment_context>
+
+---
+
+あーなるほど。Sandbox内に残しているのかもしれないですね。
+Command実行と同時にwatchするworkflowを実行してもいいかなと思ったのですが、もうちょっとシンプルに
+
+> Codex wrapper が stdout/stderr を逐次バッファして、定期的に progress callback する
+
+提案してくれたこれがいいですかね。
+
+---
+
+wrapperはsandbox内で実行しますね。Rhapsody Runner(Vercel function)ではsandbox.runCommandになりますかね？
+
+---
+
+startVercelSandboxCommand の argsを足す感じ？
+
+---
+
+なるほど、runner→sandbox→runnerにcallbackするんじゃなくて
+runner→sandbox→record apiにcallbackするんですね。
+
+---
+
+stdout, stderrorはどこに永続化しますか？
+
+---
+
+okです。 [@ikura the 2nd](agent://019e5206-54fd-7f93-aac3-feb7688fb547) に実装を依頼して進めましょう。
+あなたはアウトプットの品質に責任を持って、指示の出し方やフィードバック方法を工夫しながら、実装→Pull request作成→Merge→動作確認まで進めてください。
+
+---
+
+<subagent_notification>
+{"agent_path":"019e5206-54fd-7f93-aac3-feb7688fb547","status":{"completed":"実装しました。sandbox Codex wrapper から周期的な progress callback を送り、callback route 側では terminal 処理とは分離して `attempt.progress` イベントだけを append するようにしています。\n\n変更ファイル:\n- [lib/runners/sandbox-codex.ts](/Users/toyamarinyon/Documents/rhapsody/lib/runners/sandbox-codex.ts)\n- [lib/runners/sandbox-codex-wrapper/wrapper.cjs](/Users/toyamarinyon/Documents/rhapsody/lib/runners/sandbox-codex-wrapper/wrapper.cjs)\n- [app/api/internal/runs/callback/route.ts](/Users/toyamarinyon/Documents/rhapsody/app/api/internal/runs/callback/route.ts)\n- [app/api/internal/runs/callback/route.test.ts](/Users/toyamarinyon/Documents/rhapsody/app/api/internal/runs/callback/route.test.ts)\n\n実装内容:\n- wrapper 起動時に `RHAPSODY_PROGRESS_INTERVAL_MS=30000` と `RHAPSODY_PROGRESS_PREVIEW_LENGTH=1000` を渡すようにしました。\n- wrapper 内で stdout/stderr の tail buffer、byte count、lastOutputAt 系、Codex JSONL-ish stdout からの last event/error を保持します。\n- Codex child 実行中に `callback_type: \"progress\"` で progress callback を送ります。\n- terminal callback payload にも同じ `diagnostics` snapshot を含めます。\n- callback route は `callback_type: \"progress\"` を受けると `attempt.progress` event を作成し、workflow resume や terminal status 更新には進みません。\n- progress event 保存前に stdout/stderr/error 系を bounded + redacted しています。\n- 既存 terminal callback は `callback_type` なしでも従来どおり terminal として扱います。\n\n検証:\n- `pnpm exec biome check lib/runners/sandbox-codex.ts lib/runners/sandbox-codex-wrapper/wrapper.cjs app/api/internal/runs/callback/route.ts app/api/internal/runs/callback/route.test.ts`\n  - pass\n- `pnpm exec vitest run app/api/internal/runs/callback/route.test.ts`\n  - pass\n- `pnpm typecheck`\n  - pass\n\nTradeoff:\n- Codex stdout の JSONL 解析は診断用の opportunistic parse に留めています。壊れた行や非 JSON 出力は無視し、progress callback 自体を失敗させない設計です。"}}
+</subagent_notification>
+
+---
+
+その後どう？
+
+---
+
+いいですね。ではtimeoutを伸ばしましょう。いくつか設定していると思うので、まずは実装確認して更新箇所を確認しましょう
+
+---
+
+設定が分散しているのは、今後の調整でずれが起きそうですね。rhapsody.config.tsでSSOTにするならどういう構造が考えられますか？
+
+---
+
+論理的には正しそうですが、利用者観点では面倒ですね。timeoutだけ設定してそこから計算していけないですか？
+bufferもconfigにしてもいいと思いますがoptionalにしたいです
+
+---
+
+buffersというobjectを設けると、他のbuffer関連の設定も入りそうでややこしいので、runnerの中にflatに存在すればいいと思います。
+
+---
+
+いいですね。 [@builder](subagent://builder) に実装してもらって進めましょう。あなたはリリース後後のRhapsodyの品質に責任を持って、アウトプットを評価し、十分な水準になるまでフィードバックを続けてください。
+
+---
+
+Rhapsody repo task: implement runner timeout SSOT in config.
+
+Relevant context:
+- Repo: /Users/toyamarinyon/Documents/rhapsody
+- User wants implementation delegated to @builder. Parent agent will review and handle PR/merge/verification.
+- Current issue: timeout settings are scattered (`lib/runners/sandbox-codex.ts`, `rhapsody.config.ts`, reconciler defaults). This can drift.
+- Desired design: `rhapsody.config.ts` is the user-facing SSOT. Set only `runner.timeoutMs`; derive related timeouts from it. Optional buffer settings are allowed, flat inside `runner`, not nested.
+
+Target config shape:
+```ts
+runner: {
+  kind: "sandbox-codex",
+  timeoutMs: 25 * 60 * 1000,
+
+  // optional, defaults in code
+  sandboxTimeoutBufferMs?: number,
+  claimTtlBufferMs?: number,
+  runningAttemptTimeoutBufferMs?: number,
+
+  progressIntervalMs?: number,
+  progressPreviewLength?: number,
+  outputPreviewLength?: number,
+}
+```
+
+Derived semantics:
+- Codex wrapper timeout = `runner.timeoutMs`
+- Vercel Sandbox lifetime = `runner.timeoutMs + runner.sandboxTimeoutBufferMs`
+- scheduler claim TTL = `runner.timeoutMs + runner.claimTtlBufferMs`
+- reconciler stale running attempt cutoff = `runner.timeoutMs + runner.runningAttemptTimeoutBufferMs`
+- progress/output preview values also come from runner config with defaults.
+
+Implementation requirements:
+1. Update config types/loading/validation in `lib/config.ts` to support object runner config and return normalized/effective values so callers do not recompute defaults.
+2. Update `rhapsody.config.ts` to the new shape. Use `timeoutMs: 25 * 60 * 1000` for sandbox-codex. Defaults can provide buffers.
+3. Update `lib/runners/sandbox-codex.ts` to consume effective runner config instead of local constants for timeout/progress/output preview. Remove hard-coded timeout constants where possible.
+4. Update scheduler claim TTL use to derive from effective runner timeout/buffer rather than `scheduler.claimTtlMs`.
+5. Update reconciler running attempt timeout to derive from effective runner timeout/buffer rather than scattered default / scheduler field.
+6. Update tests that construct config objects. Add or adjust deterministic tests proving:
+   - default buffers derive claim TTL / stale timeout / sandbox timeout from `runner.timeoutMs`.
+   - explicit flat buffer overrides are honored.
+   - invalid non-positive runner timeout/buffers/progress values are rejected.
+7. Keep scope focused. Do not change unrelated Rhapsody behavior, post-run behavior, or issue #62 implementation.
+8. Do not revert others' changes. You are not alone in the codebase.
+
+Please edit files directly in your workspace and finish with changed files plus validation commands/results. Do not create PR; parent will review, commit, push, PR, merge, and verify.
+
+---
+
+レビューしました。方向は良いですが、`pnpm typecheck` が落ちています。以下を修正してください。
+
+Observed errors:
+- `RhapsodyRunner` が `lib/config.ts` から export されなくなり、`app/api/v1/runs/route.ts`, `lib/runners/types.ts`, `lib/state/store.ts` が壊れています。`export type RhapsodyRunner = ...` を維持してください。
+- `app/api/v1/runs/route.ts` がまだ `config.scheduler.claimTtlMs` を見ています。manual run も SSOT に合わせて `config.runner.claimTtlMs` を使ってください。runInput の runner default も `config.runner.kind` にしてください。
+- `lib/config.test.ts` の fixture literal が widen して `tracker.kind: string` になっています。`satisfies` / explicit type / `as const` などで型を正しくしてください。
+- test.each の runner kind も string に widen しているので型を直してください。
+
+必ず以下を実行して通してください:
+- `pnpm typecheck`
+- `pnpm exec vitest run lib/config.test.ts lib/scheduler/tick.test.ts`
+- `pnpm exec biome check lib/config.ts lib/config.test.ts rhapsody.config.ts lib/runners/sandbox-codex.ts lib/scheduler/tick.ts lib/scheduler/tick.test.ts lib/reconciler/tick.ts app/api/v1/runs/route.ts`
+
+変更後、変更ファイルと検証結果を返してください。
+
+---
+
+追加レビューです。コード検証は通っていますが、設定境界を変えているので docs が古いままです。
+
+Please update `docs/adr/0007-define-mvp-config-boundaries.md` so the config example and text match the new SSOT design:
+- remove `scheduler.claimTtlMs` from the example
+- add `runner: { kind: "sandbox-codex", timeoutMs: ... }`
+- explain that scheduler claim TTL / stale running attempt timeout / sandbox lifetime are derived from runner timeout plus default or optional flat runner buffers
+- keep it concise; this is an ADR update, not a long guide
+
+After that, run:
+- `pnpm exec biome check docs/adr/0007-define-mvp-config-boundaries.md lib/config.ts lib/config.test.ts rhapsody.config.ts lib/runners/sandbox-codex.ts lib/scheduler/tick.ts lib/scheduler/tick.test.ts lib/reconciler/tick.ts app/api/v1/runs/route.ts`
+
+Return changed file and result.
