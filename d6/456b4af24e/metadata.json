@@ -3,9 +3,12 @@
   "checkpoint_id": "d6456b4af24e",
   "strategy": "manual-commit",
   "branch": "codex/sandbox-codex-progress-callbacks",
-  "checkpoints_count": 1,
+  "checkpoints_count": 3,
   "files_touched": [
-    "app/api/internal/runs/callback/route.ts"
+    "app/api/internal/runs/callback/route.test.ts",
+    "app/api/internal/runs/callback/route.ts",
+    "lib/runners/sandbox-codex-wrapper/wrapper.cjs",
+    "lib/runners/sandbox-codex.ts"
   ],
   "sessions": [
     {
@@ -19,13 +22,19 @@
       "transcript": "/d6/456b4af24e/1/full.jsonl",
       "content_hash": "/d6/456b4af24e/1/content_hash.txt",
       "prompt": "/d6/456b4af24e/1/prompt.txt"
+    },
+    {
+      "metadata": "/d6/456b4af24e/2/metadata.json",
+      "transcript": "/d6/456b4af24e/2/full.jsonl",
+      "content_hash": "/d6/456b4af24e/2/content_hash.txt",
+      "prompt": "/d6/456b4af24e/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 1554914,
+    "input_tokens": 2921748,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 33461248,
-    "output_tokens": 85950,
-    "api_call_count": 332
+    "cache_read_tokens": 72761344,
+    "output_tokens": 321052,
+    "api_call_count": 896
   }
 }

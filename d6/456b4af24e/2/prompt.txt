@@ -1,0 +1,103 @@
+ではcommit, push, pull request作成し、mergeしてdeployを待って動作確認しましょう。
+
+---
+
+sandboxがタイムアウトしてるかも
+
+---
+
+builder timeout の改善はイメージがつきますが、tdout/progress diagnostics の改善はどうやりますか？
+
+---
+
+それ、できそうかSandboxの仕様調べてみてください。
+
+---
+
+APIあるなら過去のコマンドのログを見ることもできるんですかね？
+
+---
+
+あーなるほど。Sandbox内に残しているのかもしれないですね。
+Command実行と同時にwatchするworkflowを実行してもいいかなと思ったのですが、もうちょっとシンプルに
+
+> Codex wrapper が stdout/stderr を逐次バッファして、定期的に progress callback する
+
+提案してくれたこれがいいですかね。
+
+---
+
+wrapperはsandbox内で実行しますね。Rhapsody Runner(Vercel function)ではsandbox.runCommandになりますかね？
+
+---
+
+startVercelSandboxCommand の argsを足す感じ？
+
+---
+
+なるほど、runner→sandbox→runnerにcallbackするんじゃなくて
+runner→sandbox→record apiにcallbackするんですね。
+
+---
+
+stdout, stderrorはどこに永続化しますか？
+
+---
+
+okです。 [@ikura the 2nd](agent://019e5206-54fd-7f93-aac3-feb7688fb547) に実装を依頼して進めましょう。
+あなたはアウトプットの品質に責任を持って、指示の出し方やフィードバック方法を工夫しながら、実装→Pull request作成→Merge→動作確認まで進めてください。
+
+---
+
+Rhapsody repo task: implement sandbox Codex progress callbacks. Please edit files directly in your workspace and report changed files + tests.
+
+Goal:
+- The sandbox Codex wrapper runs inside Vercel Sandbox and already captures Codex child stdout/stderr.
+- Add periodic progress callbacks from the wrapper to Rhapsody so long-running/timed-out builder runs leave diagnostic events.
+- Keep terminal callback semantics unchanged: only terminal callback may update run/attempt status. Progress must be append-only event recording.
+
+Expected design:
+1. In lib/runners/sandbox-codex.ts, pass wrapper env knobs like RHAPSODY_PROGRESS_INTERVAL_MS and RHAPSODY_PROGRESS_PREVIEW_LENGTH when starting wrapper command. Use conservative defaults, e.g. 30s interval and bounded tail length.
+2. In lib/runners/sandbox-codex-wrapper/wrapper.cjs:
+   - Maintain stdout/stderr ring/tail buffers, byte counts, lastOutputAt/lastStdoutAt/lastStderrAt.
+   - Parse Codex JSONL-ish stdout opportunistically for last event type and last error message, but never make progress callback fail because parsing failed.
+   - Send progress callback periodically while Codex child is running.
+   - Include the same diagnostic snapshot in the terminal callback payload, especially on timeout.
+   - Do not leak RHAPSODY_* env into Codex child (existing behavior should remain).
+3. In app/api/internal/runs/callback/route.ts:
+   - Accept callback_type: "progress" or similar.
+   - Verify same auth/claim/hook token/run/attempt/sandbox constraints as terminal callbacks.
+   - For progress callbacks, create an event like type "attempt.progress" and do not call terminal attempt completion/update logic.
+   - Bound/redact stored stdout/stderr tails. Avoid storing full logs.
+4. Tests:
+   - Add/adjust tests for callback route: progress callback records event and does not terminalize attempt/run.
+   - Add wrapper unit coverage if there is an existing pattern; otherwise keep wrapper changes simple and test via callback route plus existing typecheck node --check.
+   - Ensure existing tests pass.
+
+Important constraints:
+- You are not alone in the codebase. Do not revert unrelated edits; adapt to current main.
+- Keep payloads small and secrets redacted before persistence.
+- Preserve backward compatibility for existing terminal callbacks without callback_type.
+- Avoid adding a watcher workflow or Vercel command logs API in this PR.
+
+Please implement, run focused validation, and summarize any tradeoffs or open questions.
+
+---
+
+レビューしました。実装の方向は良いです。追加で次の小修正をお願いします。
+
+対象ファイルは既存の変更範囲内だけでお願いします。他人の変更は戻さないでください。
+
+1. `app/api/internal/runs/callback/route.ts`
+   - `callback_type` の未知値を silent に terminal 扱いしないでください。
+   - `callback_type` が missing/null/undefined の場合は従来互換で terminal。
+   - `"terminal"` と `"progress"` は明示的に許可。
+   - それ以外の値は 400 にしてください。
+   - この挙動を test に追加してください。
+
+2. `attempt.progress` event payload から `hookToken` を外してください。
+   - progress event は最大30秒ごとに増えるので、hook token を繰り返し永続化しない方がいいです。
+   - terminal callback event/resume の挙動は変えないでください。
+   - test で progress event data に `hookToken` が含まれないことを確認してください。
+
+修正後、変更ファイルと実行した検証コマンドを教えてください。
