@@ -207,9 +207,9 @@ export async function runSchedulerTick(
 				workItemUrl: item.issueUrl,
 				workItemStatus: item.issueState,
 				workItemSnapshot: buildWorkItemSnapshot(config, item),
-				runner: config.runner,
+				runner: config.runner.kind,
 				claimedBy: "scheduler",
-				claimTtlMs: config.scheduler.claimTtlMs,
+				claimTtlMs: config.runner.claimTtlMs,
 			});
 
 			if (result.acquired) {
@@ -414,7 +414,7 @@ async function createBuilderWorkerRun(
 				legacyRunId: input.runId,
 				legacyAttemptId: input.attemptId,
 				issueNumber: input.workItem.issueNumber,
-				runner: input.config.runner,
+				runner: input.config.runner.kind,
 			},
 			workItemSnapshot: buildWorkItemSnapshot(input.config, input.workItem),
 		});

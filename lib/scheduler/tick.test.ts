@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { type Client, createClient } from "@libsql/client";
 import { expect, test, vi } from "vitest";
+import { normalizeProjectConfig } from "@/lib/config";
 import type { PullRequestCheckSummary } from "@/lib/github/checks";
 import type { GitHubProjectIssueWorkItem } from "@/lib/github/project-items";
 import {
@@ -22,9 +23,9 @@ import {
 	buildRepairExecutionKey,
 	runRepairerPlanner,
 } from "@/lib/workers/repairer";
-import { runSchedulerTick, type SchedulerTickDependencies } from "./tick";
+import { runSchedulerTick } from "./tick";
 
-const baseConfig: SchedulerTickDependencies["config"] = {
+const baseConfig = normalizeProjectConfig({
 	tracker: {
 		kind: "github_project",
 		owner: "toyamarinyon",
@@ -43,12 +44,13 @@ const baseConfig: SchedulerTickDependencies["config"] = {
 	scheduler: {
 		maxConcurrentRuns: 3,
 		maxConcurrentRunsByStatus: {},
-		claimTtlMs: 60_000,
 		maxRetryBackoffMs: 300_000,
-		runningAttemptTimeoutMs: 60_000,
 	},
-	runner: "sandbox-codex",
-};
+	runner: {
+		kind: "sandbox-codex",
+		timeoutMs: 60_000,
+	},
+});
 
 test("scheduler records intake and builder graph for buildable Todo items", async () => {
 	const database = await createTestDatabase();
@@ -1101,13 +1103,17 @@ test("scheduler skips Todo items when concurrency limit is exhausted", async () 
 
 	try {
 		const result = await runSchedulerTick(client, {
-			config: {
+			config: normalizeProjectConfig({
 				...baseConfig,
+				runner: {
+					kind: baseConfig.runner.kind,
+					timeoutMs: baseConfig.runner.timeoutMs,
+				},
 				scheduler: {
 					...baseConfig.scheduler,
-					maxConcurrentRuns: 0,
+					maxConcurrentRuns: 1,
 				},
-			},
+			}),
 			fetchProjectIssueWorkItems: async () => [item],
 			runIntakeCurator: runBuildableIntakeCurator,
 		});

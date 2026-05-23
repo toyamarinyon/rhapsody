@@ -1,5 +1,36 @@
-import projectConfig from "../rhapsody.config";
 import { normalizeBranchPrefix } from "@/lib/attempt-branch";
+import projectConfig from "../rhapsody.config";
+
+export type RhapsodyRunner =
+	| "fake"
+	| "sandbox-fake"
+	| "codex-local"
+	| "sandbox-codex";
+
+type RhapsodyRunnerConfigInput = {
+	kind: RhapsodyRunner;
+	timeoutMs: number;
+	sandboxTimeoutBufferMs?: number;
+	claimTtlBufferMs?: number;
+	runningAttemptTimeoutBufferMs?: number;
+	progressIntervalMs?: number;
+	progressPreviewLength?: number;
+	outputPreviewLength?: number;
+};
+
+export type RhapsodyRunnerConfig = {
+	kind: RhapsodyRunner;
+	timeoutMs: number;
+	sandboxTimeoutBufferMs: number;
+	claimTtlBufferMs: number;
+	runningAttemptTimeoutBufferMs: number;
+	progressIntervalMs: number;
+	progressPreviewLength: number;
+	outputPreviewLength: number;
+	sandboxTimeoutMs: number;
+	claimTtlMs: number;
+	runningAttemptTimeoutMs: number;
+};
 
 export type RhapsodyTrackerConfig = {
 	kind: "github_project";
@@ -21,22 +52,21 @@ export type RhapsodyRepositoryConfig = {
 export type RhapsodySchedulerConfig = {
 	maxConcurrentRuns: number;
 	maxConcurrentRunsByStatus: Record<string, number>;
-	claimTtlMs: number;
 	maxRetryBackoffMs: number;
-	runningAttemptTimeoutMs?: number;
 };
-
-export type RhapsodyRunner =
-	| "fake"
-	| "sandbox-fake"
-	| "codex-local"
-	| "sandbox-codex";
 
 export type RhapsodyProjectConfig = {
 	tracker: RhapsodyTrackerConfig;
 	repository: RhapsodyRepositoryConfig;
 	scheduler: RhapsodySchedulerConfig;
-	runner: RhapsodyRunner;
+	runner: RhapsodyRunnerConfigInput;
+};
+
+export type RhapsodyResolvedProjectConfig = Omit<
+	RhapsodyProjectConfig,
+	"runner"
+> & {
+	runner: RhapsodyRunnerConfig;
 };
 
 export type RhapsodyServerEnv = {
@@ -123,6 +153,16 @@ const SANDBOX_ENV_KEYS = [
 	"VERCEL_TEAM_ID",
 	"VERCEL_PROJECT_ID",
 ] as const satisfies readonly (keyof RhapsodySandboxEnv)[];
+const DEFAULT_SANDBOX_TIMEOUT_BUFFER_MS = 5 * 60 * 1000;
+const DEFAULT_CLAIM_TTL_BUFFER_MS = 8 * 60 * 1000;
+const DEFAULT_RUNNING_ATTEMPT_TIMEOUT_BUFFER_MS = 6 * 60 * 1000;
+const DEFAULT_PROGRESS_INTERVAL_MS = 30_000;
+const DEFAULT_PROGRESS_PREVIEW_LENGTH = 1000;
+const DEFAULT_OUTPUT_PREVIEW_LENGTH = 1000;
+
+type RhapsodyProjectConfigInput = Omit<RhapsodyProjectConfig, "runner"> & {
+	runner: RhapsodyRunner | RhapsodyRunnerConfigInput;
+};
 
 export class RhapsodyConfigError extends Error {
 	constructor(readonly issues: string[]) {
@@ -133,16 +173,22 @@ export class RhapsodyConfigError extends Error {
 	}
 }
 
-export function loadRhapsodyConfig(): RhapsodyProjectConfig {
-	validateProjectConfig(projectConfig);
+export function loadRhapsodyConfig(): RhapsodyResolvedProjectConfig {
+	return normalizeProjectConfig(projectConfig as RhapsodyProjectConfigInput);
+}
+
+export function normalizeProjectConfig(
+	config: RhapsodyProjectConfigInput,
+): RhapsodyResolvedProjectConfig {
+	validateProjectConfig(config);
+
 	return {
-		...projectConfig,
+		...config,
 		repository: {
-			...projectConfig.repository,
-			branchPrefix: normalizeBranchPrefix(
-				projectConfig.repository.branchPrefix,
-			),
+			...config.repository,
+			branchPrefix: normalizeBranchPrefix(config.repository.branchPrefix),
 		},
+		runner: normalizeRunnerConfig(config.runner),
 	};
 }
 
@@ -286,7 +332,7 @@ export function loadRhapsodyRuntimeConfig(env = process.env) {
 	};
 }
 
-function validateProjectConfig(config: RhapsodyProjectConfig) {
+function validateProjectConfig(config: RhapsodyProjectConfigInput) {
 	const issues: string[] = [];
 
 	requireNonEmptyString(issues, "tracker.owner", config.tracker.owner);
@@ -334,25 +380,10 @@ function validateProjectConfig(config: RhapsodyProjectConfig) {
 	);
 	requirePositiveInteger(
 		issues,
-		"scheduler.claimTtlMs",
-		config.scheduler.claimTtlMs,
-	);
-	requirePositiveInteger(
-		issues,
 		"scheduler.maxRetryBackoffMs",
 		config.scheduler.maxRetryBackoffMs,
 	);
-	requireOptionalPositiveInteger(
-		issues,
-		"scheduler.runningAttemptTimeoutMs",
-		config.scheduler.runningAttemptTimeoutMs,
-	);
-
-	if (!isRhapsodyRunner(config.runner)) {
-		issues.push(
-			"runner must be one of: fake, sandbox-fake, codex-local, sandbox-codex",
-		);
-	}
+	requireRunnerConfig(issues, "runner", config.runner);
 
 	for (const [status, limit] of Object.entries(
 		config.scheduler.maxConcurrentRunsByStatus,
@@ -381,6 +412,97 @@ export function isRhapsodyRunner(value: unknown): value is RhapsodyRunner {
 		value === "codex-local" ||
 		value === "sandbox-codex"
 	);
+}
+
+function normalizeRunnerConfig(
+	runner: RhapsodyRunner | RhapsodyRunnerConfigInput,
+): RhapsodyRunnerConfig {
+	if (isRhapsodyRunner(runner)) {
+		throw new RhapsodyConfigError([
+			"runner must be an object with at least kind and timeoutMs.",
+		]);
+	}
+
+	const sandboxTimeoutMs =
+		runner.timeoutMs +
+		(runner.sandboxTimeoutBufferMs ?? DEFAULT_SANDBOX_TIMEOUT_BUFFER_MS);
+	const claimTtlMs =
+		runner.timeoutMs + (runner.claimTtlBufferMs ?? DEFAULT_CLAIM_TTL_BUFFER_MS);
+	const runningAttemptTimeoutMs =
+		runner.timeoutMs +
+		(runner.runningAttemptTimeoutBufferMs ??
+			DEFAULT_RUNNING_ATTEMPT_TIMEOUT_BUFFER_MS);
+
+	return {
+		kind: runner.kind,
+		timeoutMs: runner.timeoutMs,
+		sandboxTimeoutBufferMs:
+			runner.sandboxTimeoutBufferMs ?? DEFAULT_SANDBOX_TIMEOUT_BUFFER_MS,
+		claimTtlBufferMs: runner.claimTtlBufferMs ?? DEFAULT_CLAIM_TTL_BUFFER_MS,
+		runningAttemptTimeoutBufferMs:
+			runner.runningAttemptTimeoutBufferMs ??
+			DEFAULT_RUNNING_ATTEMPT_TIMEOUT_BUFFER_MS,
+		progressIntervalMs:
+			runner.progressIntervalMs ?? DEFAULT_PROGRESS_INTERVAL_MS,
+		progressPreviewLength:
+			runner.progressPreviewLength ?? DEFAULT_PROGRESS_PREVIEW_LENGTH,
+		outputPreviewLength:
+			runner.outputPreviewLength ?? DEFAULT_OUTPUT_PREVIEW_LENGTH,
+		sandboxTimeoutMs,
+		claimTtlMs,
+		runningAttemptTimeoutMs,
+	};
+}
+
+function requireRunnerConfig(
+	issues: string[],
+	field: string,
+	runner: RhapsodyRunner | RhapsodyRunnerConfigInput,
+) {
+	if (isRhapsodyRunner(runner)) {
+		issues.push(
+			`${field} must be an object with kind and timeoutMs for runner configuration.`,
+		);
+		return;
+	}
+
+	if (!isRhapsodyRunner(runner.kind)) {
+		issues.push(
+			`${field}.kind must be one of fake, sandbox-fake, codex-local, sandbox-codex.`,
+		);
+	}
+
+	requireOptionalPositiveInteger(
+		issues,
+		`${field}.sandboxTimeoutBufferMs`,
+		runner.sandboxTimeoutBufferMs,
+	);
+	requireOptionalPositiveInteger(
+		issues,
+		`${field}.claimTtlBufferMs`,
+		runner.claimTtlBufferMs,
+	);
+	requireOptionalPositiveInteger(
+		issues,
+		`${field}.runningAttemptTimeoutBufferMs`,
+		runner.runningAttemptTimeoutBufferMs,
+	);
+	requireOptionalPositiveInteger(
+		issues,
+		`${field}.progressIntervalMs`,
+		runner.progressIntervalMs,
+	);
+	requireOptionalPositiveInteger(
+		issues,
+		`${field}.progressPreviewLength`,
+		runner.progressPreviewLength,
+	);
+	requireOptionalPositiveInteger(
+		issues,
+		`${field}.outputPreviewLength`,
+		runner.outputPreviewLength,
+	);
+	requirePositiveInteger(issues, `${field}.timeoutMs`, runner.timeoutMs);
 }
 
 function requireNonEmptyString(issues: string[], field: string, value: string) {

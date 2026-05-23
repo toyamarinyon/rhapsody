@@ -19,9 +19,10 @@ export default {
 	scheduler: {
 		maxConcurrentRuns: 3,
 		maxConcurrentRunsByStatus: {},
-		claimTtlMs: 18 * 60 * 1000,
 		maxRetryBackoffMs: 300000,
-		runningAttemptTimeoutMs: 16 * 60 * 1000,
 	},
-	runner: "sandbox-codex",
+	runner: {
+		kind: "sandbox-codex",
+		timeoutMs: 25 * 60 * 1000,
+	},
 } satisfies RhapsodyProjectConfig;

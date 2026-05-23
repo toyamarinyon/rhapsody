@@ -54,12 +54,6 @@ const WRAPPER_SOURCE_PATH = path.join(
 );
 const REPOSITORY_PATH = "/vercel/sandbox/repository";
 const PROMPT_PREVIEW_LENGTH = 500;
-const OUTPUT_PREVIEW_LENGTH = 1000;
-const PROGRESS_INTERVAL_MS = 30_000;
-const PROGRESS_PREVIEW_LENGTH = 1000;
-const CODEX_TIMEOUT_MS = 10 * 60 * 1000;
-const SANDBOX_SETUP_BUFFER_MS = 5 * 60 * 1000;
-const SANDBOX_TIMEOUT_MS = CODEX_TIMEOUT_MS + SANDBOX_SETUP_BUFFER_MS;
 const NETWORK_PROBE_URL =
 	"https://chatgpt.com/backend-api/codex/models?client_version=0.130.0";
 const NETWORK_PROBE_STDOUT_PREVIEW_LENGTH = 240;
@@ -93,6 +87,7 @@ export async function runSandboxCodexRunner(
 
 	try {
 		const config = loadRhapsodyConfig();
+		const runnerConfig = config.runner;
 		const runnerCodexConfig = await loadRunnerCodexConfig();
 		const codexConfigOverrides = {
 			model_provider: "openai-http",
@@ -167,7 +162,7 @@ export async function runSandboxCodexRunner(
 			ephemeral: true,
 			dangerouslyBypassApprovalsAndSandbox: true,
 			configOverrides: codexConfigOverrides,
-			timeoutMs: CODEX_TIMEOUT_MS,
+			timeoutMs: runnerConfig.timeoutMs,
 		});
 		const mediatorEnv = loadRhapsodyMediatorEnv();
 		const protectionBypassEnv = loadRhapsodyProtectionBypassEnv();
@@ -191,7 +186,7 @@ export async function runSandboxCodexRunner(
 			mediatorCredentialState?.accountId ?? DUMMY_CHATGPT_ACCOUNT_ID,
 		);
 		sandbox = await createVercelSandbox({
-			timeout: SANDBOX_TIMEOUT_MS,
+			timeout: runnerConfig.sandboxTimeoutMs,
 			networkPolicy: mergeNetworkPolicies(
 				buildVercelSandboxCodexNetworkPolicy({
 					callbackUrl,
@@ -318,9 +313,15 @@ export async function runSandboxCodexRunner(
 				branchName,
 				codexMode: CODEX_MODE,
 				commands: {
-					clone: summarizeCommand(sourcePreparationSummary.cloneCommand),
+					clone: summarizeCommand(
+						sourcePreparationSummary.cloneCommand,
+						runnerConfig.outputPreviewLength,
+					),
 					checkout: sourcePreparationSummary.checkoutCommand
-						? summarizeCommand(sourcePreparationSummary.checkoutCommand)
+						? summarizeCommand(
+								sourcePreparationSummary.checkoutCommand,
+								runnerConfig.outputPreviewLength,
+							)
 						: null,
 				},
 				success: sourcePreparationSummary.success,
@@ -338,7 +339,10 @@ export async function runSandboxCodexRunner(
 			);
 		}
 
-		const networkProbeSummary = await runNetworkPolicyProbe(sandbox);
+		const networkProbeSummary = await runNetworkPolicyProbe(
+			sandbox,
+			runnerConfig.outputPreviewLength,
+		);
 		await createEvent(client, {
 			runId,
 			attemptId,
@@ -386,10 +390,14 @@ export async function runSandboxCodexRunner(
 				RHAPSODY_PROMPT_PATH: PROMPT_PATH,
 				RHAPSODY_METADATA_PATH: METADATA_PATH,
 				RHAPSODY_PR_SPEC_PATH: PR_SPEC_PATH,
-				RHAPSODY_OUTPUT_PREVIEW_LENGTH: String(OUTPUT_PREVIEW_LENGTH),
-				RHAPSODY_PROGRESS_INTERVAL_MS: String(PROGRESS_INTERVAL_MS),
-				RHAPSODY_PROGRESS_PREVIEW_LENGTH: String(PROGRESS_PREVIEW_LENGTH),
-				RHAPSODY_CODEX_TIMEOUT_MS: String(CODEX_TIMEOUT_MS),
+				RHAPSODY_OUTPUT_PREVIEW_LENGTH: String(
+					runnerConfig.outputPreviewLength,
+				),
+				RHAPSODY_PROGRESS_INTERVAL_MS: String(runnerConfig.progressIntervalMs),
+				RHAPSODY_PROGRESS_PREVIEW_LENGTH: String(
+					runnerConfig.progressPreviewLength,
+				),
+				RHAPSODY_CODEX_TIMEOUT_MS: String(runnerConfig.timeoutMs),
 			},
 		});
 		shouldStopSandbox = false;
@@ -623,6 +631,7 @@ async function prepareSourceInSandbox({
 
 function summarizeCommand(
 	command: Awaited<ReturnType<typeof runVercelSandboxCommand>>,
+	outputPreviewLength: number,
 ) {
 	return {
 		commandId: command.commandId,
@@ -630,13 +639,16 @@ function summarizeCommand(
 		startedAt: command.startedAt,
 		exitCode: command.exitCode,
 		stdoutLength: command.stdout.length,
-		stdoutPreview: command.stdout.slice(0, OUTPUT_PREVIEW_LENGTH),
+		stdoutPreview: command.stdout.slice(0, outputPreviewLength),
 		stderrLength: command.stderr.length,
-		stderrPreview: command.stderr.slice(0, OUTPUT_PREVIEW_LENGTH),
+		stderrPreview: command.stderr.slice(0, outputPreviewLength),
 	};
 }
 
-async function runNetworkPolicyProbe(sandbox: RhapsodyVercelSandbox) {
+async function runNetworkPolicyProbe(
+	sandbox: RhapsodyVercelSandbox,
+	outputPreviewLength: number,
+) {
 	const command = await runVercelSandboxCommand(sandbox, {
 		cmd: "node",
 		args: ["-e", buildNetworkProbeScript()],
@@ -662,8 +674,8 @@ async function runNetworkPolicyProbe(sandbox: RhapsodyVercelSandbox) {
 		bodyPreview,
 		stdoutLength: command.stdout.length,
 		stderrLength: command.stderr.length,
-		stdoutPreview: command.stdout.slice(0, OUTPUT_PREVIEW_LENGTH),
-		stderrPreview: command.stderr.slice(0, OUTPUT_PREVIEW_LENGTH),
+		stdoutPreview: command.stdout.slice(0, outputPreviewLength),
+		stderrPreview: command.stderr.slice(0, outputPreviewLength),
 		responseLooksLikeProxy: responseSourceHint,
 	};
 }

@@ -3,7 +3,11 @@ import {
 	loadRhapsodyConfig,
 	type RhapsodyRunner,
 } from "@/lib/config";
-import { fetchGitHubIssue, GitHubIssueFetchError } from "@/lib/github/issues";
+import {
+	fetchGitHubIssue,
+	type GitHubIssue,
+	GitHubIssueFetchError,
+} from "@/lib/github/issues";
 import { requireAdminAuth } from "@/lib/server/admin-auth";
 import { isRecord, optionalString, readJson } from "@/lib/server/json";
 import { createClaimedManualRun, createStateStoreClient } from "@/lib/state";
@@ -60,9 +64,9 @@ export async function POST(request: Request) {
 	try {
 		const result = await createClaimedManualRun(client, {
 			...runInput,
-			runner: runInput.runner ?? config.runner,
+			runner: runInput.runner ?? config.runner.kind,
 			claimedBy: runInput.claimedBy ?? "manual",
-			claimTtlMs: config.scheduler.claimTtlMs,
+			claimTtlMs: config.runner.claimTtlMs,
 		});
 
 		if (!result.acquired) {
@@ -219,7 +223,7 @@ async function resolveRunInput(
 		return { ok: true, value: request };
 	}
 
-	let issue;
+	let issue: GitHubIssue;
 
 	try {
 		issue = await fetchGitHubIssue({
