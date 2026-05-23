@@ -87,7 +87,9 @@ describe("codex chatgpt proxy path and run context auth", () => {
 	test("isProxyRunContextActive validates intake run-context via work item id", async () => {
 		const client = { close: vi.fn() } as never;
 		const workItemId = "github_issue:org/repo#12";
-		const encodedWorkItemId = encodeURIComponent(workItemId);
+		const encodedWorkItemId = Buffer.from(workItemId, "utf8").toString(
+			"base64url",
+		);
 
 		vi.spyOn(state, "getRunDetail").mockResolvedValue(null);
 		vi.spyOn(state, "listWorkItemGraph").mockResolvedValue({
@@ -122,7 +124,16 @@ describe("codex chatgpt proxy path and run context auth", () => {
 		expect(
 			await isProxyRunContextActive({
 				runId: "wrn-intake",
-				attemptId: encodeURIComponent("github_issue:other#12"),
+				attemptId: Buffer.from("github_issue:other#12", "utf8").toString(
+					"base64url",
+				),
+				audienceSuffix: "",
+			}),
+		).toBe(false);
+		expect(
+			await isProxyRunContextActive({
+				runId: "wrn-intake",
+				attemptId: "%",
 				audienceSuffix: "",
 			}),
 		).toBe(false);

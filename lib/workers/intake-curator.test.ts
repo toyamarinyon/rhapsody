@@ -1205,9 +1205,14 @@ test("default intake classifier runner executes through sandbox pathway", async 
 test("intake sandbox runner writes classified prompt, schema, and codex proxy path", async () => {
 	const previousVercelUrl = process.env.VERCEL_URL;
 	process.env.VERCEL_URL = "https://example.vercel.app";
+	const workItemId = "github_issue:toyamarinyon/rhapsody#999";
+	const encodedWorkItemId = Buffer.from(workItemId, "utf8").toString(
+		"base64url",
+	);
 	const { deps, commands, writeFiles } = createSandboxIntakeClassifierDeps();
 	const result = await intakeClassifierSandbox.runIntakeClassifierInSandbox({
 		prompt: "Classify issue",
+		workItemId,
 		schemaFilePath: await (async () => {
 			const tempDir = mkdtempSync(
 				path.join(tmpdir(), "rhapsody-intake-schema-"),
@@ -1228,15 +1233,24 @@ test("intake sandbox runner writes classified prompt, schema, and codex proxy pa
 		expect(firstSerializedCommand).toContain(
 			'CODEX_HOME":"/vercel/sandbox/.codex"',
 		);
-		expect(commands[1]?.cmd).toBe("cat");
-		expect(commands[1]?.args?.[0]).toContain(
-			"/vercel/sandbox/intake-classifier/output.json",
-		);
 		const createSandboxCalls = vi.mocked(deps.createVercelSandbox).mock.calls;
 		let networkPolicy: NetworkPolicy | undefined;
 		if (createSandboxCalls[0]?.[0]) {
 			networkPolicy = createSandboxCalls[0][0].networkPolicy as NetworkPolicy;
 		}
+
+		const codexProxyUrl =
+			networkPolicy?.allow?.["chatgpt.com"]?.[0]?.forwardURL;
+		expect(codexProxyUrl).toContain(
+			`/api/internal/codex-chatgpt-proxy/runs/intake-worker-run/attempts/${encodedWorkItemId}`,
+		);
+		expect(codexProxyUrl?.split("/attempts/")[1]).toBe(encodedWorkItemId);
+		expect(codexProxyUrl?.split("/attempts/")[1]).not.toContain("/");
+		expect(codexProxyUrl?.split("/attempts/")[1]).not.toContain("%2F");
+		expect(commands[1]?.cmd).toBe("cat");
+		expect(commands[1]?.args?.[0]).toContain(
+			"/vercel/sandbox/intake-classifier/output.json",
+		);
 		const chatgptPolicy = networkPolicy?.allow?.["chatgpt.com"] ?? [];
 		expect(chatgptPolicy[0]?.forwardURL).toContain(
 			"/api/internal/codex-chatgpt-proxy/runs/",

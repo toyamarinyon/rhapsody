@@ -416,6 +416,11 @@ export async function isProxyRunContextActive(
 	} catch {
 		// Keep the raw attemptId if decoding fails.
 	}
+	const workItemIdCandidates = new Set<string>([decodedAttemptId]);
+	const base64DecodedAttemptId = tryDecodeBase64Url(decodedAttemptId);
+	if (base64DecodedAttemptId) {
+		workItemIdCandidates.add(base64DecodedAttemptId);
+	}
 
 	const client = createStateStoreClient();
 
@@ -429,20 +434,33 @@ export async function isProxyRunContextActive(
 			return detail.run.status === "running" && attempt?.status === "running";
 		}
 
-		const graph = await listWorkItemGraph(client, decodedAttemptId);
-		if (graph.workItemId !== decodedAttemptId) {
-			return false;
+		for (const candidateAttemptId of workItemIdCandidates) {
+			const graph = await listWorkItemGraph(client, candidateAttemptId);
+			if (graph.workItemId !== candidateAttemptId) {
+				continue;
+			}
+			const activeIntakeRun = graph.workerRuns.find(
+				(candidate) =>
+					candidate.id === runContext.runId &&
+					candidate.kind === "intake_curator" &&
+					candidate.status === "running",
+			);
+			if (activeIntakeRun) {
+				return true;
+			}
 		}
-		const activeIntakeRun = graph.workerRuns.find(
-			(candidate) =>
-				candidate.id === runContext.runId &&
-				candidate.kind === "intake_curator" &&
-				candidate.status === "running",
-		);
-
-		return Boolean(activeIntakeRun);
 	} finally {
 		client.close();
+	}
+
+	return false;
+}
+
+function tryDecodeBase64Url(value: string) {
+	try {
+		return Buffer.from(value, "base64url").toString("utf8");
+	} catch {
+		return undefined;
 	}
 }
 

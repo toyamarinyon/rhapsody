@@ -178,16 +178,12 @@ function buildOutputReadPath() {
 	return path.join(SANDBOX_WORKDIR, OUTPUT_MESSAGE_PATH);
 }
 
-function sanitizePathSegment(value: string) {
+function encodeSandboxProxyAttemptId(value: string) {
 	if (!value) {
 		return value;
 	}
 
-	try {
-		return encodeURIComponent(value);
-	} catch {
-		return value;
-	}
+	return Buffer.from(value, "utf8").toString("base64url");
 }
 
 export async function runIntakeClassifierInSandbox(
@@ -200,7 +196,7 @@ export async function runIntakeClassifierInSandbox(
 	const origin = buildMediatorOrigin();
 	const callbackUrl = new URL("/api/internal/runs/callback", origin).toString();
 	const codexProxyUrl = new URL(
-		`/api/internal/codex-chatgpt-proxy/runs/${input.workerRunId || "intake-worker-run"}/attempts/${sanitizePathSegment(
+		`/api/internal/codex-chatgpt-proxy/runs/${input.workerRunId || "intake-worker-run"}/attempts/${encodeSandboxProxyAttemptId(
 			input.workItemId || "intake",
 		)}`,
 		origin,
