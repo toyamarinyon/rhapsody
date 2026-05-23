@@ -24,6 +24,7 @@ import {
 	intakeClassificationJsonSchema,
 	intakeClassificationSchema,
 	isIntakeBuildable,
+	parseClassifierOutput,
 	runIntakeCurator,
 } from "@/lib/workers/intake-curator";
 
@@ -298,7 +299,55 @@ test("intake classification schema validates decision-specific requirements", ()
 	).toThrow();
 
 	expect(intakeClassificationJsonSchema.title).toBe("IntakeClassification");
-	expect(intakeClassificationJsonSchema).toHaveProperty("oneOf");
+	expect(intakeClassificationJsonSchema.type).toBe("object");
+	expect(intakeClassificationJsonSchema.additionalProperties).toBe(false);
+	expect(intakeClassificationJsonSchema.required).toEqual([
+		"decision",
+		"summary",
+		"implementation_plan",
+		"question",
+		"reason",
+		"comment",
+		"next_action",
+	]);
+	expect(
+		intakeClassificationJsonSchema.properties.implementation_plan.type,
+	).toEqual(["string", "null"]);
+});
+
+test("parseClassifierOutput accepts strict structured-output null fields", () => {
+	expect(
+		parseClassifierOutput(
+			JSON.stringify({
+				decision: "buildable",
+				summary: "Ready to build.",
+				implementation_plan: "Make the requested focused change.",
+				question: null,
+				reason: null,
+				comment: "Start implementation with existing details.",
+				next_action: null,
+			}),
+		),
+	).toEqual({
+		decision: "buildable",
+		summary: "Ready to build.",
+		implementation_plan: "Make the requested focused change.",
+		comment: "Start implementation with existing details.",
+	});
+
+	expect(() =>
+		parseClassifierOutput(
+			JSON.stringify({
+				decision: "buildable",
+				summary: "Ready to build.",
+				implementation_plan: null,
+				question: null,
+				reason: null,
+				comment: "Start implementation with existing details.",
+				next_action: null,
+			}),
+		),
+	).toThrow();
 });
 
 test("runIntakeCurator dedupes by fingerprint and reuses decision", async () => {
