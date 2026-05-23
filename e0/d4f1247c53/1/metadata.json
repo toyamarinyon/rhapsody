@@ -1,0 +1,56 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "e0d4f1247c53",
+  "session_id": "019e52e1-87b5-7382-966b-4f213bf050a6",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-23T05:24:30.115102Z",
+  "branch": "codex/local-intake-classifier-probe",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "lib/workers/intake-curator.test.ts",
+    "lib/workers/intake-curator/index.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.4-mini",
+  "turn_id": "07c00a5dc6b2",
+  "token_usage": {
+    "input_tokens": 26351,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2432,
+    "output_tokens": 324,
+    "api_call_count": 1
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-23T05:24:30.103053Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 41,
+    "total_committed": 0,
+    "total_lines_changed": 41,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 551,
+      "user_lines_removed": 41,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "lib/workers/intake-curator.test.ts": 50,
+        "lib/workers/intake-curator/index.ts": 41,
+        "tools/intake-classifier-probe.mjs": 460
+      },
+      "user_removed_per_file": {
+        "lib/workers/intake-curator.test.ts": 1,
+        "lib/workers/intake-curator/index.ts": 40
+      }
+    }
+  ]
+}

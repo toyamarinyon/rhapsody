@@ -3,7 +3,7 @@
   "checkpoint_id": "e0d4f1247c53",
   "strategy": "manual-commit",
   "branch": "codex/local-intake-classifier-probe",
-  "checkpoints_count": 4,
+  "checkpoints_count": 5,
   "files_touched": [
     "lib/workers/intake-curator.test.ts",
     "lib/workers/intake-curator/index.ts"
@@ -14,13 +14,19 @@
       "transcript": "/e0/d4f1247c53/0/full.jsonl",
       "content_hash": "/e0/d4f1247c53/0/content_hash.txt",
       "prompt": "/e0/d4f1247c53/0/prompt.txt"
+    },
+    {
+      "metadata": "/e0/d4f1247c53/1/metadata.json",
+      "transcript": "/e0/d4f1247c53/1/full.jsonl",
+      "content_hash": "/e0/d4f1247c53/1/content_hash.txt",
+      "prompt": "/e0/d4f1247c53/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 1320901,
+    "input_tokens": 1347252,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 43816960,
-    "output_tokens": 71694,
-    "api_call_count": 317
+    "cache_read_tokens": 43819392,
+    "output_tokens": 72018,
+    "api_call_count": 318
   }
 }
