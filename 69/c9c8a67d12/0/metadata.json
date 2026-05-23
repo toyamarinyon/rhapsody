@@ -1,0 +1,51 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "69c9c8a67d12",
+  "session_id": "019e4ebe-3331-7e23-9edb-c5dc998bc1a6",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-23T03:05:59.09339Z",
+  "branch": "codex/base64url-intake-proxy-context",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "app/api/internal/codex-chatgpt-proxy/[...path]/route.test.ts",
+    "app/api/internal/codex-chatgpt-proxy/[...path]/route.ts",
+    "lib/workers/intake-classifier-sandbox.ts",
+    "lib/workers/intake-curator.test.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "aae767672365",
+  "checkpoint_transcript_start": 2470,
+  "transcript_lines_at_start": 2470,
+  "token_usage": {
+    "input_tokens": 68072,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1505024,
+    "output_tokens": 10207,
+    "api_call_count": 27
+  },
+  "session_metrics": {
+    "turn_count": 45
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-23T03:05:58.97743Z",
+    "agent_lines": 63,
+    "agent_removed": 24,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 63,
+    "total_lines_changed": 87,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
