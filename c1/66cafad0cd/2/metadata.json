@@ -1,0 +1,82 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "c166cafad0cd",
+  "session_id": "019e4ebe-3331-7e23-9edb-c5dc998bc1a6",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-23T00:23:37.936099Z",
+  "branch": "codex/intake-classifier-sandbox-codex",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "app/api/internal/codex-chatgpt-proxy/[...path]/route.test.ts",
+    "app/api/internal/codex-chatgpt-proxy/[...path]/route.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "fe3ce31f0945",
+  "checkpoint_transcript_start": 621,
+  "transcript_lines_at_start": 621,
+  "token_usage": {
+    "input_tokens": 666919,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 22226176,
+    "output_tokens": 133111,
+    "api_call_count": 327
+  },
+  "session_metrics": {
+    "turn_count": 19
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-23T00:23:37.820746Z",
+    "agent_lines": 166,
+    "agent_removed": 11,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 166,
+    "total_lines_changed": 177,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 572,
+      "agent_lines_removed": 39
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 193,
+      "user_lines_removed": 44,
+      "agent_lines_added": 819,
+      "agent_lines_removed": 59,
+      "user_added_per_file": {
+        "lib/workers/intake-classifier-sandbox.ts": 193
+      },
+      "user_removed_per_file": {
+        "lib/workers/intake-classifier-sandbox.ts": 44
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 208,
+      "user_lines_removed": 44,
+      "agent_lines_added": 822,
+      "agent_lines_removed": 59,
+      "user_added_per_file": {
+        "lib/workers/intake-classifier-sandbox.ts": 208
+      },
+      "user_removed_per_file": {
+        "lib/workers/intake-classifier-sandbox.ts": 44
+      }
+    }
+  ]
+}
