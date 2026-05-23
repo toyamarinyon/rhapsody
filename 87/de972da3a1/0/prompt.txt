@@ -1,0 +1,80 @@
+実際にOpenAIのbackendapiを実行して疎通確認がしたいです。
+
+---
+
+mergeしておいたのでdeploy状態チェックして、deployされたらapi試してみてください。
+
+---
+
+では何が問題なんでしょう
+
+---
+
+ではそれを進めましょう。実装は [@ikura the 2nd](agent://019e5206-54fd-7f93-aac3-feb7688fb547) に依頼しましょう。
+
+---
+
+実装をお願いします。ユーザーの明示的依頼により、ChatGPT OAuth refresh probe route の実装をあなたに委譲します。こちらはレビュー・統合・PR 作成を担当します。既存変更を勝手に revert しないでください。
+
+背景:
+- PR #70 で `POST /api/v1/admin/codex-chatgpt-credentials/backend-probe` を追加し、production DB credential の current access_token で `https://chatgpt.com/backend-api/codex/models?client_version=0.130.0` に 200 OK で到達できることを確認しました。
+- しかし intake classifier の sandbox Codex はまだ `Your access token could not be refreshed. Please log out and sign in again.` で失敗しています。
+- つまり backend-api access ではなく、`auth.openai.com/oauth/token` の refresh 経路を実際に検証する必要があります。
+
+目的:
+- admin-only の refresh probe endpoint を追加してください。
+- mediator/proxy と同じ OAuth refresh request shape で `https://auth.openai.com/oauth/token` を叩き、refresh token が本当に使えるかを検証します。
+- token 本体は絶対にレスポンス・ログ・テスト snapshot に出さないでください。
+
+想定 route:
+`POST /api/v1/admin/codex-chatgpt-credentials/refresh-probe`
+
+期待仕様:
+1. `requireAdminAuth` 必須。
+2. DB credential を `loadMediatorCredentialState()` で読む。
+3. missing credential なら safe な 500/400 を返す。
+4. `auth.openai.com/oauth/token` に POST:
+   - `content-type: application/json`
+   - body は proxy の `handleAuthTokenExchange` と同じ形:
+     - `client_id`: 既存 proxy と同じ `app_EMoamEEZ73f0CkXaXp7hrann`
+     - `grant_type`: `refresh_token`
+     - `refresh_token`: DB の real refresh token
+5. upstream response body を JSON として読める場合、安全なメタだけ返す:
+   - `ok`, `status`, `statusText`, `contentType`, `durationMs`, `checkedAt`
+   - `returned.accessTokenPresent`, `returned.refreshTokenPresent`, `returned.idTokenPresent`, `returned.accountIdPresent`
+   - refresh token / access token / id token の値は返さない
+   - failure の body preview は bounded + redacted
+6. 成功時に DB 更新するかは設計判断してください。おすすめは request body option `{"persist": true}` の時だけ `updateMediatorCredentialsFromOAuthResponse(state, parsedBody)` を呼ぶことです。default は dry-run にしてもよいです。もし persist するなら response に `persisted: true/false` を safe に返してください。
+7. この route 自体が production credential を消耗/rotate する可能性があるので、デフォルト設計の意図をコメントかテストで明確にしてください。
+8. 既存 `backend-probe` の redaction helper と重複が大きければ小さな shared helper を作ってもよいですが、スコープは小さくしてください。
+
+テスト:
+- admin auth required
+- success dry-run: upstream 200 + token fields present -> token values are not returned, `persisted:false`, update function not called
+- success persist: `persist:true` -> `updateMediatorCredentialsFromOAuthResponse` が呼ばれる
+- upstream failure: e.g. 400 JSON error body -> safe status + redacted preview, no raw refresh/access token exposure
+- missing credential
+
+検証:
+- biome check 対象ファイル
+- vitest route test
+- typecheck
+
+最後に変更ファイル、設計判断、テスト結果を日本語で簡潔に報告してください。
+
+---
+
+レビューしました。実装の方向は良いですが、1点修正してください。
+
+重大ではないですが安全上重要:
+- `persist:true` のとき、現在の実装だと upstream が 400/401 でも body が JSON object なら `updateMediatorCredentialsFromOAuthResponse(state, parsedBody)` に進み得ます。
+- failure body が `{ error: ..., refresh_token: ... }` のような形だった場合に DB を不正に更新する余地があります。
+
+修正:
+- DB 更新は `persist && upstreamResponse.ok` のときだけにしてください。
+- upstream failure + `persist:true` でも `persisted:false` で、update が呼ばれないテストを追加してください。
+
+追加でテスト可能なら:
+- refresh request body に `client_id`, `grant_type: refresh_token`, `refresh_token` が入っていることを確認してください。ただし response/body snapshot には token 値を出さないでください。
+
+修正後、biome/vitest/typecheck 結果をください。

@@ -1,0 +1,21 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "87de972da3a1",
+  "strategy": "manual-commit",
+  "branch": "codex/chatgpt-refresh-probe-route",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "app/api/v1/admin/codex-chatgpt-credentials/_probe.ts",
+    "app/api/v1/admin/codex-chatgpt-credentials/backend-probe/route.ts",
+    "app/api/v1/admin/codex-chatgpt-credentials/refresh-probe/route.test.ts",
+    "app/api/v1/admin/codex-chatgpt-credentials/refresh-probe/route.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/87/de972da3a1/0/metadata.json",
+      "transcript": "/87/de972da3a1/0/full.jsonl",
+      "content_hash": "/87/de972da3a1/0/content_hash.txt",
+      "prompt": "/87/de972da3a1/0/prompt.txt"
+    }
+  ]
+}
