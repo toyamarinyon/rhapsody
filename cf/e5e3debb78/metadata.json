@@ -1,0 +1,27 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "cfe5e3debb78",
+  "strategy": "manual-commit",
+  "branch": "codex/intake-classifier-sandbox-codex",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "lib/workers/intake-classifier-sandbox.ts",
+    "lib/workers/intake-curator.test.ts",
+    "lib/workers/intake-curator/index.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/cf/e5e3debb78/0/metadata.json",
+      "transcript": "/cf/e5e3debb78/0/full.jsonl",
+      "content_hash": "/cf/e5e3debb78/0/content_hash.txt",
+      "prompt": "/cf/e5e3debb78/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 970310,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 30956800,
+    "output_tokens": 181660,
+    "api_call_count": 453
+  }
+}
