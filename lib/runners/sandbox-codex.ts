@@ -1,7 +1,11 @@
-import path from "node:path";
 import { readFile } from "node:fs/promises";
-import { buildCodexExecCommand } from "@/lib/codex/cli";
+import path from "node:path";
+import {
+	buildAttemptBranchName,
+	parseWorkItemIssueNumber,
+} from "@/lib/attempt-branch";
 import { buildCodexChatGPTDummyAuthFile } from "@/lib/codex/auth";
+import { buildCodexExecCommand } from "@/lib/codex/cli";
 import { loadMediatorCredentialState } from "@/lib/codex/credentials";
 import {
 	loadRhapsodyCodexBaseSnapshotEnv,
@@ -10,33 +14,29 @@ import {
 	loadRhapsodyMediatorEnv,
 	loadRhapsodyProtectionBypassEnv,
 } from "@/lib/config";
-import { loadRunnerCodexConfig } from "@/lib/runner-codex-config";
 import {
 	buildInstructionContext,
 	InstructionTemplateError,
 	loadRepositoryInstructions,
 	renderRepositoryInstructions,
 } from "@/lib/instructions";
+import { loadRunnerCodexConfig } from "@/lib/runner-codex-config";
 import {
-	createVercelSandbox,
 	buildVercelSandboxCodexNetworkPolicy,
 	buildVercelSandboxGitHubNetworkPolicy,
-	mergeNetworkPolicies,
+	createVercelSandbox,
 	getVercelSandboxId,
+	mergeNetworkPolicies,
+	type RhapsodyVercelSandbox,
 	runVercelSandboxCommand,
 	startVercelSandboxCommand,
 	stopVercelSandbox,
 	writeVercelSandboxFiles,
-	type RhapsodyVercelSandbox,
 } from "@/lib/sandbox/vercel";
 import { isRecord } from "@/lib/server/json";
 import { createEvent, getRunDetail, markAttemptStarted } from "@/lib/state";
-import {
-	buildAttemptBranchName,
-	parseWorkItemIssueNumber,
-} from "@/lib/attempt-branch";
 import { buildAttemptHookToken } from "@/lib/workflows/attempt-hook";
-import { type RunnerRouteContext } from "./types";
+import type { RunnerRouteContext } from "./types";
 
 const SANDBOX_WORKDIR = "/vercel/sandbox";
 const CODEX_HOME_PATH = "/vercel/sandbox/.codex";
@@ -55,6 +55,8 @@ const WRAPPER_SOURCE_PATH = path.join(
 const REPOSITORY_PATH = "/vercel/sandbox/repository";
 const PROMPT_PREVIEW_LENGTH = 500;
 const OUTPUT_PREVIEW_LENGTH = 1000;
+const PROGRESS_INTERVAL_MS = 30_000;
+const PROGRESS_PREVIEW_LENGTH = 1000;
 const CODEX_TIMEOUT_MS = 10 * 60 * 1000;
 const SANDBOX_SETUP_BUFFER_MS = 5 * 60 * 1000;
 const SANDBOX_TIMEOUT_MS = CODEX_TIMEOUT_MS + SANDBOX_SETUP_BUFFER_MS;
@@ -385,6 +387,8 @@ export async function runSandboxCodexRunner(
 				RHAPSODY_METADATA_PATH: METADATA_PATH,
 				RHAPSODY_PR_SPEC_PATH: PR_SPEC_PATH,
 				RHAPSODY_OUTPUT_PREVIEW_LENGTH: String(OUTPUT_PREVIEW_LENGTH),
+				RHAPSODY_PROGRESS_INTERVAL_MS: String(PROGRESS_INTERVAL_MS),
+				RHAPSODY_PROGRESS_PREVIEW_LENGTH: String(PROGRESS_PREVIEW_LENGTH),
 				RHAPSODY_CODEX_TIMEOUT_MS: String(CODEX_TIMEOUT_MS),
 			},
 		});
@@ -570,7 +574,7 @@ function buildExecutionPrompt(params: {
 	targetBranchName: string;
 	sandboxMode: "read-only" | "workspace-write";
 }) {
-	const modeInstructions = `\n\nYou are running in write mode for this Rhapsody run.\n- Working repository: ${params.targetRepositoryUrl}\n- Assigned branch: ${params.targetBranchName}\n- Do not push to any branch other than the assigned branch.\n- Make focused changes only for the selected work item.\n- If git commit needs an identity, set local repository config only: user.name \"Rhapsody Codex\" and user.email \"rhapsody-codex@localhost\".\n- When changes are needed, you must create a commit and run: git push origin HEAD:${params.targetBranchName}\n- After pushing, verify the remote branch exists with: git ls-remote --heads origin ${params.targetBranchName}\n- After creating the commit and push, write a PR handoff file at ${PR_SPEC_PATH} containing JSON with this exact shape:\n  { \"title\": \"<string>\", \"body\": \"<string>\" }\n  both fields must be non-empty.\n- Do not call GitHub APIs or create PRs directly.\n`;
+	const modeInstructions = `\n\nYou are running in write mode for this Rhapsody run.\n- Working repository: ${params.targetRepositoryUrl}\n- Assigned branch: ${params.targetBranchName}\n- Do not push to any branch other than the assigned branch.\n- Make focused changes only for the selected work item.\n- If git commit needs an identity, set local repository config only: user.name "Rhapsody Codex" and user.email "rhapsody-codex@localhost".\n- When changes are needed, you must create a commit and run: git push origin HEAD:${params.targetBranchName}\n- After pushing, verify the remote branch exists with: git ls-remote --heads origin ${params.targetBranchName}\n- After creating the commit and push, write a PR handoff file at ${PR_SPEC_PATH} containing JSON with this exact shape:\n  { "title": "<string>", "body": "<string>" }\n  both fields must be non-empty.\n- Do not call GitHub APIs or create PRs directly.\n`;
 
 	return `${params.prompt}${modeInstructions}\n- Current sandbox mode: ${params.sandboxMode}.`;
 }
