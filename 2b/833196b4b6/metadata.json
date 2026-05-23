@@ -1,0 +1,26 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "2b833196b4b6",
+  "strategy": "manual-commit",
+  "branch": "codex/use-mediator-client-id-for-refresh",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "app/api/internal/codex-chatgpt-proxy/[...path]/route.test.ts",
+    "app/api/internal/codex-chatgpt-proxy/[...path]/route.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2b/833196b4b6/0/metadata.json",
+      "transcript": "/2b/833196b4b6/0/full.jsonl",
+      "content_hash": "/2b/833196b4b6/0/content_hash.txt",
+      "prompt": "/2b/833196b4b6/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 36649,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1504768,
+    "output_tokens": 12405,
+    "api_call_count": 23
+  }
+}
