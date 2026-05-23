@@ -1,0 +1,32 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "c166cafad0cd",
+  "session_id": "019e4607-4de2-7922-9031-735f9754bac9",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-23T00:23:34.916941Z",
+  "branch": "codex/intake-classifier-sandbox-codex",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "app/api/internal/codex-chatgpt-proxy/[...path]/route.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "adfe58bea03c",
+  "checkpoint_transcript_start": 1014,
+  "transcript_lines_at_start": 1014,
+  "session_metrics": {
+    "turn_count": 5
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-23T00:23:34.870911Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 28,
+    "human_modified": 11,
+    "human_removed": 0,
+    "total_committed": 28,
+    "total_lines_changed": 39,
+    "agent_percentage": 0,
+    "metric_version": 2
+  }
+}
