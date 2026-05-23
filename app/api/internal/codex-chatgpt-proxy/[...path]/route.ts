@@ -135,9 +135,9 @@ export async function DELETE(
 	return handleCodexChatGPTProxy(request, context);
 }
 
-async function handleAuthTokenExchange(
+export async function handleAuthTokenExchange(
 	_request: Request,
-	body: ArrayBuffer | null,
+	_body: ArrayBuffer | null,
 	method: string,
 ) {
 	const state = await loadMediatorCredentialState();
@@ -166,7 +166,7 @@ async function handleAuthTokenExchange(
 			"content-type": "application/json",
 		},
 		body: JSON.stringify({
-			client_id: readOAuthClientId(body) ?? CHATGPT_OAUTH_CLIENT_ID,
+			client_id: CHATGPT_OAUTH_CLIENT_ID,
 			grant_type: "refresh_token",
 			refresh_token: state.refreshToken,
 		}),
@@ -453,31 +453,6 @@ function isBodyAllowedForMethod(method: string) {
 function isWebsocketUpgrade(headers: Headers) {
 	return headers.get("upgrade")?.toLowerCase() === "websocket";
 }
-
-function readOAuthClientId(body: ArrayBuffer | null) {
-	if (!body) {
-		return null;
-	}
-
-	try {
-		const value = JSON.parse(Buffer.from(body).toString("utf8")) as unknown;
-
-		if (
-			value &&
-			typeof value === "object" &&
-			"client_id" in value &&
-			typeof value.client_id === "string" &&
-			value.client_id.trim()
-		) {
-			return value.client_id;
-		}
-	} catch {
-		return null;
-	}
-
-	return null;
-}
-
 function sanitizeMediatorRequestHeaders(
 	request: Request,
 ): Record<string, string> {
