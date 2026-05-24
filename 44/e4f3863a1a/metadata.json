@@ -1,0 +1,25 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "44e4f3863a1a",
+  "strategy": "manual-commit",
+  "branch": "codex/update-rhapsody-diagnostics-skill",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".agents/skills/rhapsody-diagnostics/SKILL.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/44/e4f3863a1a/0/metadata.json",
+      "transcript": "/44/e4f3863a1a/0/full.jsonl",
+      "content_hash": "/44/e4f3863a1a/0/content_hash.txt",
+      "prompt": "/44/e4f3863a1a/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 552533,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6661248,
+    "output_tokens": 18871,
+    "api_call_count": 67
+  }
+}
