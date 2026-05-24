@@ -1,0 +1,50 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "710804823aca",
+  "session_id": "019e57bd-6562-7f42-b7e2-15533879a1a4",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-24T07:01:42.780198Z",
+  "branch": "codex/fix-vercel-network-wildcards",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "lib/runner-codex-config.test.ts",
+    "lib/runner-codex-config.ts",
+    "lib/sandbox/vercel.test.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "6fb2aeb24ddb",
+  "checkpoint_transcript_start": 518,
+  "transcript_lines_at_start": 518,
+  "token_usage": {
+    "input_tokens": 80564,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 8328192,
+    "output_tokens": 9445,
+    "api_call_count": 48
+  },
+  "session_metrics": {
+    "turn_count": 13
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-24T07:01:42.729427Z",
+    "agent_lines": 6,
+    "agent_removed": 6,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 6,
+    "total_lines_changed": 12,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

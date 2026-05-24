@@ -1,0 +1,11 @@
+ブランチ作って、commitしてpull request作りましょう。そのあとで、 [SKILL.md](.agents/skills/rhapsody-diagnostics/SKILL.md) もそれ用のブランチをmainから作ってcommit, pull request作成して欲しいです。
+
+---
+
+>  #83 Add sandbox network policy preset
+
+conflictしているので解消して欲しいです。
+
+---
+
+これで、 issue #79 は前よりも早く終わると思うので再度Rhapsodyでやってみたいです。
