@@ -1,0 +1,23 @@
+[$rhapsody-diagnostics](/Users/toyamarinyon/Documents/rhapsody/.agents/skills/rhapsody-diagnostics/SKILL.md) を使って　[https://github.com/toyamarinyon/rhapsody/issues/91](https://github.com/toyamarinyon/rhapsody/issues/91) の状態を調べてください。
+
+---
+
+ROOT_PASSWORD `REDACTED`です
+
+---
+
+> Cannot read properties of undefined (reading 'session')
+
+このエラーについて詳しく調べて
+
+---
+
+vercel sandboxのgithubにこのことに関するissueはありそうですかね？
+
+---
+
+stable 2.0.0あるんです？
+
+---
+
+そうですね。まずそれやりましょう。2.0.0にして、pnpm iして、pull request作ってmerge、再検証までお願いします。
