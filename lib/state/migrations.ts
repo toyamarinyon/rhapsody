@@ -293,6 +293,21 @@ export const stateStoreMigrations = [
 				ON links (relation);
 		`,
 	},
+	{
+		id: "0007_codex_chatgpt_credential_health",
+		sql: `
+			CREATE TABLE codex_chatgpt_credential_health (
+				id TEXT PRIMARY KEY,
+				ok INTEGER NOT NULL CHECK (ok IN (0, 1)),
+				needs_reauth INTEGER NOT NULL CHECK (needs_reauth IN (0, 1)),
+				checked_at INTEGER NOT NULL,
+				last_succeeded_at INTEGER,
+				upstream_status INTEGER,
+				upstream_status_text TEXT,
+				error_category TEXT
+			);
+		`,
+	},
 ] as const satisfies readonly StateStoreMigration[];
 
 export async function migrateStateStore(

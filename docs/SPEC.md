@@ -641,6 +641,8 @@ dummy sandbox-local auth state. ChatGPT backend and OAuth refresh traffic are fo
 outside the execution sandbox so real ChatGPT tokens remain in trusted server-side storage. See
 [ADR 0004](adr/0004-broker-chatgpt-auth-for-codex-sandboxes.md) and
 [ADR 0008](adr/0008-define-mediator-endpoint-contract.md).
+Rhapsody SHOULD periodically probe the server-side OAuth refresh path and record only safe health
+metadata such as refresh success, `needsReauth`, timestamps, and sanitized error categories.
 
 For GitHub operations, the MVP uses a trusted GitHub mediator. The sandboxed agent may perform
 workflow-specific GitHub operations through the mediator, but the upstream `GITHUB_TOKEN` remains in
@@ -666,8 +668,9 @@ database client APIs directly. The initial implementation uses `@libsql/client` 
 migrations so correctness-sensitive coordination queries remain visible in source control. See
 [ADR 0001](adr/0001-use-turso-libsql-for-state-store.md).
 
-The MVP durable schema consists of `claims`, `runs`, `attempts`, and `events`. Rhapsody deliberately
-defers separate work item projections, saved work product tables, log tables, dispatch slot tables,
+The MVP durable schema consists of `claims`, `runs`, `attempts`, `events`, mediator-held ChatGPT
+credential state, and ChatGPT credential refresh health status. Rhapsody deliberately defers
+separate work item projections, saved work product tables, log tables, dispatch slot tables,
 tracker caches, and multi-tenant schema until needed. See
 [ADR 0002](adr/0002-define-mvp-state-model-and-claim-lifecycle.md).
 

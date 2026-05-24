@@ -3,6 +3,7 @@ import {
 	buildCodexChatGPTDummyAuthFile,
 	DUMMY_CHATGPT_REFRESH_TOKEN,
 } from "@/lib/codex/auth";
+import { requestChatGptOAuthRefresh } from "@/lib/codex/chatgpt-oauth";
 import {
 	loadMediatorCredentialState,
 	updateMediatorCredentialsFromOAuthResponse,
@@ -18,8 +19,6 @@ import {
 } from "@/lib/vercel/oidc";
 
 export const runtime = "nodejs";
-
-const CHATGPT_OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const RHAPSODY_PROXY_HEADER_VALUE = "codex-chatgpt";
 
 async function handleCodexChatGPTProxy(
@@ -160,17 +159,7 @@ export async function handleAuthTokenExchange(
 		);
 	}
 
-	const upstreamResponse = await fetch("https://auth.openai.com/oauth/token", {
-		method,
-		headers: {
-			"content-type": "application/json",
-		},
-		body: JSON.stringify({
-			client_id: CHATGPT_OAUTH_CLIENT_ID,
-			grant_type: "refresh_token",
-			refresh_token: state.refreshToken,
-		}),
-	});
+	const upstreamResponse = await requestChatGptOAuthRefresh(state.refreshToken);
 
 	console.info("codex-chatgpt-proxy oauth_refresh upstream", {
 		forwardedHost: "auth.openai.com",
@@ -192,17 +181,11 @@ export async function handleAuthTokenExchange(
 
 	let updatedState = state;
 
-	try {
-		const upstreamPayload = (await upstreamResponse.json()) as Record<
-			string,
-			unknown
-		>;
+	if (upstreamResponse.parsedBody) {
 		updatedState = await updateMediatorCredentialsFromOAuthResponse(
 			state,
-			upstreamPayload,
+			upstreamResponse.parsedBody,
 		);
-	} catch {
-		// Keep previously persisted credentials if the upstream body is not JSON.
 	}
 
 	if (!updatedState.accessToken || !updatedState.accountId) {
