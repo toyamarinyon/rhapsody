@@ -10,6 +10,7 @@ import {
 	updateProjectIssueStatus,
 } from "@/lib/github/project-items";
 import {
+	getPullRequest,
 	getPullRequestChangedFiles,
 	mergePullRequest,
 } from "@/lib/github/pull-requests";
@@ -101,6 +102,7 @@ export type SchedulerTickDependencies = {
 	fetchProjectIssueWorkItems?: typeof fetchProjectIssueWorkItems;
 	updateProjectIssueStatus?: typeof updateProjectIssueStatus;
 	getPullRequestCheckSummary?: typeof getPullRequestCheckSummary;
+	getPullRequest?: typeof getPullRequest;
 	getPullRequestChangedFiles?: typeof getPullRequestChangedFiles;
 	mergePullRequest?: typeof mergePullRequest;
 	loadPostRunDecisionConfig?: typeof loadPostRunDecisionConfig;
@@ -172,6 +174,7 @@ export async function runSchedulerTick(
 					config,
 					{
 						getPullRequestCheckSummary: dependencies.getPullRequestCheckSummary,
+						getPullRequest: dependencies.getPullRequest,
 						getPullRequestChangedFiles: dependencies.getPullRequestChangedFiles,
 						mergePullRequest: dependencies.mergePullRequest,
 						loadPostRunDecisionConfig: dependencies.loadPostRunDecisionConfig,
@@ -510,6 +513,7 @@ async function createBuilderWorkerRun(
 
 type SchedulerPostPrDependencies = {
 	getPullRequestCheckSummary?: typeof getPullRequestCheckSummary;
+	getPullRequest?: typeof getPullRequest;
 	getPullRequestChangedFiles?: typeof getPullRequestChangedFiles;
 	mergePullRequest?: typeof mergePullRequest;
 	loadPostRunDecisionConfig?: typeof loadPostRunDecisionConfig;
@@ -875,6 +879,103 @@ async function moveRepairBlockedItemToHumanReview(input: {
 	});
 }
 
+type PullRequestSuccessReconciliation =
+	| {
+			outcome: "merged";
+			mergeResult: Awaited<ReturnType<typeof mergePullRequest>>;
+	  }
+	| {
+			outcome: "already_merged";
+			pullRequest: Awaited<ReturnType<typeof getPullRequest>>;
+	  };
+
+async function reconcilePullRequestSuccess(input: {
+	config: ReturnType<typeof loadRhapsodyConfig>;
+	dependencies: SchedulerPostPrDependencies;
+	pullRequestArtifact: { id: string; number: number; url: string | null };
+}): Promise<PullRequestSuccessReconciliation> {
+	const loadPullRequest = input.dependencies.getPullRequest ?? getPullRequest;
+	const mergeTrustedPullRequest =
+		input.dependencies.mergePullRequest ?? mergePullRequest;
+	const pullRequest = await loadPullRequest({
+		owner: input.config.repository.owner,
+		repository: input.config.repository.name,
+		pullRequestNumber: input.pullRequestArtifact.number,
+	});
+
+	if (pullRequest.merged) {
+		return {
+			outcome: "already_merged",
+			pullRequest,
+		};
+	}
+
+	if (pullRequest.state !== "open") {
+		throw new Error("Trusted pull request is closed without merge.");
+	}
+
+	let mergeResult: Awaited<ReturnType<typeof mergePullRequest>>;
+	try {
+		mergeResult = await mergeTrustedPullRequest({
+			owner: input.config.repository.owner,
+			repository: input.config.repository.name,
+			pullRequestNumber: input.pullRequestArtifact.number,
+		});
+	} catch (error) {
+		const refreshedPullRequest = await tryReloadPullRequestForSuccess(input);
+		if (refreshedPullRequest?.merged) {
+			return {
+				outcome: "already_merged",
+				pullRequest: refreshedPullRequest,
+			};
+		}
+		if (refreshedPullRequest && refreshedPullRequest.state !== "open") {
+			throw new Error("Trusted pull request is closed without merge.");
+		}
+		throw error;
+	}
+
+	if (mergeResult.merged) {
+		return {
+			outcome: "merged",
+			mergeResult,
+		};
+	}
+
+	const refreshedPullRequest = await tryReloadPullRequestForSuccess(input);
+	if (refreshedPullRequest?.merged) {
+		return {
+			outcome: "already_merged",
+			pullRequest: refreshedPullRequest,
+		};
+	}
+	if (refreshedPullRequest && refreshedPullRequest.state !== "open") {
+		throw new Error("Trusted pull request is closed without merge.");
+	}
+
+	throw new Error(
+		mergeResult.message.trim().length > 0
+			? `GitHub reported the trusted pull request was not merged: ${mergeResult.message}`
+			: "GitHub reported the trusted pull request was not merged.",
+	);
+}
+
+async function tryReloadPullRequestForSuccess(input: {
+	config: ReturnType<typeof loadRhapsodyConfig>;
+	dependencies: SchedulerPostPrDependencies;
+	pullRequestArtifact: { id: string; number: number; url: string | null };
+}) {
+	try {
+		return await (input.dependencies.getPullRequest ?? getPullRequest)({
+			owner: input.config.repository.owner,
+			repository: input.config.repository.name,
+			pullRequestNumber: input.pullRequestArtifact.number,
+		});
+	} catch {
+		return null;
+	}
+}
+
 async function mergePullRequestAndMarkDone(input: {
 	client: Client;
 	config: ReturnType<typeof loadRhapsodyConfig>;
@@ -884,26 +985,41 @@ async function mergePullRequestAndMarkDone(input: {
 	targetStatus: string;
 }) {
 	try {
-		const mergeResult = await (
-			input.dependencies.mergePullRequest ?? mergePullRequest
-		)({
-			owner: input.config.repository.owner,
-			repository: input.config.repository.name,
-			pullRequestNumber: input.pullRequestArtifact.number,
+		const reconciliation = await reconcilePullRequestSuccess({
+			config: input.config,
+			dependencies: input.dependencies,
+			pullRequestArtifact: input.pullRequestArtifact,
 		});
 
-		await createEvent(input.client, {
-			runId: null,
-			attemptId: null,
-			level: "info",
-			type: "scheduler.pull_request_merged",
-			message: "Scheduler merged the trusted pull request.",
-			data: {
-				issueNumber: input.item.issueNumber,
-				pullRequestNumber: input.pullRequestArtifact.number,
-				mergeResult,
-			},
-		});
+		if (reconciliation.outcome === "merged") {
+			await createEvent(input.client, {
+				runId: null,
+				attemptId: null,
+				level: "info",
+				type: "scheduler.pull_request_merged",
+				message: "Scheduler merged the trusted pull request.",
+				data: {
+					issueNumber: input.item.issueNumber,
+					pullRequestNumber: input.pullRequestArtifact.number,
+					mergeResult: reconciliation.mergeResult,
+				},
+			});
+		} else {
+			await createEvent(input.client, {
+				runId: null,
+				attemptId: null,
+				level: "info",
+				type: "scheduler.pull_request_already_merged",
+				message:
+					"Scheduler confirmed the trusted pull request was already merged and continued Project status reconciliation.",
+				data: {
+					issueNumber: input.item.issueNumber,
+					pullRequestNumber: input.pullRequestArtifact.number,
+					pullRequestState: reconciliation.pullRequest.state,
+					mergedAt: reconciliation.pullRequest.mergedAt,
+				},
+			});
+		}
 
 		await moveProjectItemToStatus({
 			client: input.client,

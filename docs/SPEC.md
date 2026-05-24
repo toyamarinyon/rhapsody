@@ -732,9 +732,11 @@ is missing or invalid.
 Deterministic format-repair matching is also sourced from `.rhapsody/config.toml` under `[repair]`
 and `[[repair.format_checks]]`, using Actions workflow path, job name, and failed step names when
 that metadata is available and falling back to coarse check-run-name heuristics otherwise.
-For the current MVP action set, `auto_merge_candidate` causes trusted Rhapsody code to merge the
-pull request and move the Project item to `post_run.auto_merge_success_status`, while `human_review`
-moves the Project item to `post_run.human_review_status`.
+For the current MVP action set, `auto_merge_candidate` causes trusted Rhapsody code to reconcile
+the pull request merge state and move the Project item to `post_run.auto_merge_success_status`,
+while `human_review` moves the Project item to `post_run.human_review_status`. Later scheduler
+ticks must treat an already-merged pull request as compatible with the success path so Project
+status updates can be retried after partial failures.
 
 ## 10. Observability API
 

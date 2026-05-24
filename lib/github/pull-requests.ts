@@ -9,6 +9,9 @@ export type PullRequestSummary = {
 	headRef: string;
 	baseRef: string;
 	title: string;
+	state: "open" | "closed";
+	merged: boolean;
+	mergedAt: string | null;
 };
 
 export type PullRequestMergeResult = {
@@ -183,6 +186,9 @@ export async function getPullRequest(
 		title: payload.title,
 		headRef: payload.head.ref,
 		baseRef: payload.base.ref,
+		state: normalizePullRequestState(payload.state),
+		merged: payload.merged,
+		mergedAt: payload.merged_at,
 	};
 }
 
@@ -315,6 +321,9 @@ async function findOpenPullRequestForHead({
 	title: string;
 	headRef: string;
 	baseRef: string;
+	state: "open" | "closed";
+	merged: boolean;
+	mergedAt: string | null;
 } | null> {
 	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
 	const perPage = 100;
@@ -374,6 +383,9 @@ async function findOpenPullRequestForHead({
 		title: candidate.title,
 		headRef: candidate.head.ref,
 		baseRef: candidate.base.ref,
+		state: normalizePullRequestState(candidate.state),
+		merged: candidate.merged_at !== null,
+		mergedAt: candidate.merged_at,
 	};
 }
 
@@ -394,6 +406,9 @@ async function createPullRequest(args: {
 	title: string;
 	headRef: string;
 	baseRef: string;
+	state: "open" | "closed";
+	merged: boolean;
+	mergedAt: string | null;
 }> {
 	const octokit =
 		args.options?.octokit ?? new Octokit({ auth: args.env.GITHUB_TOKEN });
@@ -429,7 +444,14 @@ async function createPullRequest(args: {
 		title: created.title,
 		headRef: created.head.ref,
 		baseRef: created.base.ref,
+		state: normalizePullRequestState(created.state),
+		merged: created.merged,
+		mergedAt: created.merged_at,
 	};
+}
+
+function normalizePullRequestState(state: string): "open" | "closed" {
+	return state === "closed" ? "closed" : "open";
 }
 
 function getErrorStatus(value: unknown): number {
