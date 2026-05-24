@@ -226,6 +226,22 @@ export function buildVercelSandboxCodexNetworkPolicy(args: {
 	};
 }
 
+export function buildVercelSandboxDependencyNetworkPolicy(
+	hosts: readonly string[],
+): NetworkPolicy {
+	const allow: Record<string, NetworkPolicyRule[]> = {};
+
+	for (const host of new Set(hosts)) {
+		if (!host.trim()) {
+			continue;
+		}
+
+		allow[host] = [];
+	}
+
+	return { allow };
+}
+
 export async function createVercelSandbox(
 	input: CreateVercelSandboxInput = {},
 ) {
