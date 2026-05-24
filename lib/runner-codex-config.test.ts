@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { expect, test } from "vitest";
 import {
 	parseRunnerCodexConfig,
 	RunnerCodexConfigError,
@@ -15,7 +14,7 @@ reasoning_effort = "medium"
 human_review_status = "Human Review"
 `);
 
-	assert.deepEqual(config, {
+	expect(config).toEqual({
 		model: "gpt-5.2",
 		reasoningEffort: "medium",
 	});
@@ -27,16 +26,14 @@ test("returns null when runner Codex config is omitted", () => {
 human_review_status = "Human Review"
 `);
 
-	assert.equal(config, null);
+	expect(config).toBeNull();
 });
 
 test("requires model when runner Codex section is present", () => {
-	assert.throws(
-		() =>
-			parseRunnerCodexConfig(`
+	expect(() =>
+		parseRunnerCodexConfig(`
 [runner.codex]
 reasoning_effort = "medium"
 `),
-		RunnerCodexConfigError,
-	);
+	).toThrow(RunnerCodexConfigError);
 });
