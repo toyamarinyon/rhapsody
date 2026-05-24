@@ -399,10 +399,10 @@ export async function createVercelSandboxSnapshot(
 
 export async function stopVercelSandbox(
 	sandbox: RhapsodyVercelSandbox,
-	input?: { blocking?: boolean },
+	input?: { signal?: AbortSignal },
 ) {
 	const stop = sandbox.stop as unknown as (options?: {
-		blocking?: boolean;
+		signal?: AbortSignal;
 	}) => Promise<unknown>;
 	await stop(input);
 }

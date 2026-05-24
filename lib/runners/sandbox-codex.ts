@@ -526,7 +526,7 @@ export async function runSandboxCodexRunner(
 						: null,
 				},
 				reason: "builder_launch_cleanup",
-				stop: () => stopVercelSandbox(activeSandbox, { blocking: true }),
+				stop: () => stopVercelSandbox(activeSandbox),
 			});
 		}
 	}
