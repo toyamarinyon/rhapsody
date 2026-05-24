@@ -1,0 +1,20 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "7580e907b6e9",
+  "strategy": "manual-commit",
+  "branch": "codex/tune-rhapsody-instructions",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".rhapsody/INSTRUCTIONS.md",
+    "docs/SPEC.md",
+    "docs/adr/0010-use-rhapsody-instructions-and-codex-native-configuration.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/75/80e907b6e9/0/metadata.json",
+      "transcript": "/75/80e907b6e9/0/full.jsonl",
+      "content_hash": "/75/80e907b6e9/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
