@@ -389,7 +389,7 @@ function formatDomainWithSubdomains(domain: string): string {
 		return domain;
 	}
 
-	return `**.${domain}`;
+	return `*.${domain}`;
 }
 
 function validateSandboxNetworkPolicy(policy: RunnerCodexSandboxNetworkPolicy) {
