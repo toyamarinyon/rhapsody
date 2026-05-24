@@ -1,0 +1,28 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "a3c7ce63e189",
+  "strategy": "manual-commit",
+  "branch": "codex/manual-run-workflow-start",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "app/api/v1/runs/[runId]/attempts/[attemptId]/run/route.test.ts",
+    "app/api/v1/runs/[runId]/attempts/[attemptId]/run/route.ts",
+    "app/api/v1/runs/[runId]/attempts/[attemptId]/start/route.test.ts",
+    "app/api/v1/runs/[runId]/attempts/[attemptId]/start/route.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a3/c7ce63e189/0/metadata.json",
+      "transcript": "/a3/c7ce63e189/0/full.jsonl",
+      "content_hash": "/a3/c7ce63e189/0/content_hash.txt",
+      "prompt": "/a3/c7ce63e189/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 103906,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 4616320,
+    "output_tokens": 29303,
+    "api_call_count": 68
+  }
+}

@@ -1,0 +1,27 @@
+これで、 issue #79 は前よりも早く終わると思うので再度Rhapsodyでやってみたいです。
+
+---
+
+その後どう？
+
+---
+
+まだ実行中？
+
+---
+
+まだ実行続いてそうです
+
+---
+
+なんでhookNotFound?
+
+---
+
+> 手動 run/start API も scheduler と同じく start(runnerWorkflow, ...) 経由にする
+
+これですね。 [@builder](subagent://builder) 使ってお願いします。merge,再実行まで任せます。
+
+---
+
+Implement the manual run/start API fix for Rhapsody. Context: manual retry of issue #79 was started via /api/v1/runs/<runId>/attempts/<attemptId>/run, the sandbox completed and pushed branch, but callback failed with HookNotFoundError because run.runnerWorkflowRunId is null. Desired fix: manual start/run endpoints should start workflows/runner.ts via workflow/api start(runnerWorkflow, ...) just like workflows/scheduler.ts does, then persist setRunnerWorkflowRunId. Do not revert other changes. Work in the repo /Users/toyamarinyon/Documents/rhapsody. Please inspect app/api/v1/runs/[runId]/attempts/[attemptId]/start/route.ts, run/route.ts, workflows/scheduler.ts, workflows/runner.ts, state APIs/tests. Make a bounded implementation with tests covering that manual endpoint stores runnerWorkflowRunId and does not directly launch sandbox runner without a hook. Keep changes scoped. Validate with relevant vitest/tsc if possible. In your final, list changed files and commands run.
