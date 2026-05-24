@@ -85,11 +85,11 @@ preset = "common_dependencies"
 
 	expect([
 		expanded.includes("npmjs.org"),
-		expanded.includes("**.npmjs.org"),
+		expanded.includes("*.npmjs.org"),
 		expanded.includes("yarnpkg.com"),
-		expanded.includes("**.yarnpkg.com"),
+		expanded.includes("*.yarnpkg.com"),
 		expanded.filter((domain) => domain === "registry.npmjs.org").length,
-		expanded.filter((domain) => domain === "**.registry.npmjs.org").length,
+		expanded.filter((domain) => domain === "*.registry.npmjs.org").length,
 	]).toEqual([true, true, true, true, 1, 1]);
 });
 

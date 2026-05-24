@@ -26,7 +26,7 @@ test("builds dependency network policy with unique hosts", () => {
 		buildVercelSandboxDependencyNetworkPolicy([
 			"registry.npmjs.org",
 			"registry.npmjs.org",
-			"**.registry.npmjs.org",
+			"*.registry.npmjs.org",
 		]),
 	);
 
@@ -34,7 +34,7 @@ test("builds dependency network policy with unique hosts", () => {
 
 	expect(hosts).toHaveLength(2);
 	expect(hosts).toContain("registry.npmjs.org");
-	expect(hosts).toContain("**.registry.npmjs.org");
+	expect(hosts).toContain("*.registry.npmjs.org");
 });
 
 test("merges dependency network policy with codex and github policies", () => {
