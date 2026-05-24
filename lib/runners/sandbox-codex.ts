@@ -20,9 +20,13 @@ import {
 	loadRepositoryInstructions,
 	renderRepositoryInstructions,
 } from "@/lib/instructions";
-import { loadRunnerCodexConfig } from "@/lib/runner-codex-config";
+import {
+	expandSandboxNetworkPolicyForPreset,
+	loadRunnerCodexConfig,
+} from "@/lib/runner-codex-config";
 import {
 	buildVercelSandboxCodexNetworkPolicy,
+	buildVercelSandboxDependencyNetworkPolicy,
 	buildVercelSandboxGitHubNetworkPolicy,
 	createVercelSandbox,
 	getVercelSandboxId,
@@ -188,6 +192,11 @@ export async function runSandboxCodexRunner(
 		sandbox = await createVercelSandbox({
 			timeout: runnerConfig.sandboxTimeoutMs,
 			networkPolicy: mergeNetworkPolicies(
+				buildVercelSandboxDependencyNetworkPolicy(
+					expandSandboxNetworkPolicyForPreset(
+						runnerCodexConfig.config?.sandbox?.networkPolicy,
+					),
+				),
 				buildVercelSandboxCodexNetworkPolicy({
 					callbackUrl,
 					mediatorSecret: mediatorEnv.MEDIATOR_SECRET,

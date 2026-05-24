@@ -2,6 +2,9 @@
 model = "gpt-5.4"
 reasoning_effort = "low"
 
+[sandbox.network_policy]
+preset = "common_dependencies"
+
 [post_run]
 auto_merge_success_status = "Done"
 human_review_status = "Human Review"
