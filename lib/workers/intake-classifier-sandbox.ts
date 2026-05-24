@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import type { Client } from "@libsql/client";
 import { buildCodexChatGPTDummyAuthFile } from "@/lib/codex/auth";
 import { buildCodexExecCommand } from "@/lib/codex/cli";
 import { loadMediatorCredentialState } from "@/lib/codex/credentials";
@@ -11,11 +12,19 @@ import {
 import {
 	buildVercelSandboxCodexNetworkPolicy,
 	createVercelSandbox,
+	getVercelSandboxId,
 	type RhapsodyVercelSandbox,
 	runVercelSandboxCommand,
 	stopVercelSandbox,
 	writeVercelSandboxFiles,
 } from "@/lib/sandbox/vercel";
+import {
+	recordSandboxCommandFinishedEvent,
+	recordSandboxCommandStartedEvent,
+	recordSandboxLifecycleEvent,
+	stopSandboxWithLifecycleEvents,
+	type SandboxLifecycleEventContext,
+} from "@/lib/state";
 
 const SANDBOX_WORKDIR = "/vercel/sandbox";
 const CODEX_HOME_PATH = `${SANDBOX_WORKDIR}/.codex`;
@@ -158,6 +167,7 @@ export type IntakeClassifierSandboxDependencies = {
 export type IntakeClassifierSandboxOptions = {
 	prompt: string;
 	schemaFilePath: string;
+	client?: Client;
 	workerRunId?: string;
 	workItemId?: string;
 	dependencies?: Partial<IntakeClassifierSandboxDependencies>;
@@ -242,6 +252,8 @@ export async function runIntakeClassifierInSandbox(
 			cwd: command.cwd,
 		},
 	};
+	let sandboxEventContext: SandboxLifecycleEventContext | null = null;
+	let stopReason = "intake_classifier_cleanup";
 
 	try {
 		sandbox = await dependencies.createVercelSandbox({
@@ -263,6 +275,22 @@ export async function runIntakeClassifierInSandbox(
 					}
 				: {}),
 		});
+		sandboxEventContext = {
+			sandboxId: getVercelSandboxId(sandbox),
+			purpose: "intake_classification",
+			workerKind: "intake_curator",
+			workItemId: input.workItemId ?? null,
+			workerRunId: input.workerRunId ?? null,
+			sourceSnapshotId,
+			timeoutMs: DEFAULT_CLASSIFIER_TIMEOUT_MS + 30_000,
+		};
+		if (input.client) {
+			await recordSandboxLifecycleEvent({
+				client: input.client,
+				type: "sandbox.created",
+				context: sandboxEventContext,
+			});
+		}
 
 		await dependencies.writeVercelSandboxFiles(sandbox, [
 			{
@@ -306,6 +334,24 @@ export async function runIntakeClassifierInSandbox(
 				CODEX_HOME: CODEX_HOME_PATH,
 			},
 		});
+		if (input.client && sandboxEventContext) {
+			await recordSandboxCommandStartedEvent({
+				client: input.client,
+				context: sandboxEventContext,
+				commandName: "classifier_wrapper",
+				timeoutMs:
+					DEFAULT_CLASSIFIER_TIMEOUT_MS + DEFAULT_WRAPPER_TIMEOUT_BUFFER_MS,
+				summary: commandSummary,
+			});
+			await recordSandboxCommandFinishedEvent({
+				client: input.client,
+				context: sandboxEventContext,
+				commandName: "classifier_wrapper",
+				timeoutMs:
+					DEFAULT_CLASSIFIER_TIMEOUT_MS + DEFAULT_WRAPPER_TIMEOUT_BUFFER_MS,
+				summary: commandSummary,
+			});
+		}
 		const durationMs = Date.now() - startedAt;
 		const commandMeta = {
 			exitCode: commandSummary.exitCode,
@@ -321,6 +367,7 @@ export async function runIntakeClassifierInSandbox(
 		};
 
 		if (commandSummary.exitCode !== 0 || commandSummary.timedOut) {
+			stopReason = "intake_classifier_failed";
 			return {
 				raw: "",
 				command: command.argv.join(" "),
@@ -337,6 +384,20 @@ export async function runIntakeClassifierInSandbox(
 				cwd: SANDBOX_WORKDIR,
 			},
 		);
+		if (input.client && sandboxEventContext) {
+			await recordSandboxCommandStartedEvent({
+				client: input.client,
+				context: sandboxEventContext,
+				commandName: "read_output",
+				summary: outputReadCommand,
+			});
+			await recordSandboxCommandFinishedEvent({
+				client: input.client,
+				context: sandboxEventContext,
+				commandName: "read_output",
+				summary: outputReadCommand,
+			});
+		}
 
 		if (outputReadCommand.exitCode !== 0) {
 			const readError = `Output read failed for ${outputMessagePath}: ${
@@ -344,6 +405,7 @@ export async function runIntakeClassifierInSandbox(
 					? outputReadCommand.error
 					: "command failed"
 			}`;
+			stopReason = "intake_classifier_output_read_failed";
 			return {
 				raw: "",
 				command: command.argv.join(" "),
@@ -360,6 +422,7 @@ export async function runIntakeClassifierInSandbox(
 			};
 		}
 
+		stopReason = "intake_classifier_completed";
 		return {
 			raw: outputReadCommand.stdout,
 			command: command.argv.join(" "),
@@ -368,7 +431,22 @@ export async function runIntakeClassifierInSandbox(
 		};
 	} finally {
 		if (sandbox) {
-			await dependencies.stopVercelSandbox(sandbox);
+			const activeSandbox = sandbox;
+			if (input.client && sandboxEventContext) {
+				await stopSandboxWithLifecycleEvents({
+					client: input.client,
+					context: sandboxEventContext,
+					reason: stopReason,
+					stop: () =>
+						dependencies.stopVercelSandbox(activeSandbox, {
+							blocking: true,
+						}),
+				});
+			} else {
+				await dependencies.stopVercelSandbox(activeSandbox, {
+					blocking: true,
+				});
+			}
 		}
 	}
 }

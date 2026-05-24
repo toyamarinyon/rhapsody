@@ -69,6 +69,7 @@ describe("codex chatgpt proxy path and run context auth", () => {
 			run: { status: "running", workItemId: "workitem" } as never,
 			attempts: [{ id: "attempt-1", status: "running" } as never],
 			events: [],
+			sandboxSessions: [],
 			claim: null,
 		}) as never;
 

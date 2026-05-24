@@ -282,6 +282,12 @@ Fields:
 
 Append-only observability record for scheduler, runner, sandbox, and agent activity.
 
+Sandbox lifecycle observability is projected from events rather than a dedicated sandbox-session
+table in the MVP. Rhapsody records lifecycle events such as `sandbox.created`,
+`sandbox.command_started`, `sandbox.command_finished`, `sandbox.stop_requested`,
+`sandbox.stopped`, `sandbox.stop_failed`, and `sandbox.retained`, with correlation fields carried
+in `data_json`.
+
 Fields:
 
 - `event_id`
@@ -737,9 +743,11 @@ Minimum endpoints:
 - `GET /api/v1/items/:identifier`
   - Returns item-specific run/debug details.
 - `GET /api/v1/work-items/:encoded_work_item_id/graph`
-  - Returns worker runs, decisions, artifacts, and links for a single work item.
+  - Returns worker runs, decisions, artifacts, links, and projected `sandboxSessions` for a
+    single work item.
 - `GET /api/v1/runs/:run_id`
-  - Returns run attempts, sandbox references, logs, sandbox exports, snapshots, and GitHub links.
+  - Returns run attempts, events, projected `sandboxSessions`, sandbox references, logs, sandbox
+    exports, snapshots, and GitHub links.
 - `POST /api/v1/refresh`
   - Requests an immediate scheduler tick.
 

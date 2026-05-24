@@ -116,6 +116,7 @@ function createSandboxIntakeClassifierDeps(
 	let commandInvocation = 0;
 
 	const sandbox = {
+		name: "sandbox-intake",
 		sandboxId: "sandbox-intake",
 	} as const;
 
@@ -1327,6 +1328,54 @@ test("intake sandbox runner writes classified prompt, schema, and codex proxy pa
 			process.env.VERCEL_URL = previousVercelUrl;
 		}
 		expect(deps.stopVercelSandbox).toHaveBeenCalledTimes(1);
+	}
+});
+
+test("intake sandbox runner records lifecycle events and graph projection", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItemId = "github_issue:toyamarinyon/rhapsody#1001";
+	const workerRun = await createWorkerRun(client, {
+		id: "wrn_intake_sandbox_events",
+		workItemId,
+		kind: "intake_curator",
+		status: "running",
+	});
+	const { deps } = createSandboxIntakeClassifierDeps();
+
+	try {
+		await intakeClassifierSandbox.runIntakeClassifierInSandbox({
+			prompt: "Classify issue",
+			client,
+			workItemId,
+			workerRunId: workerRun.id,
+			schemaFilePath: await (async () => {
+				const tempDir = mkdtempSync(
+					path.join(tmpdir(), "rhapsody-intake-schema-"),
+				);
+				const schemaPath = path.join(tempDir, "schema.json");
+				await writeFile(schemaPath, JSON.stringify({ type: "object" }), "utf8");
+				return schemaPath;
+			})(),
+			dependencies: deps,
+		});
+
+		const graph = await listWorkItemGraph(client, workItemId);
+		expect(graph.sandboxSessions).toEqual([
+			expect.objectContaining({
+				sandboxId: "sandbox-intake",
+				purpose: "intake_classification",
+				workerKind: "intake_curator",
+				workerRunId: workerRun.id,
+				status: "stopped",
+			}),
+		]);
+		expect(
+			graph.sandboxSessions[0]?.commands.map((command) => command.commandName),
+		).toEqual(["classifier_wrapper", "read_output"]);
+	} finally {
+		client.close();
+		database.cleanup();
 	}
 });
 

@@ -38,7 +38,16 @@ import {
 	writeVercelSandboxFiles,
 } from "@/lib/sandbox/vercel";
 import { isRecord } from "@/lib/server/json";
-import { createEvent, getRunDetail, markAttemptStarted } from "@/lib/state";
+import {
+	createEvent,
+	getRunDetail,
+	markAttemptStarted,
+	recordSandboxCommandFinishedEvent,
+	recordSandboxCommandStartedEvent,
+	recordSandboxLifecycleEvent,
+	stopSandboxWithLifecycleEvents,
+	type SandboxLifecycleEventContext,
+} from "@/lib/state";
 import { buildAttemptHookToken } from "@/lib/workflows/attempt-hook";
 import type { RunnerRouteContext } from "./types";
 
@@ -117,6 +126,7 @@ export async function runSandboxCodexRunner(
 				? runnerCodexConfig.loadedFromPath
 				: null,
 		};
+		const builderWorkerRunId = parsedBody.value.builderWorkerRunId ?? null;
 		const targetSandboxMode = "workspace-write";
 		const instructions = await loadRepositoryInstructions();
 		const prompt = renderRepositoryInstructions({
@@ -219,6 +229,22 @@ export async function runSandboxCodexRunner(
 					}
 				: {}),
 		});
+		const sandboxEventContext: SandboxLifecycleEventContext = {
+			sandboxId: getVercelSandboxId(sandbox),
+			purpose: "builder_execution",
+			workerKind: "builder",
+			workItemId: detail.run.workItemId,
+			runId,
+			attemptId,
+			workerRunId: builderWorkerRunId,
+			sourceSnapshotId,
+			timeoutMs: runnerConfig.sandboxTimeoutMs,
+		};
+		await recordSandboxLifecycleEvent({
+			client,
+			type: "sandbox.created",
+			context: sandboxEventContext,
+		});
 		const wrapperSource = await readFile(WRAPPER_SOURCE_PATH, "utf8");
 
 		await writeVercelSandboxFiles(sandbox, [
@@ -307,7 +333,9 @@ export async function runSandboxCodexRunner(
 		}
 
 		const sourcePreparationSummary = await prepareSourceInSandbox({
+			client,
 			sandbox,
+			sandboxEventContext,
 			repositoryUrl: expectedRepositoryUrl,
 			branchName,
 		});
@@ -349,7 +377,9 @@ export async function runSandboxCodexRunner(
 		}
 
 		const networkProbeSummary = await runNetworkPolicyProbe(
+			client,
 			sandbox,
+			sandboxEventContext,
 			runnerConfig.outputPreviewLength,
 		);
 		await createEvent(client, {
@@ -410,6 +440,13 @@ export async function runSandboxCodexRunner(
 			},
 		});
 		shouldStopSandbox = false;
+		await recordSandboxCommandStartedEvent({
+			client,
+			context: sandboxEventContext,
+			commandName: "wrapper",
+			timeoutMs: runnerConfig.timeoutMs,
+			summary: command,
+		});
 
 		await createEvent(client, {
 			runId,
@@ -424,6 +461,14 @@ export async function runSandboxCodexRunner(
 				startedAt: command.startedAt,
 				hookToken,
 				callbackUrl,
+			},
+		});
+		await recordSandboxLifecycleEvent({
+			client,
+			type: "sandbox.retained",
+			context: sandboxEventContext,
+			data: {
+				reason: "waiting_for_callback",
 			},
 		});
 
@@ -466,7 +511,23 @@ export async function runSandboxCodexRunner(
 		);
 	} finally {
 		if (sandbox && shouldStopSandbox) {
-			await stopVercelSandbox(sandbox);
+			const activeSandbox = sandbox;
+			await stopSandboxWithLifecycleEvents({
+				client,
+				context: {
+					sandboxId: getVercelSandboxId(activeSandbox),
+					purpose: "builder_execution",
+					workerKind: "builder",
+					workItemId: detail.run.workItemId,
+					runId,
+					attemptId,
+					workerRunId: parsedBody.ok
+						? (parsedBody.value.builderWorkerRunId ?? null)
+						: null,
+				},
+				reason: "builder_launch_cleanup",
+				stop: () => stopVercelSandbox(activeSandbox, { blocking: true }),
+			});
 		}
 	}
 }
@@ -478,6 +539,7 @@ async function readOptionalRequest(request: Request): Promise<
 				callbackBaseUrl?: string;
 				hookToken?: string;
 				useSnapshot?: boolean;
+				builderWorkerRunId?: string;
 			};
 	  }
 	| { ok: false; error: string }
@@ -539,6 +601,7 @@ function parseSandboxCodexRequestOptions(value: Record<string, unknown>):
 				callbackBaseUrl?: string;
 				hookToken?: string;
 				useSnapshot?: boolean;
+				builderWorkerRunId?: string;
 			};
 	  }
 	| { ok: false; error: string } {
@@ -546,6 +609,7 @@ function parseSandboxCodexRequestOptions(value: Record<string, unknown>):
 		callbackBaseUrl?: string;
 		hookToken?: string;
 		useSnapshot?: boolean;
+		builderWorkerRunId?: string;
 	} = {};
 
 	if (value.callbackBaseUrl !== undefined) {
@@ -574,6 +638,20 @@ function parseSandboxCodexRequestOptions(value: Record<string, unknown>):
 		result.useSnapshot = value.useSnapshot;
 	}
 
+	if (value.builderWorkerRunId !== undefined) {
+		if (
+			typeof value.builderWorkerRunId !== "string" ||
+			!value.builderWorkerRunId.trim()
+		) {
+			return {
+				ok: false,
+				error: "builderWorkerRunId must be a non-empty string when provided.",
+			};
+		}
+
+		result.builderWorkerRunId = value.builderWorkerRunId;
+	}
+
 	if (value.mode !== undefined) {
 		return {
 			ok: false,
@@ -597,11 +675,15 @@ function buildExecutionPrompt(params: {
 }
 
 async function prepareSourceInSandbox({
+	client,
 	sandbox,
+	sandboxEventContext,
 	repositoryUrl,
 	branchName,
 }: {
+	client: RunnerRouteContext["client"];
 	sandbox: RhapsodyVercelSandbox;
+	sandboxEventContext: SandboxLifecycleEventContext;
 	repositoryUrl: string;
 	branchName: string;
 }): Promise<SourcePreparationSummary> {
@@ -616,6 +698,18 @@ async function prepareSourceInSandbox({
 		args: ["clone", "--depth", "1", repositoryUrl, REPOSITORY_PATH],
 		cwd: SANDBOX_WORKDIR,
 	});
+	await recordSandboxCommandStartedEvent({
+		client,
+		context: sandboxEventContext,
+		commandName: "source_clone",
+		summary: cloneCommand,
+	});
+	await recordSandboxCommandFinishedEvent({
+		client,
+		context: sandboxEventContext,
+		commandName: "source_clone",
+		summary: cloneCommand,
+	});
 
 	if (cloneCommand.exitCode !== 0) {
 		return {
@@ -629,6 +723,18 @@ async function prepareSourceInSandbox({
 		cmd: "git",
 		args: ["-C", REPOSITORY_PATH, "checkout", "-B", branchName],
 		cwd: SANDBOX_WORKDIR,
+	});
+	await recordSandboxCommandStartedEvent({
+		client,
+		context: sandboxEventContext,
+		commandName: "source_checkout",
+		summary: checkoutCommand,
+	});
+	await recordSandboxCommandFinishedEvent({
+		client,
+		context: sandboxEventContext,
+		commandName: "source_checkout",
+		summary: checkoutCommand,
 	});
 
 	return {
@@ -655,13 +761,27 @@ function summarizeCommand(
 }
 
 async function runNetworkPolicyProbe(
+	client: RunnerRouteContext["client"],
 	sandbox: RhapsodyVercelSandbox,
+	sandboxEventContext: SandboxLifecycleEventContext,
 	outputPreviewLength: number,
 ) {
 	const command = await runVercelSandboxCommand(sandbox, {
 		cmd: "node",
 		args: ["-e", buildNetworkProbeScript()],
 		cwd: SANDBOX_WORKDIR,
+	});
+	await recordSandboxCommandStartedEvent({
+		client,
+		context: sandboxEventContext,
+		commandName: "network_probe",
+		summary: command,
+	});
+	await recordSandboxCommandFinishedEvent({
+		client,
+		context: sandboxEventContext,
+		commandName: "network_probe",
+		summary: command,
 	});
 
 	const probeOutput = parseProbeOutput(command.stdout);

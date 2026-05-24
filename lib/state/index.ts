@@ -19,6 +19,7 @@ export {
 	releaseClaimForRun,
 	setRunnerWorkflowRunId,
 	validateAttemptCanReceiveCallback,
+	mapEventRow,
 	type AttemptCallbackAcceptance,
 	type AttemptStatus,
 	type AttemptExecutionStatus,
@@ -56,6 +57,22 @@ export {
 	type StateSummary,
 	type StaleRunningAttempt,
 } from "./store";
+export {
+	projectSandboxSessions,
+	type SandboxLifecycleEventType,
+	type SandboxSessionCommandProjection,
+	type SandboxSessionCommandStatus,
+	type SandboxSessionProjection,
+	type SandboxSessionStatus,
+} from "./sandbox-sessions";
+export {
+	recordSandboxCommandFinishedEvent,
+	recordSandboxCommandStartedEvent,
+	recordSandboxLifecycleEvent,
+	stopSandboxWithLifecycleEvents,
+	type SandboxLifecycleCommandSummary,
+	type SandboxLifecycleEventContext,
+} from "./sandbox-lifecycle-events";
 export {
 	createArtifact,
 	createDecision,

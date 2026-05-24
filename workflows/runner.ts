@@ -168,6 +168,7 @@ async function runRunnerAttempt(input: RunnerWorkflowInput, hookToken: string) {
 		body: JSON.stringify({
 			callbackBaseUrl,
 			hookToken,
+			builderWorkerRunId: input.builderWorkerRunId,
 		}),
 	});
 	const response = await runAttemptExecution({
