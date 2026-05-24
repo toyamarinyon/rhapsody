@@ -1424,6 +1424,59 @@ test("runner output read failure is preserved as runner_error metadata", async (
 	expect(deps.stopVercelSandbox).toHaveBeenCalledTimes(1);
 });
 
+test("intake sandbox stop failure after successful classifier commands does not fail classification", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItemId = "github_issue:toyamarinyon/rhapsody#1002";
+	const workerRun = await createWorkerRun(client, {
+		id: "wrn_intake_stop_failure",
+		workItemId,
+		kind: "intake_curator",
+		status: "running",
+	});
+	const { deps } = createSandboxIntakeClassifierDeps({
+		stopVercelSandbox: vi
+			.fn()
+			.mockRejectedValue(new Error("Cannot read properties of undefined")),
+	});
+
+	try {
+		const result = await intakeClassifierSandbox.runIntakeClassifierInSandbox({
+			prompt: "Classify issue",
+			client,
+			workItemId,
+			workerRunId: workerRun.id,
+			schemaFilePath: await (async () => {
+				const tempDir = mkdtempSync(
+					path.join(tmpdir(), "rhapsody-intake-schema-"),
+				);
+				const schemaPath = path.join(tempDir, "schema.json");
+				await writeFile(schemaPath, JSON.stringify({ type: "object" }), "utf8");
+				return schemaPath;
+			})(),
+			dependencies: deps,
+		});
+
+		expect(result.rawOutputAvailable).toBe(true);
+		expect(result.raw).toContain('"decision":"buildable"');
+		expect(deps.stopVercelSandbox).toHaveBeenCalledTimes(1);
+
+		const graph = await listWorkItemGraph(client, workItemId);
+		expect(graph.sandboxSessions).toEqual([
+			expect.objectContaining({
+				sandboxId: "sandbox-intake",
+				status: "stop_failed",
+				reason: "intake_classifier_completed",
+				error: "Cannot read properties of undefined",
+				workerRunId: workerRun.id,
+			}),
+		]);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
 test("parse failure records raw output preview when raw output exists", async () => {
 	const database = await createTestDatabase();
 	const client = database.client;

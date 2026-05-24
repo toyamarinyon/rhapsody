@@ -433,11 +433,15 @@ export async function runIntakeClassifierInSandbox(
 		if (sandbox) {
 			const activeSandbox = sandbox;
 			if (input.client && sandboxEventContext) {
+				// Vercel can report successful command execution while the sandbox stop
+				// API may still throw during completion; keep successful classification
+				// result and just record stop failure for diagnostics.
 				await stopSandboxWithLifecycleEvents({
 					client: input.client,
 					context: sandboxEventContext,
 					reason: stopReason,
 					stop: () => dependencies.stopVercelSandbox(activeSandbox),
+					throwOnFailure: false,
 				});
 			} else {
 				await dependencies.stopVercelSandbox(activeSandbox);

@@ -97,6 +97,7 @@ export async function stopSandboxWithLifecycleEvents(input: {
 	context: SandboxLifecycleEventContext;
 	reason?: string | null;
 	stop: () => Promise<void>;
+	throwOnFailure?: boolean;
 }): Promise<void> {
 	await recordSandboxLifecycleEventSafely({
 		client: input.client,
@@ -130,7 +131,9 @@ export async function stopSandboxWithLifecycleEvents(input: {
 				),
 			},
 		});
-		throw error;
+		if (input.throwOnFailure ?? true) {
+			throw error;
+		}
 	}
 }
 
