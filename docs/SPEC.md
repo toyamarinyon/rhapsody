@@ -385,9 +385,10 @@ You are working on {{ item.identifier }}.
 
 Issue URL: {{ item.url }}
 
-Move this issue forward in the smallest useful increment. If implementation changes are needed,
-create a branch, commit the changes, and open a pull request. If no code change is needed, leave a
-clear issue comment instead.
+Implement the issue according to its stated desired behavior and acceptance criteria. Keep the
+solution focused and proportional: prefer the smallest design that satisfies the issue. If
+implementation changes are needed, create a branch, commit the changes, and open a pull request. If
+no code change is needed, leave a clear issue comment instead.
 ```
 
 ### 5.3 Differences from Symphony
