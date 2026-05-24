@@ -437,15 +437,10 @@ export async function runIntakeClassifierInSandbox(
 					client: input.client,
 					context: sandboxEventContext,
 					reason: stopReason,
-					stop: () =>
-						dependencies.stopVercelSandbox(activeSandbox, {
-							blocking: true,
-						}),
+					stop: () => dependencies.stopVercelSandbox(activeSandbox),
 				});
 			} else {
-				await dependencies.stopVercelSandbox(activeSandbox, {
-					blocking: true,
-				});
+				await dependencies.stopVercelSandbox(activeSandbox);
 			}
 		}
 	}
