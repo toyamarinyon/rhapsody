@@ -1,16 +1,21 @@
 import type { Client } from "@libsql/client";
-import {
-	createDecision,
-	createLink,
-	createWorkerRun,
-	updateWorkerRunStatus,
-	type Decision,
-} from "@/lib/state";
 import type {
 	PullRequestCheckRunSummary,
 	PullRequestCheckSummary,
 } from "@/lib/github/checks";
 import type { GitHubProjectIssueWorkItem } from "@/lib/github/project-items";
+import {
+	loadRepairConfig,
+	type RepairConfig,
+	type RepairFormatCheckRule,
+} from "@/lib/repair-config";
+import {
+	createDecision,
+	createLink,
+	createWorkerRun,
+	type Decision,
+	updateWorkerRunStatus,
+} from "@/lib/state";
 
 export const MAX_FORMAT_REPAIR_ATTEMPTS_PER_HEAD_SHA = 2;
 export const MAX_FORMAT_REPAIR_ATTEMPTS_PER_PULL_REQUEST = 6;
@@ -52,6 +57,12 @@ export type RepairerPlannerResult = {
 	failureFingerprint: string;
 };
 
+const EMPTY_REPAIR_CONFIG: RepairConfig = {
+	repair: {
+		format_checks: [],
+	},
+};
+
 export type RepairerExecutionKeyInput = {
 	pullRequestNumber: number;
 	headSha: string | null;
@@ -73,6 +84,11 @@ export function buildFailureFingerprint(
 				normalizeCheckName(checkRun.name),
 				normalizeStatus(checkRun.status),
 				normalizeConclusion(checkRun.conclusion),
+				normalizeWorkflowPathForFingerprint(checkRun.actions?.workflowPath),
+				normalizeCheckName(checkRun.actions?.jobName ?? ""),
+				normalizeStepNamesForFingerprint(
+					checkRun.actions?.failedStepNames ?? [],
+				),
 			].join("::");
 		})
 		.sort();
@@ -96,6 +112,18 @@ function normalizeConclusion(value: string | null) {
 	return (value ?? "").trim().toLowerCase();
 }
 
+function normalizeWorkflowPathForFingerprint(value: string | null | undefined) {
+	return normalizeWorkflowPath(value);
+}
+
+function normalizeStepNamesForFingerprint(stepNames: string[]) {
+	return [...stepNames]
+		.map((stepName) => normalizeCheckName(stepName))
+		.filter((stepName) => stepName.length > 0)
+		.sort()
+		.join(",");
+}
+
 export async function runRepairerPlanner(
 	client: Client,
 	input: {
@@ -106,9 +134,11 @@ export async function runRepairerPlanner(
 		pullRequestUrl: string;
 		checkSummary: PullRequestCheckSummary;
 		existingDecisions: Decision[];
+		repairConfig?: RepairConfig;
 	},
 ): Promise<RepairerPlannerResult> {
-	const classification = classifyRepair(input.checkSummary);
+	const repairConfig = input.repairConfig ?? (await loadRepairConfig()).config;
+	const classification = classifyRepair(input.checkSummary, repairConfig);
 	const failureFingerprint = buildFailureFingerprint(input.checkSummary);
 	const repairExecutionKey = buildRepairExecutionKey({
 		pullRequestNumber: input.pullRequestNumber,
@@ -225,6 +255,7 @@ export async function runRepairerPlanner(
 
 export function classifyRepair(
 	checkSummary: PullRequestCheckSummary,
+	repairConfig: RepairConfig = EMPTY_REPAIR_CONFIG,
 ): RepairerClassification {
 	if (checkSummary.classification !== "ci_failed") {
 		return "not_deterministically_fixable";
@@ -235,7 +266,9 @@ export function classifyRepair(
 		return "not_deterministically_fixable";
 	}
 
-	if (failedRuns.every(isFormatCheckRun)) {
+	if (
+		failedRuns.every((checkRun) => isFormatCheckRun(checkRun, repairConfig))
+	) {
 		return "format_fixable";
 	}
 
@@ -396,13 +429,89 @@ function isFailedCheckRun(checkRun: PullRequestCheckRunSummary) {
 	);
 }
 
-function isFormatCheckRun(checkRun: PullRequestCheckRunSummary) {
+function isFormatCheckRun(
+	checkRun: PullRequestCheckRunSummary,
+	repairConfig: RepairConfig,
+) {
+	if (matchesConfiguredFormatCheck(checkRun, repairConfig)) {
+		return true;
+	}
+
+	if (hasUsableActionsMetadata(checkRun, repairConfig)) {
+		return false;
+	}
+
 	const name = checkRun.name.toLowerCase();
 	return (
 		name.includes("format") ||
 		name.includes("biome") ||
 		name.includes("prettier")
 	);
+}
+
+function matchesConfiguredFormatCheck(
+	checkRun: PullRequestCheckRunSummary,
+	repairConfig: RepairConfig,
+) {
+	const formatCheckRules = repairConfig.repair.format_checks;
+	if (formatCheckRules.length === 0) {
+		return false;
+	}
+
+	const workflowPath = normalizeWorkflowPath(checkRun.actions?.workflowPath);
+	const jobName = normalizeConfiguredValue(checkRun.actions?.jobName);
+	const failedStepNames = (checkRun.actions?.failedStepNames ?? [])
+		.map((stepName) => normalizeConfiguredValue(stepName))
+		.filter((stepName) => stepName.length > 0);
+
+	if (!workflowPath || !jobName || failedStepNames.length === 0) {
+		return false;
+	}
+
+	return formatCheckRules.some((rule) =>
+		matchesConfiguredFormatRule(rule, workflowPath, jobName, failedStepNames),
+	);
+}
+
+function hasUsableActionsMetadata(
+	checkRun: PullRequestCheckRunSummary,
+	repairConfig: RepairConfig,
+) {
+	if (repairConfig.repair.format_checks.length === 0) {
+		return false;
+	}
+
+	const workflowPath = normalizeWorkflowPath(checkRun.actions?.workflowPath);
+	const jobName = normalizeConfiguredValue(checkRun.actions?.jobName);
+	const failedStepNames = (checkRun.actions?.failedStepNames ?? [])
+		.map((stepName) => normalizeConfiguredValue(stepName))
+		.filter((stepName) => stepName.length > 0);
+
+	return Boolean(workflowPath && jobName && failedStepNames.length > 0);
+}
+
+function matchesConfiguredFormatRule(
+	rule: RepairFormatCheckRule,
+	workflowPath: string,
+	jobName: string,
+	failedStepNames: string[],
+) {
+	return (
+		normalizeWorkflowPath(rule.workflowPath) === workflowPath &&
+		normalizeConfiguredValue(rule.jobName) === jobName &&
+		rule.stepNames.some((stepName) =>
+			failedStepNames.includes(normalizeConfiguredValue(stepName)),
+		)
+	);
+}
+
+function normalizeWorkflowPath(value: string | null | undefined) {
+	const trimmed = (value ?? "").trim();
+	return trimmed.replace(/@.+$/, "");
+}
+
+function normalizeConfiguredValue(value: string | null | undefined) {
+	return (value ?? "").trim();
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

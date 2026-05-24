@@ -405,6 +405,216 @@ test("scheduler skips In Progress items with missing PR artifact", async () => {
 	}
 });
 
+test("scheduler keeps In Progress items unchanged while checks are pending", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const item = buildProjectItem({
+		issueNumber: 140,
+		projectStatus: "In Progress",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#140";
+	const builderRun = await createWorkerRun(client, {
+		workItemId,
+		kind: "builder",
+		status: "completed",
+	});
+	await createArtifact(client, {
+		workItemId,
+		workerRunId: builderRun.id,
+		kind: "pull_request",
+		externalId: "140",
+		externalUrl: "https://github.com/toyamarinyon/rhapsody/pull/140",
+	});
+	const updateProjectIssueStatus = vi.fn();
+
+	try {
+		const result = await runSchedulerTick(client, {
+			config: baseConfig,
+			fetchProjectIssueWorkItems: async () => [item],
+			updateProjectIssueStatus,
+			getPullRequestCheckSummary: async () => ({
+				classification: "checks_pending",
+				headSha: "sha-pending",
+				status: "pending",
+				checkRuns: [
+					{
+						name: "CI",
+						status: "queued",
+						conclusion: null,
+						detailsUrl: null,
+					},
+				],
+			}),
+		});
+
+		expect(result.ok).toBe(true);
+		expect(updateProjectIssueStatus).not.toHaveBeenCalled();
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("scheduler moves non-repairable failed checks to Human Review", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const item = buildProjectItem({
+		issueNumber: 141,
+		projectStatus: "In Progress",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#141";
+	const builderRun = await createWorkerRun(client, {
+		workItemId,
+		kind: "builder",
+		status: "completed",
+	});
+	await createArtifact(client, {
+		workItemId,
+		workerRunId: builderRun.id,
+		kind: "pull_request",
+		externalId: "141",
+		externalUrl: "https://github.com/toyamarinyon/rhapsody/pull/141",
+	});
+	const updateProjectIssueStatus = vi.fn().mockResolvedValue({
+		projectId: "project",
+		itemId: "item",
+		fieldId: "field",
+		optionId: "option",
+		status: "Human Review",
+	});
+	const runRepairerExecutor = vi.fn();
+
+	try {
+		const result = await runSchedulerTick(client, {
+			config: baseConfig,
+			fetchProjectIssueWorkItems: async () => [item],
+			updateProjectIssueStatus,
+			runRepairerExecutor,
+			runRepairerPlanner: vi.fn().mockResolvedValue({
+				workerRunId: "repair-planner-blocked",
+				decisionId: "repair-blocked-decision",
+				outcome: "repair_blocked",
+				classification: "not_deterministically_fixable",
+				attemptCount: 0,
+				attemptCounts: { headSha: 0, pullRequest: 0, fingerprint: 0 },
+				maxAttempts: {
+					headSha: 2,
+					pullRequest: 6,
+					fingerprint: 2,
+				},
+				repairExecutionKey: "141:sha-blocked:failure",
+				failureFingerprint: "failure",
+			}),
+			getPullRequestCheckSummary: async () => ({
+				classification: "ci_failed",
+				headSha: "sha-blocked",
+				status: "failure",
+				checkRuns: [
+					{
+						name: "Static checks",
+						status: "completed",
+						conclusion: "failure",
+						detailsUrl: null,
+					},
+				],
+			}),
+		});
+
+		expect(result.ok).toBe(true);
+		expect(runRepairerExecutor).not.toHaveBeenCalled();
+		expect(updateProjectIssueStatus).toHaveBeenCalledWith(
+			expect.objectContaining({
+				issueNumber: 141,
+				status: "Human Review",
+			}),
+		);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("scheduler auto-merges eligible pull requests after checks succeed", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const item = buildProjectItem({
+		issueNumber: 142,
+		projectStatus: "In Progress",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#142";
+	const builderRun = await createWorkerRun(client, {
+		workItemId,
+		kind: "builder",
+		status: "completed",
+	});
+	await createArtifact(client, {
+		workItemId,
+		workerRunId: builderRun.id,
+		kind: "pull_request",
+		externalId: "142",
+		externalUrl: "https://github.com/toyamarinyon/rhapsody/pull/142",
+	});
+	const updateProjectIssueStatus = vi.fn().mockResolvedValue({
+		projectId: "project",
+		itemId: "item",
+		fieldId: "field",
+		optionId: "option",
+		status: "Done",
+	});
+	const mergePullRequest = vi.fn().mockResolvedValue({
+		number: 142,
+		merged: true,
+		message: "merged",
+		sha: "sha-merged",
+	});
+
+	try {
+		const result = await runSchedulerTick(client, {
+			config: baseConfig,
+			fetchProjectIssueWorkItems: async () => [item],
+			updateProjectIssueStatus,
+			mergePullRequest,
+			getPullRequestChangedFiles: async () => ["docs/guide.md"],
+			loadPostRunDecisionConfig: async () => ({
+				config: {
+					post_run: {
+						auto_merge_eligible: [{ paths: ["docs/**"] }],
+						auto_merge_success_status: "Done",
+						human_review_status: "Human Review",
+					},
+				},
+				loadedFromPath: ".rhapsody/config.toml",
+				errors: [],
+			}),
+			getPullRequestCheckSummary: async () => ({
+				classification: "checks_success",
+				headSha: "sha-success",
+				status: "success",
+				checkRuns: [
+					{
+						name: "CI",
+						status: "completed",
+						conclusion: "success",
+						detailsUrl: null,
+					},
+				],
+			}),
+		});
+
+		expect(result.ok).toBe(true);
+		expect(mergePullRequest).toHaveBeenCalledTimes(1);
+		expect(updateProjectIssueStatus).toHaveBeenCalledWith(
+			expect.objectContaining({
+				issueNumber: 142,
+				status: "Done",
+			}),
+		);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
 test("scheduler runs post-PR curator and repairer planner for failed format checks", async () => {
 	const database = await createTestDatabase();
 	const client = database.client;
