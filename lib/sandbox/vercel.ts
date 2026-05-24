@@ -397,8 +397,14 @@ export async function createVercelSandboxSnapshot(
 	} satisfies VercelSandboxSnapshot;
 }
 
-export async function stopVercelSandbox(sandbox: RhapsodyVercelSandbox) {
-	await sandbox.stop();
+export async function stopVercelSandbox(
+	sandbox: RhapsodyVercelSandbox,
+	input?: { blocking?: boolean },
+) {
+	const stop = sandbox.stop as unknown as (options?: {
+		blocking?: boolean;
+	}) => Promise<unknown>;
+	await stop(input);
 }
 
 export async function withVercelSandbox<TResult>(

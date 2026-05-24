@@ -1,5 +1,10 @@
 import type { Client } from "@libsql/client";
 import type { Row } from "@libsql/client";
+import { mapEventRow } from "./store";
+import {
+	projectSandboxSessions,
+	type SandboxSessionProjection,
+} from "./sandbox-sessions";
 
 export type WorkerRunKind =
 	| "intake_curator"
@@ -151,6 +156,7 @@ export type WorkItemGraph = {
 	decisions: Decision[];
 	artifacts: Artifact[];
 	links: Link[];
+	sandboxSessions: SandboxSessionProjection[];
 };
 
 export async function createWorkerRun(
@@ -391,10 +397,15 @@ export async function listWorkItemGraph(
 	client: Client,
 	workItemId: string,
 ): Promise<WorkItemGraph> {
-	const [runsResult, decisionsResult, artifactsResult, linksResult] =
-		await Promise.all([
-			client.execute({
-				sql: `
+	const [
+		runsResult,
+		decisionsResult,
+		artifactsResult,
+		linksResult,
+		eventsResult,
+	] = await Promise.all([
+		client.execute({
+			sql: `
 				SELECT
 					id,
 					work_item_id,
@@ -411,10 +422,10 @@ export async function listWorkItemGraph(
 				WHERE work_item_id = ?
 				ORDER BY created_at DESC
 			`,
-				args: [workItemId],
-			}),
-			client.execute({
-				sql: `
+			args: [workItemId],
+		}),
+		client.execute({
+			sql: `
 				SELECT
 					id,
 					work_item_id,
@@ -433,10 +444,10 @@ export async function listWorkItemGraph(
 				WHERE work_item_id = ?
 				ORDER BY created_at DESC
 			`,
-				args: [workItemId],
-			}),
-			client.execute({
-				sql: `
+			args: [workItemId],
+		}),
+		client.execute({
+			sql: `
 				SELECT
 					id,
 					work_item_id,
@@ -452,10 +463,10 @@ export async function listWorkItemGraph(
 				WHERE work_item_id = ?
 				ORDER BY created_at DESC
 			`,
-				args: [workItemId],
-			}),
-			client.execute({
-				sql: `
+			args: [workItemId],
+		}),
+		client.execute({
+			sql: `
 				SELECT
 					id,
 					work_item_id,
@@ -470,9 +481,34 @@ export async function listWorkItemGraph(
 				WHERE work_item_id = ?
 				ORDER BY created_at ASC
 			`,
-				args: [workItemId],
-			}),
-		]);
+			args: [workItemId],
+		}),
+		client.execute({
+			sql: `
+				SELECT
+					id,
+					run_id,
+					attempt_id,
+					level,
+					type,
+					message,
+					data_json,
+					created_at
+				FROM events
+				WHERE
+					run_id IN (
+						SELECT id
+						FROM runs
+						WHERE work_item_id = ?
+					)
+					OR json_extract(data_json, '$.workItemId') = ?
+				ORDER BY created_at ASC
+			`,
+			args: [workItemId, workItemId],
+		}),
+	]);
+
+	const events = eventsResult.rows.map((row) => mapEventRow(row));
 
 	return {
 		workItemId,
@@ -480,6 +516,7 @@ export async function listWorkItemGraph(
 		decisions: decisionsResult.rows.map(mapDecision),
 		artifacts: artifactsResult.rows.map(mapArtifact),
 		links: linksResult.rows.map(mapLink),
+		sandboxSessions: projectSandboxSessions(events),
 	};
 }
 
