@@ -24,9 +24,15 @@ queue just because automation reached a handoff point.
 Add a post-run decision phase after GitHub handoff verification and before GitHub Project status
 handoff.
 
-For the MVP, post-run decision runs as the next step in the same `runnerWorkflow` after sandbox
-execution, callback resume, trusted pull request creation or reuse, and ADR 0012 verification. It is
-not a separate workflow triggered by pull request creation.
+The original MVP sketch placed post-run decision inside the same `runnerWorkflow` that executed the
+builder. That coupling made the builder responsible for concerns that belong to later observation,
+such as pending checks, repair loops, and final review status handoff.
+
+Current Rhapsody behavior should follow the worker-graph split in ADR 0014 instead:
+
+- builder/runner ends after trusted branch and pull request handoff plus artifact recording;
+- scheduler-owned post-PR curation observes the `In Progress` item and pull request state;
+- trusted Rhapsody code applies merge or Project status side effects only from that post-PR path.
 
 The decision phase evaluates the verified run outcome and chooses the next action:
 
@@ -76,14 +82,15 @@ The successful runner flow becomes:
 2. Resume the runner workflow from the wrapper callback.
 3. Create or reuse trusted GitHub handoff artifacts, such as a pull request.
 4. Verify the handoff according to ADR 0012.
-5. Run post-run checks.
-6. Optionally run reviewer Codex for review evidence.
-7. Apply deterministic policy to choose the next action.
-8. Apply the action through trusted Rhapsody code.
-9. Persist the final run outcome and release the claim.
+5. Record builder outcome and handoff artifacts, then release the builder path.
+6. Let a later scheduler tick observe the `In Progress` item and pull request.
+7. Run post-PR checks and other curation logic from the scheduler-owned worker path.
+8. Optionally run reviewer Codex for review evidence.
+9. Apply deterministic policy to choose the next action.
+10. Apply the action through trusted Rhapsody code.
 
-The runner workflow may implement these as separate helper modules, but the durable workflow history
-should keep them in one flow so the operator can read the run as a single story.
+The full story may span multiple workflows and scheduler ticks, but the worker graph should keep the
+handoff, observation, repair, review, and final status changes traceable as one auditable sequence.
 
 ## Review Codex Boundary
 
@@ -153,7 +160,7 @@ Positive consequences:
 
 Negative consequences:
 
-- Runner workflows become longer because review and decision happen after handoff.
+- Post-run policy spans multiple workflows and scheduler ticks instead of a single runner history.
 - Post-run policy needs explicit configuration before broad auto-merge is safe.
 - Reviewer Codex output introduces another model-dependent signal that must be recorded and
   bounded by deterministic policy.
