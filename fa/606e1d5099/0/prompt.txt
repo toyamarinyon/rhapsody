@@ -1,0 +1,31 @@
+そうですね。まずそれやりましょう。2.0.0にして、pnpm iして、pull request作ってmerge、再検証までお願いします。
+
+---
+
+stopに追加したargsが良くないんでしょうか？
+
+---
+
+できることからやっていきたいので、
+
+> 全呼び出しから blocking: true を消す、ですね。
+
+これやりましょう。 [@builder](subagent://builder) に実装させて、あなたはアウトプットの評価とフィードバック、
+それが終わったらpull request作成しマージしてください。
+
+---
+
+Implement the small cleanup requested by the user in /Users/toyamarinyon/Documents/rhapsody: remove the obsolete `{ blocking: true }` argument from all Vercel Sandbox stop calls, and update the local wrapper type so it matches @vercel/sandbox@2.0.0 (`stop(opts?: { signal?: AbortSignal })`, no `blocking`).
+
+Repository context:
+- Rhapsody is a Next.js app.
+- `@vercel/sandbox` is already upgraded to stable 2.0.0 on main via PR #92.
+- The current issue is that Rhapsody still casts `sandbox.stop` to accept `{ blocking?: boolean }` and call sites pass `{ blocking: true }`.
+
+Scope/ownership:
+- Own only the sandbox stop wrapper and direct call sites that pass `{ blocking: true }`.
+- Likely files: `lib/sandbox/vercel.ts`, `lib/workers/intake-classifier-sandbox.ts`, `lib/runners/sandbox-codex.ts`.
+- Do not change unrelated behavior, dependency versions, or tests unless a focused type/test update is needed.
+- You are not alone in the codebase; do not revert changes made by others, and accommodate existing changes.
+
+Please edit files directly, run the most relevant quick verification you can, and in your final answer list changed files and verification results.

@@ -1,0 +1,43 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "fa606e1d5099",
+  "session_id": "019e5a41-ca95-7c00-ae1b-5945747b0833",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-24T14:15:03.732228Z",
+  "branch": "codex/remove-sandbox-stop-blocking",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "lib/runners/sandbox-codex.ts",
+    "lib/sandbox/vercel.ts",
+    "lib/workers/intake-classifier-sandbox.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "ca7b775237af",
+  "checkpoint_transcript_start": 498,
+  "transcript_lines_at_start": 498,
+  "session_metrics": {
+    "turn_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-24T14:15:03.726748Z",
+    "agent_lines": 5,
+    "agent_removed": 10,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 5,
+    "total_lines_changed": 15,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
