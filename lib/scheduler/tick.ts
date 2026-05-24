@@ -1,11 +1,23 @@
 import type { Client } from "@libsql/client";
 import { loadRhapsodyConfig } from "@/lib/config";
-import type { getPullRequestCheckSummary } from "@/lib/github/checks";
+import type {
+	getPullRequestCheckSummary,
+	PullRequestCheckSummary,
+} from "@/lib/github/checks";
 import {
 	fetchProjectIssueWorkItems,
 	type GitHubProjectIssueWorkItem,
 	updateProjectIssueStatus,
 } from "@/lib/github/project-items";
+import {
+	getPullRequestChangedFiles,
+	mergePullRequest,
+} from "@/lib/github/pull-requests";
+import {
+	evaluatePostRunDecision,
+	getPostRunStatusConfig,
+	loadPostRunDecisionConfig,
+} from "@/lib/post-run-decision";
 import {
 	createClaimedManualRun,
 	createDecision,
@@ -89,6 +101,9 @@ export type SchedulerTickDependencies = {
 	fetchProjectIssueWorkItems?: typeof fetchProjectIssueWorkItems;
 	updateProjectIssueStatus?: typeof updateProjectIssueStatus;
 	getPullRequestCheckSummary?: typeof getPullRequestCheckSummary;
+	getPullRequestChangedFiles?: typeof getPullRequestChangedFiles;
+	mergePullRequest?: typeof mergePullRequest;
+	loadPostRunDecisionConfig?: typeof loadPostRunDecisionConfig;
 	runRepairerPlanner?: typeof runRepairerPlanner;
 	runRepairerExecutor?: typeof runRepairerExecutor;
 	runIntakeCurator?: typeof runIntakeCuratorNode;
@@ -155,9 +170,15 @@ export async function runSchedulerTick(
 				const postPrHandled = await runPostPrCuratorForInProgress(
 					client,
 					config,
-					dependencies.getPullRequestCheckSummary,
-					dependencies.runRepairerPlanner,
-					dependencies.runRepairerExecutor,
+					{
+						getPullRequestCheckSummary: dependencies.getPullRequestCheckSummary,
+						getPullRequestChangedFiles: dependencies.getPullRequestChangedFiles,
+						mergePullRequest: dependencies.mergePullRequest,
+						loadPostRunDecisionConfig: dependencies.loadPostRunDecisionConfig,
+						runRepairerPlanner: dependencies.runRepairerPlanner,
+						runRepairerExecutor: dependencies.runRepairerExecutor,
+						updateProjectIssueStatus: updateIssueStatus,
+					},
 					item,
 					workItemId,
 				);
@@ -487,14 +508,20 @@ async function createBuilderWorkerRun(
 	}
 }
 
+type SchedulerPostPrDependencies = {
+	getPullRequestCheckSummary?: typeof getPullRequestCheckSummary;
+	getPullRequestChangedFiles?: typeof getPullRequestChangedFiles;
+	mergePullRequest?: typeof mergePullRequest;
+	loadPostRunDecisionConfig?: typeof loadPostRunDecisionConfig;
+	runRepairerPlanner?: typeof runRepairerPlanner;
+	runRepairerExecutor?: typeof runRepairerExecutor;
+	updateProjectIssueStatus: typeof updateProjectIssueStatus;
+};
+
 async function runPostPrCuratorForInProgress(
 	client: Client,
 	config: ReturnType<typeof loadRhapsodyConfig>,
-	getPullRequestCheckSummaryDependency:
-		| typeof getPullRequestCheckSummary
-		| undefined,
-	runRepairerPlannerDependency: typeof runRepairerPlanner | undefined,
-	runRepairerExecutorDependency: typeof runRepairerExecutor | undefined,
+	dependencies: SchedulerPostPrDependencies,
 	item: GitHubProjectIssueWorkItem,
 	workItemId: string,
 ) {
@@ -519,90 +546,32 @@ async function runPostPrCuratorForInProgress(
 			pullRequestNumber: pullRequestArtifact.number,
 			pullRequestUrl: pullRequestArtifact.url ?? "",
 			existingDecisions: graph.decisions,
-			getPullRequestCheckSummary: getPullRequestCheckSummaryDependency,
+			getPullRequestCheckSummary: dependencies.getPullRequestCheckSummary,
 		});
-		if (
-			postPrResult.classification === "ci_failed" &&
-			!postPrResult.skippedFreshDuplicate
-		) {
-			const planner = runRepairerPlannerDependency ?? runRepairerPlanner;
-			const plan = await planner(client, {
-				workItem: item,
-				workItemId,
-				postPrDecisionId: postPrResult.decisionId,
-				pullRequestNumber: pullRequestArtifact.number,
-				pullRequestUrl: pullRequestArtifact.url ?? "",
-				checkSummary: postPrResult.checkSummary,
-				existingDecisions: graph.decisions,
-			});
 
-			if (plan.outcome === "repair_allowed") {
-				await (runRepairerExecutorDependency ?? runRepairerExecutor)({
-					client,
-					workItem: item,
-					workItemId,
-					pullRequestNumber: pullRequestArtifact.number,
-					pullRequestUrl: pullRequestArtifact.url ?? "",
-					checkSummary: postPrResult.checkSummary,
-					repositoryBaseBranch: config.repository.defaultBranch,
-					plan,
-					owner: config.repository.owner,
-					repository: config.repository.name,
-				});
-			}
+		if (postPrResult.classification === "checks_success") {
+			await applyChecksSuccessPostPrPolicy({
+				client,
+				config,
+				dependencies,
+				item,
+				pullRequestArtifact,
+			});
 		}
 
-		if (
-			postPrResult.classification === "ci_failed" &&
-			postPrResult.skippedFreshDuplicate
-		) {
-			const failureFingerprint = buildFailureFingerprint(
-				postPrResult.checkSummary,
-			);
-			const duplicateAllowedDecision = findLatestRepairAllowedDecision({
-				decisions: graph.decisions,
-				pullRequestNumber: pullRequestArtifact.number,
-				failureFingerprint,
+		if (postPrResult.classification === "ci_failed") {
+			await handleFailedPostPrChecks({
+				client,
+				config,
+				dependencies,
+				item,
+				workItemId,
+				graphDecisions: graph.decisions,
+				postPrDecisionId: postPrResult.decisionId,
+				pullRequestArtifact,
+				checkSummary: postPrResult.checkSummary,
+				skippedFreshDuplicate: postPrResult.skippedFreshDuplicate,
 			});
-
-			if (duplicateAllowedDecision) {
-				const duplicatePlan = buildRepairPlanFromRepairDecision(
-					duplicateAllowedDecision,
-				);
-				if (duplicatePlan) {
-					const planner = runRepairerPlannerDependency ?? runRepairerPlanner;
-					const plan = await planner(client, {
-						workItem: item,
-						workItemId,
-						postPrDecisionId: postPrResult.decisionId,
-						pullRequestNumber: pullRequestArtifact.number,
-						pullRequestUrl: pullRequestArtifact.url ?? "",
-						checkSummary: postPrResult.checkSummary,
-						existingDecisions: graph.decisions,
-					});
-
-					if (plan.outcome !== "repair_allowed") {
-						// Budget check blocked repair attempts on this execution key.
-						return {
-							handled: true,
-							skipReason: "",
-						};
-					}
-
-					await (runRepairerExecutorDependency ?? runRepairerExecutor)({
-						client,
-						workItem: item,
-						workItemId,
-						pullRequestNumber: pullRequestArtifact.number,
-						pullRequestUrl: pullRequestArtifact.url ?? "",
-						checkSummary: postPrResult.checkSummary,
-						repositoryBaseBranch: config.repository.defaultBranch,
-						plan,
-						owner: config.repository.owner,
-						repository: config.repository.name,
-					});
-				}
-			}
 		}
 
 		return {
@@ -630,16 +599,425 @@ async function runPostPrCuratorForInProgress(
 	}
 }
 
-function findLatestRepairAllowedDecision(input: {
+async function applyChecksSuccessPostPrPolicy(input: {
+	client: Client;
+	config: ReturnType<typeof loadRhapsodyConfig>;
+	dependencies: SchedulerPostPrDependencies;
+	item: GitHubProjectIssueWorkItem;
+	pullRequestArtifact: { id: string; number: number; url: string | null };
+}) {
+	const policyLoadResult = await loadSchedulerPostRunPolicy(
+		input.dependencies.loadPostRunDecisionConfig,
+	);
+	const statusConfig = getPostRunStatusConfig(policyLoadResult.config);
+
+	if (policyLoadResult.errors.length > 0) {
+		await createEvent(input.client, {
+			runId: null,
+			attemptId: null,
+			level: "warn",
+			type: "scheduler.post_run_policy_load_fallback",
+			message:
+				"Post-run policy file was unavailable; using conservative review-required policy.",
+			data: {
+				errors: policyLoadResult.errors,
+				loadedFromPath: policyLoadResult.loadedFromPath,
+				configuredRules:
+					policyLoadResult.config.post_run.auto_merge_eligible.length,
+				pullRequestNumber: input.pullRequestArtifact.number,
+				issueNumber: input.item.issueNumber,
+			},
+		});
+	}
+
+	let changedFiles: string[] | null = null;
+
+	try {
+		changedFiles = await (
+			input.dependencies.getPullRequestChangedFiles ??
+			getPullRequestChangedFiles
+		)({
+			owner: input.config.repository.owner,
+			repository: input.config.repository.name,
+			pullRequestNumber: input.pullRequestArtifact.number,
+		});
+	} catch (error) {
+		await createEvent(input.client, {
+			runId: null,
+			attemptId: null,
+			level: "warn",
+			type: "scheduler.pull_request_changed_files_failed",
+			message:
+				"Scheduler could not load changed files for post-run policy evaluation.",
+			data: {
+				issueNumber: input.item.issueNumber,
+				pullRequestNumber: input.pullRequestArtifact.number,
+				error: serializeError(error),
+			},
+		});
+	}
+
+	const decision = evaluatePostRunDecision({
+		runStatus: "completed",
+		attemptStatus: "completed",
+		handoffStatus: "ok",
+		changedFiles,
+		config: policyLoadResult.config,
+	});
+
+	await createEvent(input.client, {
+		runId: null,
+		attemptId: null,
+		level: "info",
+		type: "scheduler.post_run_decision",
+		message: "Scheduler evaluated post-run decision policy.",
+		data: {
+			decision,
+			issueNumber: input.item.issueNumber,
+			pullRequestNumber: input.pullRequestArtifact.number,
+			changedFileCount: changedFiles?.length ?? null,
+			loadedFromPath: policyLoadResult.loadedFromPath,
+		},
+	});
+
+	if (decision.action === "auto_merge_candidate") {
+		await mergePullRequestAndMarkDone({
+			client: input.client,
+			config: input.config,
+			dependencies: input.dependencies,
+			item: input.item,
+			pullRequestArtifact: input.pullRequestArtifact,
+			targetStatus: statusConfig.autoMergeSuccessStatus,
+		});
+		return;
+	}
+
+	await moveProjectItemToStatus({
+		client: input.client,
+		config: input.config,
+		updateProjectIssueStatus: input.dependencies.updateProjectIssueStatus,
+		item: input.item,
+		pullRequestNumber: input.pullRequestArtifact.number,
+		targetStatus: statusConfig.humanReviewStatus,
+		message: `Scheduler moved the Project item to ${statusConfig.humanReviewStatus} after passing checks required human review.`,
+		reason: decision.reason,
+	});
+}
+
+async function handleFailedPostPrChecks(input: {
+	client: Client;
+	config: ReturnType<typeof loadRhapsodyConfig>;
+	dependencies: SchedulerPostPrDependencies;
+	item: GitHubProjectIssueWorkItem;
+	workItemId: string;
+	graphDecisions: Decision[];
+	postPrDecisionId: string;
+	pullRequestArtifact: { id: string; number: number; url: string | null };
+	checkSummary: PullRequestCheckSummary;
+	skippedFreshDuplicate: boolean;
+}) {
+	const failureFingerprint = buildFailureFingerprint(input.checkSummary);
+
+	if (input.skippedFreshDuplicate) {
+		const blockedDecision = findLatestRepairDecision({
+			decisions: input.graphDecisions,
+			pullRequestNumber: input.pullRequestArtifact.number,
+			failureFingerprint,
+			outcome: "repair_blocked",
+		});
+		if (blockedDecision) {
+			await moveRepairBlockedItemToHumanReview({
+				client: input.client,
+				config: input.config,
+				dependencies: input.dependencies,
+				item: input.item,
+				pullRequestNumber: input.pullRequestArtifact.number,
+				reason:
+					blockedDecision.nextAction ??
+					"Repair was blocked for this failed check set.",
+			});
+			return;
+		}
+
+		const duplicateAllowedDecision = findLatestRepairDecision({
+			decisions: input.graphDecisions,
+			pullRequestNumber: input.pullRequestArtifact.number,
+			failureFingerprint,
+			outcome: "repair_allowed",
+		});
+		if (duplicateAllowedDecision) {
+			const duplicatePlan = buildRepairPlanFromRepairDecision(
+				duplicateAllowedDecision,
+			);
+			if (duplicatePlan) {
+				const plan = await (
+					input.dependencies.runRepairerPlanner ?? runRepairerPlanner
+				)(input.client, {
+					workItem: input.item,
+					workItemId: input.workItemId,
+					postPrDecisionId: input.postPrDecisionId,
+					pullRequestNumber: input.pullRequestArtifact.number,
+					pullRequestUrl: input.pullRequestArtifact.url ?? "",
+					checkSummary: input.checkSummary,
+					existingDecisions: input.graphDecisions,
+				});
+
+				if (plan.outcome !== "repair_allowed") {
+					await moveRepairBlockedItemToHumanReview({
+						client: input.client,
+						config: input.config,
+						dependencies: input.dependencies,
+						item: input.item,
+						pullRequestNumber: input.pullRequestArtifact.number,
+						reason:
+							"Repair budget was exhausted or the failure was no longer safely repairable.",
+					});
+					return;
+				}
+
+				await (input.dependencies.runRepairerExecutor ?? runRepairerExecutor)({
+					client: input.client,
+					workItem: input.item,
+					workItemId: input.workItemId,
+					pullRequestNumber: input.pullRequestArtifact.number,
+					pullRequestUrl: input.pullRequestArtifact.url ?? "",
+					checkSummary: input.checkSummary,
+					repositoryBaseBranch: input.config.repository.defaultBranch,
+					plan,
+					owner: input.config.repository.owner,
+					repository: input.config.repository.name,
+				});
+				return;
+			}
+		}
+	}
+
+	const plan = await (
+		input.dependencies.runRepairerPlanner ?? runRepairerPlanner
+	)(input.client, {
+		workItem: input.item,
+		workItemId: input.workItemId,
+		postPrDecisionId: input.postPrDecisionId,
+		pullRequestNumber: input.pullRequestArtifact.number,
+		pullRequestUrl: input.pullRequestArtifact.url ?? "",
+		checkSummary: input.checkSummary,
+		existingDecisions: input.graphDecisions,
+	});
+
+	if (plan.outcome === "repair_allowed") {
+		await (input.dependencies.runRepairerExecutor ?? runRepairerExecutor)({
+			client: input.client,
+			workItem: input.item,
+			workItemId: input.workItemId,
+			pullRequestNumber: input.pullRequestArtifact.number,
+			pullRequestUrl: input.pullRequestArtifact.url ?? "",
+			checkSummary: input.checkSummary,
+			repositoryBaseBranch: input.config.repository.defaultBranch,
+			plan,
+			owner: input.config.repository.owner,
+			repository: input.config.repository.name,
+		});
+		return;
+	}
+
+	await moveRepairBlockedItemToHumanReview({
+		client: input.client,
+		config: input.config,
+		dependencies: input.dependencies,
+		item: input.item,
+		pullRequestNumber: input.pullRequestArtifact.number,
+		reason:
+			"Repair was blocked because the failed checks were not safely format-fixable or the repair budget was exhausted.",
+	});
+}
+
+async function moveRepairBlockedItemToHumanReview(input: {
+	client: Client;
+	config: ReturnType<typeof loadRhapsodyConfig>;
+	dependencies: SchedulerPostPrDependencies;
+	item: GitHubProjectIssueWorkItem;
+	pullRequestNumber: number;
+	reason: string;
+}) {
+	const policyLoadResult = await loadSchedulerPostRunPolicy(
+		input.dependencies.loadPostRunDecisionConfig,
+	);
+	const statusConfig = getPostRunStatusConfig(policyLoadResult.config);
+
+	if (policyLoadResult.errors.length > 0) {
+		await createEvent(input.client, {
+			runId: null,
+			attemptId: null,
+			level: "warn",
+			type: "scheduler.post_run_policy_load_fallback",
+			message:
+				"Post-run policy file was unavailable; using conservative review-required policy.",
+			data: {
+				errors: policyLoadResult.errors,
+				loadedFromPath: policyLoadResult.loadedFromPath,
+				configuredRules:
+					policyLoadResult.config.post_run.auto_merge_eligible.length,
+				pullRequestNumber: input.pullRequestNumber,
+				issueNumber: input.item.issueNumber,
+			},
+		});
+	}
+
+	await moveProjectItemToStatus({
+		client: input.client,
+		config: input.config,
+		updateProjectIssueStatus: input.dependencies.updateProjectIssueStatus,
+		item: input.item,
+		pullRequestNumber: input.pullRequestNumber,
+		targetStatus: statusConfig.humanReviewStatus,
+		message: `Scheduler moved the Project item to ${statusConfig.humanReviewStatus} after repair was blocked.`,
+		reason: input.reason,
+	});
+}
+
+async function mergePullRequestAndMarkDone(input: {
+	client: Client;
+	config: ReturnType<typeof loadRhapsodyConfig>;
+	dependencies: SchedulerPostPrDependencies;
+	item: GitHubProjectIssueWorkItem;
+	pullRequestArtifact: { id: string; number: number; url: string | null };
+	targetStatus: string;
+}) {
+	try {
+		const mergeResult = await (
+			input.dependencies.mergePullRequest ?? mergePullRequest
+		)({
+			owner: input.config.repository.owner,
+			repository: input.config.repository.name,
+			pullRequestNumber: input.pullRequestArtifact.number,
+		});
+
+		await createEvent(input.client, {
+			runId: null,
+			attemptId: null,
+			level: "info",
+			type: "scheduler.pull_request_merged",
+			message: "Scheduler merged the trusted pull request.",
+			data: {
+				issueNumber: input.item.issueNumber,
+				pullRequestNumber: input.pullRequestArtifact.number,
+				mergeResult,
+			},
+		});
+
+		await moveProjectItemToStatus({
+			client: input.client,
+			config: input.config,
+			updateProjectIssueStatus: input.dependencies.updateProjectIssueStatus,
+			item: input.item,
+			pullRequestNumber: input.pullRequestArtifact.number,
+			targetStatus: input.targetStatus,
+			message: `Scheduler moved the Project item to ${input.targetStatus} after auto-merging the pull request.`,
+		});
+	} catch (error) {
+		await createEvent(input.client, {
+			runId: null,
+			attemptId: null,
+			level: "warn",
+			type: "scheduler.pull_request_merge_failed",
+			message: "Scheduler could not merge the trusted pull request.",
+			data: {
+				issueNumber: input.item.issueNumber,
+				pullRequestNumber: input.pullRequestArtifact.number,
+				error: serializeError(error),
+			},
+		});
+	}
+}
+
+async function moveProjectItemToStatus(input: {
+	client: Client;
+	config: ReturnType<typeof loadRhapsodyConfig>;
+	updateProjectIssueStatus: typeof updateProjectIssueStatus;
+	item: GitHubProjectIssueWorkItem;
+	pullRequestNumber: number;
+	targetStatus: string;
+	message: string;
+	reason?: string;
+}) {
+	try {
+		const result = await input.updateProjectIssueStatus({
+			owner: input.config.tracker.owner,
+			repository: input.config.tracker.repository,
+			projectNumber: input.config.tracker.projectNumber,
+			statusField: input.config.tracker.statusField,
+			issueNumber: input.item.issueNumber,
+			status: input.targetStatus,
+		});
+
+		await createEvent(input.client, {
+			runId: null,
+			attemptId: null,
+			level: "info",
+			type: "scheduler.project_status_updated",
+			message: input.message,
+			data: {
+				issueNumber: input.item.issueNumber,
+				fromStatus: input.item.projectStatus,
+				toStatus: input.targetStatus,
+				projectItemId: result.itemId,
+				fieldId: result.fieldId,
+				optionId: result.optionId,
+				pullRequestNumber: input.pullRequestNumber,
+				reason: input.reason ?? null,
+			},
+		});
+	} catch (error) {
+		await createEvent(input.client, {
+			runId: null,
+			attemptId: null,
+			level: "warn",
+			type: "scheduler.project_status_update_failed",
+			message: `Scheduler could not move the Project item to ${input.targetStatus}.`,
+			data: {
+				issueNumber: input.item.issueNumber,
+				fromStatus: input.item.projectStatus,
+				toStatus: input.targetStatus,
+				pullRequestNumber: input.pullRequestNumber,
+				reason: input.reason ?? null,
+				error: serializeError(error),
+			},
+		});
+	}
+}
+
+async function loadSchedulerPostRunPolicy(
+	loadPolicy: typeof loadPostRunDecisionConfig | undefined,
+) {
+	try {
+		return await (loadPolicy ?? loadPostRunDecisionConfig)(process.cwd());
+	} catch (error) {
+		const message =
+			error instanceof Error
+				? error.message
+				: "Unknown error while loading post-run decision policy.";
+		return {
+			config: {
+				post_run: {
+					auto_merge_eligible: [],
+					auto_merge_success_status: "Done",
+					human_review_status: "Human Review",
+				},
+			},
+			loadedFromPath: ".rhapsody/config.toml",
+			errors: [message],
+		};
+	}
+}
+
+function findLatestRepairDecision(input: {
 	decisions: Decision[];
 	pullRequestNumber: number;
 	failureFingerprint: string;
+	outcome: "repair_allowed" | "repair_blocked";
 }): Decision | null {
 	const candidates = input.decisions.filter((candidate) => {
-		if (
-			candidate.phase !== "repair" ||
-			candidate.outcome !== "repair_allowed"
-		) {
+		if (candidate.phase !== "repair" || candidate.outcome !== input.outcome) {
 			return false;
 		}
 		const evidence = asObject(candidate.evidence);
