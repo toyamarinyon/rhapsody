@@ -1,0 +1,1 @@
+これでpr作ってmergeして、mergeされたらテスト用の実装issue作ってbuilder subagentが起動することを確認してください。
