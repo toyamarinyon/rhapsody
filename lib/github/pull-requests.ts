@@ -12,6 +12,7 @@ export type PullRequestSummary = {
 	state: "open" | "closed";
 	merged: boolean;
 	mergedAt: string | null;
+	sha?: string | null;
 };
 
 export type PullRequestMergeResult = {
@@ -189,6 +190,7 @@ export async function getPullRequest(
 		state: normalizePullRequestState(payload.state),
 		merged: payload.merged,
 		mergedAt: payload.merged_at,
+		sha: payload.merge_commit_sha ?? payload.head.sha ?? null,
 	};
 }
 

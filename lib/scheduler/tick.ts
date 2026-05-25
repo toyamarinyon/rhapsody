@@ -26,6 +26,7 @@ import {
 	createLink,
 	createWorkerRun,
 	type Decision,
+	type WorkItemGraph,
 	getStateSummary,
 	listWorkItemGraph,
 } from "@/lib/state";
@@ -39,6 +40,7 @@ import {
 } from "@/lib/workers/post-pr-curator";
 import {
 	buildFailureFingerprint,
+	buildRepairExecutionKey,
 	buildRepairPlanFromRepairDecision,
 	runRepairerPlanner,
 } from "@/lib/workers/repairer";
@@ -173,8 +175,8 @@ export async function runSchedulerTick(
 					client,
 					config,
 					{
-						getPullRequestCheckSummary: dependencies.getPullRequestCheckSummary,
 						getPullRequest: dependencies.getPullRequest,
+						getPullRequestCheckSummary: dependencies.getPullRequestCheckSummary,
 						getPullRequestChangedFiles: dependencies.getPullRequestChangedFiles,
 						mergePullRequest: dependencies.mergePullRequest,
 						loadPostRunDecisionConfig: dependencies.loadPostRunDecisionConfig,
@@ -512,8 +514,8 @@ async function createBuilderWorkerRun(
 }
 
 type SchedulerPostPrDependencies = {
-	getPullRequestCheckSummary?: typeof getPullRequestCheckSummary;
 	getPullRequest?: typeof getPullRequest;
+	getPullRequestCheckSummary?: typeof getPullRequestCheckSummary;
 	getPullRequestChangedFiles?: typeof getPullRequestChangedFiles;
 	mergePullRequest?: typeof mergePullRequest;
 	loadPostRunDecisionConfig?: typeof loadPostRunDecisionConfig;
@@ -552,6 +554,26 @@ async function runPostPrCuratorForInProgress(
 			existingDecisions: graph.decisions,
 			getPullRequestCheckSummary: dependencies.getPullRequestCheckSummary,
 		});
+		const postPrWorkerRunId =
+			postPrResult.workerRunId ??
+			graph.decisions.find(
+				(decision) => decision.id === postPrResult.decisionId,
+			)?.workerRunId ??
+			null;
+
+		if (postPrResult.classification === "checks_unknown") {
+			await moveUnknownChecksItemToHumanReview({
+				client,
+				config,
+				dependencies,
+				item,
+				workItemId,
+				postPrDecisionId: postPrResult.decisionId,
+				postPrWorkerRunId,
+				pullRequestArtifact,
+				checkSummary: postPrResult.checkSummary,
+			});
+		}
 
 		if (postPrResult.classification === "checks_success") {
 			await applyChecksSuccessPostPrPolicy({
@@ -559,6 +581,9 @@ async function runPostPrCuratorForInProgress(
 				config,
 				dependencies,
 				item,
+				workItemId,
+				postPrDecisionId: postPrResult.decisionId,
+				postPrWorkerRunId,
 				pullRequestArtifact,
 			});
 		}
@@ -570,8 +595,10 @@ async function runPostPrCuratorForInProgress(
 				dependencies,
 				item,
 				workItemId,
+				graph,
 				graphDecisions: graph.decisions,
 				postPrDecisionId: postPrResult.decisionId,
+				postPrWorkerRunId,
 				pullRequestArtifact,
 				checkSummary: postPrResult.checkSummary,
 				skippedFreshDuplicate: postPrResult.skippedFreshDuplicate,
@@ -608,6 +635,9 @@ async function applyChecksSuccessPostPrPolicy(input: {
 	config: ReturnType<typeof loadRhapsodyConfig>;
 	dependencies: SchedulerPostPrDependencies;
 	item: GitHubProjectIssueWorkItem;
+	workItemId: string;
+	postPrDecisionId: string;
+	postPrWorkerRunId: string | null;
 	pullRequestArtifact: { id: string; number: number; url: string | null };
 }) {
 	const policyLoadResult = await loadSchedulerPostRunPolicy(
@@ -690,13 +720,18 @@ async function applyChecksSuccessPostPrPolicy(input: {
 			config: input.config,
 			dependencies: input.dependencies,
 			item: input.item,
+			workItemId: input.workItemId,
+			postPrDecisionId: input.postPrDecisionId,
+			postPrWorkerRunId: input.postPrWorkerRunId,
 			pullRequestArtifact: input.pullRequestArtifact,
+			postRunDecision: decision,
+			policyLoadedFromPath: policyLoadResult.loadedFromPath,
 			targetStatus: statusConfig.autoMergeSuccessStatus,
 		});
 		return;
 	}
 
-	await moveProjectItemToStatus({
+	const moved = await moveProjectItemToStatus({
 		client: input.client,
 		config: input.config,
 		updateProjectIssueStatus: input.dependencies.updateProjectIssueStatus,
@@ -706,6 +741,28 @@ async function applyChecksSuccessPostPrPolicy(input: {
 		message: `Scheduler moved the Project item to ${statusConfig.humanReviewStatus} after passing checks required human review.`,
 		reason: decision.reason,
 	});
+
+	if (!moved) {
+		return;
+	}
+
+	await recordPostPrResolutionDecision({
+		client: input.client,
+		workItemId: input.workItemId,
+		postPrDecisionId: input.postPrDecisionId,
+		postPrWorkerRunId: input.postPrWorkerRunId,
+		pullRequestArtifact: input.pullRequestArtifact,
+		outcome: "human_review",
+		policyRuleId: null,
+		nextAction: `Move the Project item to ${statusConfig.humanReviewStatus} after successful checks still required human review.`,
+		evidence: {
+			checkClassification: "checks_success",
+			reason: decision.reason,
+			targetStatus: statusConfig.humanReviewStatus,
+			postRunDecision: decision,
+			loadedFromPath: policyLoadResult.loadedFromPath,
+		},
+	});
 }
 
 async function handleFailedPostPrChecks(input: {
@@ -714,13 +771,29 @@ async function handleFailedPostPrChecks(input: {
 	dependencies: SchedulerPostPrDependencies;
 	item: GitHubProjectIssueWorkItem;
 	workItemId: string;
+	graph: WorkItemGraph;
 	graphDecisions: Decision[];
 	postPrDecisionId: string;
+	postPrWorkerRunId: string | null;
 	pullRequestArtifact: { id: string; number: number; url: string | null };
 	checkSummary: PullRequestCheckSummary;
 	skippedFreshDuplicate: boolean;
 }) {
 	const failureFingerprint = buildFailureFingerprint(input.checkSummary);
+	const repairExecutionKey = buildRepairExecutionKey({
+		pullRequestNumber: input.pullRequestArtifact.number,
+		headSha: input.checkSummary.headSha,
+		failureFingerprint,
+	});
+
+	if (
+		hasActiveRepairerRunForKey({
+			workerRuns: input.graph.workerRuns,
+			repairExecutionKey,
+		})
+	) {
+		return;
+	}
 
 	if (input.skippedFreshDuplicate) {
 		const blockedDecision = findLatestRepairDecision({
@@ -735,10 +808,16 @@ async function handleFailedPostPrChecks(input: {
 				config: input.config,
 				dependencies: input.dependencies,
 				item: input.item,
+				workItemId: input.workItemId,
+				postPrDecisionId: input.postPrDecisionId,
+				postPrWorkerRunId: input.postPrWorkerRunId,
 				pullRequestNumber: input.pullRequestArtifact.number,
+				pullRequestArtifact: input.pullRequestArtifact,
 				reason:
 					blockedDecision.nextAction ??
 					"Repair was blocked for this failed check set.",
+				repairDecisionId: blockedDecision.id,
+				checkSummary: input.checkSummary,
 			});
 			return;
 		}
@@ -772,9 +851,15 @@ async function handleFailedPostPrChecks(input: {
 						config: input.config,
 						dependencies: input.dependencies,
 						item: input.item,
+						workItemId: input.workItemId,
+						postPrDecisionId: input.postPrDecisionId,
+						postPrWorkerRunId: input.postPrWorkerRunId,
 						pullRequestNumber: input.pullRequestArtifact.number,
+						pullRequestArtifact: input.pullRequestArtifact,
 						reason:
 							"Repair budget was exhausted or the failure was no longer safely repairable.",
+						repairDecisionId: plan.decisionId,
+						checkSummary: input.checkSummary,
 					});
 					return;
 				}
@@ -829,9 +914,15 @@ async function handleFailedPostPrChecks(input: {
 		config: input.config,
 		dependencies: input.dependencies,
 		item: input.item,
+		workItemId: input.workItemId,
+		postPrDecisionId: input.postPrDecisionId,
+		postPrWorkerRunId: input.postPrWorkerRunId,
 		pullRequestNumber: input.pullRequestArtifact.number,
+		pullRequestArtifact: input.pullRequestArtifact,
 		reason:
 			"Repair was blocked because the failed checks were not safely format-fixable or the repair budget was exhausted.",
+		repairDecisionId: plan.decisionId,
+		checkSummary: input.checkSummary,
 	});
 }
 
@@ -840,8 +931,14 @@ async function moveRepairBlockedItemToHumanReview(input: {
 	config: ReturnType<typeof loadRhapsodyConfig>;
 	dependencies: SchedulerPostPrDependencies;
 	item: GitHubProjectIssueWorkItem;
+	workItemId: string;
+	postPrDecisionId: string;
+	postPrWorkerRunId: string | null;
 	pullRequestNumber: number;
+	pullRequestArtifact: { id: string; number: number; url: string | null };
 	reason: string;
+	repairDecisionId: string;
+	checkSummary: PullRequestCheckSummary;
 }) {
 	const policyLoadResult = await loadSchedulerPostRunPolicy(
 		input.dependencies.loadPostRunDecisionConfig,
@@ -867,7 +964,7 @@ async function moveRepairBlockedItemToHumanReview(input: {
 		});
 	}
 
-	await moveProjectItemToStatus({
+	const moved = await moveProjectItemToStatus({
 		client: input.client,
 		config: input.config,
 		updateProjectIssueStatus: input.dependencies.updateProjectIssueStatus,
@@ -876,6 +973,29 @@ async function moveRepairBlockedItemToHumanReview(input: {
 		targetStatus: statusConfig.humanReviewStatus,
 		message: `Scheduler moved the Project item to ${statusConfig.humanReviewStatus} after repair was blocked.`,
 		reason: input.reason,
+	});
+
+	if (!moved) {
+		return;
+	}
+
+	await recordPostPrResolutionDecision({
+		client: input.client,
+		workItemId: input.workItemId,
+		postPrDecisionId: input.postPrDecisionId,
+		postPrWorkerRunId: input.postPrWorkerRunId,
+		pullRequestArtifact: input.pullRequestArtifact,
+		outcome: "human_review",
+		policyRuleId: "repair_blocked",
+		nextAction: `Move the Project item to ${statusConfig.humanReviewStatus} because repair was blocked.`,
+		evidence: {
+			checkClassification: "ci_failed",
+			reason: input.reason,
+			targetStatus: statusConfig.humanReviewStatus,
+			repairDecisionId: input.repairDecisionId,
+			checkSummary: input.checkSummary,
+			loadedFromPath: policyLoadResult.loadedFromPath,
+		},
 	});
 }
 
@@ -981,7 +1101,12 @@ async function mergePullRequestAndMarkDone(input: {
 	config: ReturnType<typeof loadRhapsodyConfig>;
 	dependencies: SchedulerPostPrDependencies;
 	item: GitHubProjectIssueWorkItem;
+	workItemId: string;
+	postPrDecisionId: string;
+	postPrWorkerRunId: string | null;
 	pullRequestArtifact: { id: string; number: number; url: string | null };
+	postRunDecision: ReturnType<typeof evaluatePostRunDecision>;
+	policyLoadedFromPath: string;
 	targetStatus: string;
 }) {
 	try {
@@ -990,6 +1115,15 @@ async function mergePullRequestAndMarkDone(input: {
 			dependencies: input.dependencies,
 			pullRequestArtifact: input.pullRequestArtifact,
 		});
+		const mergeResult =
+			reconciliation.outcome === "merged"
+				? reconciliation.mergeResult
+				: {
+						number: input.pullRequestArtifact.number,
+						merged: true,
+						message: "Pull request was already merged.",
+						sha: reconciliation.pullRequest.sha ?? null,
+					};
 
 		if (reconciliation.outcome === "merged") {
 			await createEvent(input.client, {
@@ -1021,7 +1155,7 @@ async function mergePullRequestAndMarkDone(input: {
 			});
 		}
 
-		await moveProjectItemToStatus({
+		const moved = await moveProjectItemToStatus({
 			client: input.client,
 			config: input.config,
 			updateProjectIssueStatus: input.dependencies.updateProjectIssueStatus,
@@ -1029,6 +1163,28 @@ async function mergePullRequestAndMarkDone(input: {
 			pullRequestNumber: input.pullRequestArtifact.number,
 			targetStatus: input.targetStatus,
 			message: `Scheduler moved the Project item to ${input.targetStatus} after auto-merging the pull request.`,
+		});
+
+		if (!moved) {
+			return;
+		}
+
+		await recordPostPrResolutionDecision({
+			client: input.client,
+			workItemId: input.workItemId,
+			postPrDecisionId: input.postPrDecisionId,
+			postPrWorkerRunId: input.postPrWorkerRunId,
+			pullRequestArtifact: input.pullRequestArtifact,
+			outcome: "done",
+			policyRuleId: getPostRunDecisionRuleId(input.postRunDecision),
+			nextAction: `Merge the trusted pull request and move the Project item to ${input.targetStatus}.`,
+			evidence: {
+				checkClassification: "checks_success",
+				targetStatus: input.targetStatus,
+				postRunDecision: input.postRunDecision,
+				loadedFromPath: input.policyLoadedFromPath,
+				mergeResult,
+			},
 		});
 	} catch (error) {
 		await createEvent(input.client, {
@@ -1044,6 +1200,93 @@ async function mergePullRequestAndMarkDone(input: {
 			},
 		});
 	}
+}
+
+function hasActiveRepairerRunForKey(input: {
+	workerRuns: WorkItemGraph["workerRuns"];
+	repairExecutionKey: string;
+}) {
+	return input.workerRuns.some((run) => {
+		if (run.kind !== "repairer") {
+			return false;
+		}
+		if (!["pending", "running"].includes(run.status)) {
+			return false;
+		}
+		const metadata = asObject(run.metadata);
+		return metadata?.repairExecutionKey === input.repairExecutionKey;
+	});
+}
+
+async function moveUnknownChecksItemToHumanReview(input: {
+	client: Client;
+	config: ReturnType<typeof loadRhapsodyConfig>;
+	dependencies: SchedulerPostPrDependencies;
+	item: GitHubProjectIssueWorkItem;
+	workItemId: string;
+	postPrDecisionId: string;
+	postPrWorkerRunId: string | null;
+	pullRequestArtifact: { id: string; number: number; url: string | null };
+	checkSummary: PullRequestCheckSummary;
+}) {
+	const reason =
+		"Pull request checks could not be classified safely, so human review is required.";
+	const policyLoadResult = await loadSchedulerPostRunPolicy(
+		input.dependencies.loadPostRunDecisionConfig,
+	);
+	const statusConfig = getPostRunStatusConfig(policyLoadResult.config);
+
+	if (policyLoadResult.errors.length > 0) {
+		await createEvent(input.client, {
+			runId: null,
+			attemptId: null,
+			level: "warn",
+			type: "scheduler.post_run_policy_load_fallback",
+			message:
+				"Post-run policy file was unavailable; using conservative review-required policy.",
+			data: {
+				errors: policyLoadResult.errors,
+				loadedFromPath: policyLoadResult.loadedFromPath,
+				configuredRules:
+					policyLoadResult.config.post_run.auto_merge_eligible.length,
+				pullRequestNumber: input.pullRequestArtifact.number,
+				issueNumber: input.item.issueNumber,
+			},
+		});
+	}
+
+	const moved = await moveProjectItemToStatus({
+		client: input.client,
+		config: input.config,
+		updateProjectIssueStatus: input.dependencies.updateProjectIssueStatus,
+		item: input.item,
+		pullRequestNumber: input.pullRequestArtifact.number,
+		targetStatus: statusConfig.humanReviewStatus,
+		message: `Scheduler moved the Project item to ${statusConfig.humanReviewStatus} because pull request checks were unknown.`,
+		reason,
+	});
+
+	if (!moved) {
+		return;
+	}
+
+	await recordPostPrResolutionDecision({
+		client: input.client,
+		workItemId: input.workItemId,
+		postPrDecisionId: input.postPrDecisionId,
+		postPrWorkerRunId: input.postPrWorkerRunId,
+		pullRequestArtifact: input.pullRequestArtifact,
+		outcome: "human_review",
+		policyRuleId: "checks_unknown",
+		nextAction: `Move the Project item to ${statusConfig.humanReviewStatus} because check classification was unknown.`,
+		evidence: {
+			checkClassification: "checks_unknown",
+			reason,
+			targetStatus: statusConfig.humanReviewStatus,
+			checkSummary: input.checkSummary,
+			loadedFromPath: policyLoadResult.loadedFromPath,
+		},
+	});
 }
 
 async function moveProjectItemToStatus(input: {
@@ -1083,6 +1326,8 @@ async function moveProjectItemToStatus(input: {
 				reason: input.reason ?? null,
 			},
 		});
+
+		return true;
 	} catch (error) {
 		await createEvent(input.client, {
 			runId: null,
@@ -1096,6 +1341,73 @@ async function moveProjectItemToStatus(input: {
 				toStatus: input.targetStatus,
 				pullRequestNumber: input.pullRequestNumber,
 				reason: input.reason ?? null,
+				error: serializeError(error),
+			},
+		});
+
+		return false;
+	}
+}
+
+async function recordPostPrResolutionDecision(input: {
+	client: Client;
+	workItemId: string;
+	postPrDecisionId: string;
+	postPrWorkerRunId: string | null;
+	pullRequestArtifact: { id: string; number: number; url: string | null };
+	outcome: string;
+	policyRuleId: string | null;
+	nextAction: string;
+	evidence: Record<string, unknown>;
+}) {
+	if (!input.postPrWorkerRunId) {
+		return;
+	}
+
+	try {
+		const resolutionDecisionId = await createDecision(input.client, {
+			workItemId: input.workItemId,
+			workerRunId: input.postPrWorkerRunId,
+			phase: "post_pr",
+			outcome: input.outcome,
+			deterministic: true,
+			policyRuleId: input.policyRuleId,
+			nextWorkerKind: null,
+			nextAction: input.nextAction,
+			evidence: {
+				sourceDecisionId: input.postPrDecisionId,
+				pullRequestArtifactId: input.pullRequestArtifact.id,
+				pullRequestNumber: input.pullRequestArtifact.number,
+				pullRequestUrl: input.pullRequestArtifact.url,
+				...input.evidence,
+			},
+		});
+
+		await createLink(input.client, {
+			workItemId: input.workItemId,
+			fromNodeType: "decision",
+			fromNodeId: input.postPrDecisionId,
+			toNodeType: "decision",
+			toNodeId: resolutionDecisionId,
+			relation: "resolves_to",
+			metadata: {
+				outcome: input.outcome,
+				pullRequestNumber: input.pullRequestArtifact.number,
+			},
+		});
+	} catch (error) {
+		await createEvent(input.client, {
+			runId: null,
+			attemptId: null,
+			level: "warn",
+			type: "scheduler.post_pr_resolution_record_failed",
+			message:
+				"Scheduler could not record the post-PR resolution decision in the worker graph.",
+			data: {
+				workItemId: input.workItemId,
+				pullRequestNumber: input.pullRequestArtifact.number,
+				postPrDecisionId: input.postPrDecisionId,
+				outcome: input.outcome,
 				error: serializeError(error),
 			},
 		});
@@ -1124,6 +1436,14 @@ async function loadSchedulerPostRunPolicy(
 			errors: [message],
 		};
 	}
+}
+
+function getPostRunDecisionRuleId(
+	decision: ReturnType<typeof evaluatePostRunDecision>,
+) {
+	return decision.ruleIndex === null
+		? null
+		: `post_run.auto_merge_eligible[${decision.ruleIndex}]`;
 }
 
 function findLatestRepairDecision(input: {

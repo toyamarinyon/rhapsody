@@ -281,7 +281,7 @@ test("runRepairerPlanner blocks repair after max attempts and emits decision met
 			workItemId,
 			workerRunId: "wrn_existing_repair_1",
 			phase: "repair",
-			outcome: "repair_allowed",
+			outcome: "repair_failed",
 			policyRuleId: "format_fixable",
 			evidence: {
 				pullRequestNumber: 412,
@@ -289,6 +289,16 @@ test("runRepairerPlanner blocks repair after max attempts and emits decision met
 				checks: {
 					headSha: "sha-412",
 				},
+				failureFingerprint: buildFailureFingerprint({
+					checkRuns: [
+						{
+							name: "prettier",
+							status: "completed",
+							conclusion: "failure",
+							detailsUrl: null,
+						},
+					],
+				}),
 			},
 		});
 
@@ -303,7 +313,7 @@ test("runRepairerPlanner blocks repair after max attempts and emits decision met
 			workItemId,
 			workerRunId: "wrn_existing_repair_2",
 			phase: "repair",
-			outcome: "repair_allowed",
+			outcome: "repair_failed",
 			policyRuleId: "format_fixable",
 			evidence: {
 				pullRequestNumber: 412,
@@ -311,6 +321,16 @@ test("runRepairerPlanner blocks repair after max attempts and emits decision met
 				checks: {
 					headSha: "sha-412",
 				},
+				failureFingerprint: buildFailureFingerprint({
+					checkRuns: [
+						{
+							name: "prettier",
+							status: "completed",
+							conclusion: "failure",
+							detailsUrl: null,
+						},
+					],
+				}),
 			},
 		});
 
@@ -339,7 +359,7 @@ test("runRepairerPlanner blocks repair after max attempts and emits decision met
 					workItemId,
 					workerRunId: "wrn_existing_repair_1",
 					phase: "repair",
-					outcome: "repair_allowed",
+					outcome: "repair_failed",
 					deterministic: true,
 					policyVersion: null,
 					policyRuleId: "format_fixable",
@@ -347,6 +367,16 @@ test("runRepairerPlanner blocks repair after max attempts and emits decision met
 						pullRequestNumber: 412,
 						classification: "format_fixable",
 						checks: { headSha: "sha-412" },
+						failureFingerprint: buildFailureFingerprint({
+							checkRuns: [
+								{
+									name: "prettier",
+									status: "completed",
+									conclusion: "failure",
+									detailsUrl: null,
+								},
+							],
+						}),
 					},
 					nextWorkerKind: null,
 					nextAction: null,
@@ -358,7 +388,7 @@ test("runRepairerPlanner blocks repair after max attempts and emits decision met
 					workItemId,
 					workerRunId: "wrn_existing_repair_2",
 					phase: "repair",
-					outcome: "repair_allowed",
+					outcome: "repair_failed",
 					deterministic: true,
 					policyVersion: null,
 					policyRuleId: "format_fixable",
@@ -366,6 +396,16 @@ test("runRepairerPlanner blocks repair after max attempts and emits decision met
 						pullRequestNumber: 412,
 						classification: "format_fixable",
 						checks: { headSha: "sha-412" },
+						failureFingerprint: buildFailureFingerprint({
+							checkRuns: [
+								{
+									name: "prettier",
+									status: "completed",
+									conclusion: "failure",
+									detailsUrl: null,
+								},
+							],
+						}),
 					},
 					nextWorkerKind: null,
 					nextAction: null,
@@ -458,7 +498,7 @@ test("runRepairerPlanner blocks non-format failures as not repairable", async ()
 	}
 });
 
-test("runRepairerPlanner counts format repair attempts per PR and head SHA", async () => {
+test("runRepairerPlanner counts only terminal format repair attempts", async () => {
 	const database = await createTestDatabase();
 	const client = database.client;
 	const workItemId = "github_issue:toyamarinyon/rhapsody#415";
@@ -512,7 +552,7 @@ test("runRepairerPlanner counts format repair attempts per PR and head SHA", asy
 			workItemId,
 			workerRunId: "wrn_repair_seed_new",
 			phase: "repair",
-			outcome: "repair_allowed",
+			outcome: "repair_failed",
 			policyRuleId: "format_fixable",
 			evidence: {
 				pullRequestNumber: 415,
@@ -520,6 +560,16 @@ test("runRepairerPlanner counts format repair attempts per PR and head SHA", asy
 				checks: {
 					headSha: "sha-415-new",
 				},
+				failureFingerprint: buildFailureFingerprint({
+					checkRuns: [
+						{
+							name: "prettier",
+							status: "completed",
+							conclusion: "failure",
+							detailsUrl: null,
+						},
+					],
+				}),
 			},
 		});
 
@@ -531,7 +581,7 @@ test("runRepairerPlanner counts format repair attempts per PR and head SHA", asy
 			pullRequestUrl: "https://github.com/toyamarinyon/rhapsody/pull/415",
 			checkSummary: {
 				classification: "ci_failed",
-				headSha: "sha-415-newest",
+				headSha: "sha-415-new",
 				status: "failure",
 				checkRuns: [
 					{
@@ -567,7 +617,7 @@ test("runRepairerPlanner counts format repair attempts per PR and head SHA", asy
 					workItemId,
 					workerRunId: "wrn_repair_seed_new",
 					phase: "repair",
-					outcome: "repair_allowed",
+					outcome: "repair_failed",
 					deterministic: true,
 					policyVersion: null,
 					policyRuleId: "format_fixable",
@@ -575,6 +625,16 @@ test("runRepairerPlanner counts format repair attempts per PR and head SHA", asy
 						pullRequestNumber: 415,
 						classification: "format_fixable",
 						checks: { headSha: "sha-415-new" },
+						failureFingerprint: buildFailureFingerprint({
+							checkRuns: [
+								{
+									name: "prettier",
+									status: "completed",
+									conclusion: "failure",
+									detailsUrl: null,
+								},
+							],
+						}),
 					},
 					nextWorkerKind: null,
 					nextAction: null,
@@ -585,7 +645,7 @@ test("runRepairerPlanner counts format repair attempts per PR and head SHA", asy
 		});
 
 		expect(result.outcome).toBe("repair_allowed");
-		expect(result.attemptCount).toBe(0);
+		expect(result.attemptCount).toBe(1);
 	} finally {
 		client.close();
 		database.cleanup();
