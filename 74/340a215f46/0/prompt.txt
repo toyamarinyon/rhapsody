@@ -1,0 +1,68 @@
+そのsandboxのsnapshotから新しいsandboxを作ってsshしたいです。
+
+---
+
+› smoke_worker subagentを起動してください。
+
+
+• smoke_worker というサブエージェントを起動するため、まず利用できるマルチエージェント用ツールを確認します。
+
+• 履歴を丸ごと引き継ぐ指定だと smoke_worker ロール指定と競合するため、ロールを優先して最小コンテキストで起動し直します。
+
+• Spawned 019e5f4e-e77d-7c72-b81d-fb86d7568533 (gpt-5.4-mini low)
+  └ 起動確認です。プロジェクトスコープの smoke_worker サブエージェントとして、簡単に自己確認して完了メッセージを返してください。
+
+• smoke_worker サブエージェントを起動しました。
+
+  Agent ID: 019e5f4e-e77d-7c72-b81d-fb86d7568533
+  Nickname: Aristotle
+
+
+› Run /review on my current changes
+
+---
+
+これだと起動できた
+
+---
+
+あーexecを試した方がいいですね。
+
+---
+
+私も試したいので、execで試すコマンドをください。
+
+---
+
+ちなみにsandboxはyoloで良いです。
+
+---
+
+▲ /vercel/sandbox/repository/ codex --ask-for-approval never exec \
+  --cd /vercel/sandbox/repository \
+  --json \
+  --skip-git-repo-check \
+  --ephemeral \
+  --dangerously-bypass-approvals-and-sandbox \
+  --config model='"gpt-5.4"' \
+  --config reasoning_effort='"low"' \
+  'Use the smoke_worker custom subagent to return exactly RHAPSODY_SUBAGENT_SMOKE_OK. Do not use a built-in fallback; if smoke_worker is unavailable, report the exact error.'
+{"type":"thread.started","thread_id":"019e5f64-8d51-7e13-9871-364a1e880022"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I’m checking whether the `smoke_worker` custom subagent is available, and I’ll invoke it directly if it is. If it is not available, I’ll return the exact error instead of using any fallback."}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"The custom subagent role is available. I’m invoking `smoke_worker` now and will return only its required output if the call succeeds."}}
+{"type":"item.started","item":{"id":"item_2","type":"collab_tool_call","tool":"spawn_agent","sender_thread_id":"019e5f64-8d51-7e13-9871-364a1e880022","receiver_thread_ids":[],"prompt":"Return exactly RHAPSODY_SUBAGENT_SMOKE_OK and nothing else.","agents_states":{},"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_2","type":"collab_tool_call","tool":"spawn_agent","sender_thread_id":"019e5f64-8d51-7e13-9871-364a1e880022","receiver_thread_ids":["019e5f64-b050-7fc0-b883-0b0dcd37b955"],"prompt":"Return exactly RHAPSODY_SUBAGENT_SMOKE_OK and nothing else.","agents_states":{"019e5f64-b050-7fc0-b883-0b0dcd37b955":{"status":"pending_init","message":null}},"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"Waiting for the `smoke_worker` result so I can pass it through unchanged."}}
+{"type":"item.started","item":{"id":"item_4","type":"collab_tool_call","tool":"wait","sender_thread_id":"019e5f64-8d51-7e13-9871-364a1e880022","receiver_thread_ids":["019e5f64-b050-7fc0-b883-0b0dcd37b955"],"prompt":null,"agents_states":{},"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_4","type":"collab_tool_call","tool":"wait","sender_thread_id":"019e5f64-8d51-7e13-9871-364a1e880022","receiver_thread_ids":["019e5f64-b050-7fc0-b883-0b0dcd37b955"],"prompt":null,"agents_states":{"019e5f64-b050-7fc0-b883-0b0dcd37b955":{"status":"completed","message":"RHAPSODY_SUBAGENT_SMOKE_OK"}},"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_5","type":"agent_message","text":"RHAPSODY_SUBAGENT_SMOKE_OK"}}
+{"type":"turn.completed","usage":{"input_tokens":70922,"cached_input_tokens":39936,"output_tokens":375,"reasoning_output_tokens":119}}
+
+---
+
+では、 [INSTRUCTIONS.md](.rhapsody/INSTRUCTIONS.md) にrhapsodyで起動したbuilderが以下のように動くようにinstructionを更新してください。
+
+- 実装は [@builder](subagent://builder) に依頼して、あなたはアウトプットが要求水準を満たすことに責任を持ってください
+- そのためにアウトプットを評価し十分な水準になるまでフィードバックを繰り返してください
+- KISS, YAGNIでありながらも、部分最適化やband-eid solutionにならないように良い塩梅を探ってください
