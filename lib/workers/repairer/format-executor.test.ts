@@ -10,6 +10,7 @@ import {
 	listWorkItemGraph,
 	migrateStateStore,
 } from "@/lib/state";
+import * as runnerCodexConfig from "@/lib/runner-codex-config";
 import { runRepairerExecutor } from "@/lib/workers/repairer/format-executor";
 import {
 	buildRepairExecutionKey,
@@ -289,6 +290,81 @@ test("runRepairerExecutor records repair_noop decision", async () => {
 			),
 		).toBe(true);
 	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("runRepairerExecutor applies merged GitHub and dependency network policies", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItemId = "github_issue:toyamarinyon/rhapsody#300";
+	const originalToken = process.env.GITHUB_TOKEN;
+
+	const loadRunnerCodexConfigSpy = vi
+		.spyOn(runnerCodexConfig, "loadRunnerCodexConfig")
+		.mockResolvedValue({
+			loadedFromPath: "/tmp/.rhapsody/config.toml",
+			config: {
+				model: "gpt-5.2",
+				sandbox: {
+					networkPolicy: {
+						preset: "common_dependencies",
+						domains: {
+							"registry.npmjs.org": "allow",
+						},
+					},
+				},
+			},
+		});
+
+	process.env.GITHUB_TOKEN = "test-token";
+
+	try {
+		await createAllowedRepairPlanDecision(
+			client,
+			workItemId,
+			buildPlan().decisionId,
+			["src/index.ts"],
+		);
+
+		const deps = mockDependencies({
+			commandOutput: JSON.stringify({
+				ok: true,
+				outcome: "repair_noop",
+			}),
+		});
+
+		const result = await runRepairerExecutor({
+			client,
+			workItem: workItem(),
+			workItemId,
+			pullRequestNumber: baseMetadata.pullRequestNumber,
+			pullRequestUrl: "https://github.com/toyamarinyon/rhapsody/pull/300",
+			checkSummary: buildCheckSummary(),
+			repositoryBaseBranch: "main",
+			plan: buildPlan(),
+			owner: "toyamarinyon",
+			repository: "rhapsody",
+			dependencies: deps,
+		});
+
+		const networkPolicy =
+			deps.createVercelSandbox.mock.calls[0]?.[0]?.networkPolicy;
+		const allowList = networkPolicy?.allow as Record<string, unknown>;
+
+		expect(result.executed).toBe(true);
+		expect(result.outcome).toBe("repair_noop");
+		expect(allowList).toHaveProperty("github.com");
+		expect(allowList).toHaveProperty("npmjs.org");
+		expect(allowList).toHaveProperty("*.npmjs.org");
+	} finally {
+		if (originalToken === undefined) {
+			delete process.env.GITHUB_TOKEN;
+		} else {
+			process.env.GITHUB_TOKEN = originalToken;
+		}
+		loadRunnerCodexConfigSpy.mockRestore();
 		client.close();
 		database.cleanup();
 	}

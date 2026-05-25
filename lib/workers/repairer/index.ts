@@ -28,7 +28,6 @@ export type RepairerClassification =
 export type RepairerDecisionOutcome = "repair_allowed" | "repair_blocked";
 
 export type RepairerAttemptOutcome =
-	| "repair_allowed"
 	| "repair_applied"
 	| "repair_noop"
 	| "repair_failed";
@@ -386,7 +385,6 @@ function isRepairAttemptOutcome(
 	outcome: string,
 ): outcome is RepairerAttemptOutcome {
 	return (
-		outcome === "repair_allowed" ||
 		outcome === "repair_applied" ||
 		outcome === "repair_noop" ||
 		outcome === "repair_failed"
