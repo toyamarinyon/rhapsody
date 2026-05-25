@@ -101,7 +101,7 @@ export default {
   },
   runner: {
     kind: "sandbox-codex",
-    timeoutMs: 25 * 60 * 1000,
+    timeoutMs: 60 * 60 * 1000,
   },
 } satisfies RhapsodyProjectConfig;
 ```
