@@ -1,6 +1,8 @@
 import type { Client, Transaction } from "@libsql/client";
 import type { Row } from "@libsql/client";
 import type { RhapsodyRunner } from "@/lib/config";
+import { projectSandboxSessions } from "./sandbox-sessions";
+import type { SandboxSessionProjection } from "./sandbox-sessions";
 
 export type RunStatus =
 	| "pending"
@@ -169,6 +171,7 @@ export type RunDetail = {
 	run: StateStoreRun;
 	attempts: StateStoreAttempt[];
 	events: StateStoreEvent[];
+	sandboxSessions: SandboxSessionProjection[];
 	claim: StateStoreClaim | null;
 };
 
@@ -444,7 +447,8 @@ export async function getRunDetail(
 	return {
 		run,
 		attempts: attemptsResult.rows.map(mapAttempt),
-		events: eventsResult.rows.map(mapEvent),
+		events: eventsResult.rows.map(mapEventRow),
+		sandboxSessions: projectSandboxSessions(eventsResult.rows.map(mapEventRow)),
 		claim: claimResult.rows[0] ? mapClaim(claimResult.rows[0]) : null,
 	};
 }
@@ -828,7 +832,7 @@ export async function getStateSummary(
 		runStatusCounts: mapCountRows(runCountsResult.rows),
 		attemptStatusCounts: mapCountRows(attemptCountsResult.rows),
 		activeClaimCount: getNumber(activeClaimsResult.rows[0], "count"),
-		recentEvents: recentEventsResult.rows.map(mapEvent),
+		recentEvents: recentEventsResult.rows.map(mapEventRow),
 	};
 }
 
@@ -1661,7 +1665,7 @@ function mapAttempt(row: Row): StateStoreAttempt {
 	};
 }
 
-function mapEvent(row: Row): StateStoreEvent {
+export function mapEventRow(row: Row): StateStoreEvent {
 	return {
 		id: getString(row, "id"),
 		runId: getNullableString(row, "run_id"),

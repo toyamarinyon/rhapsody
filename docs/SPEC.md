@@ -282,6 +282,12 @@ Fields:
 
 Append-only observability record for scheduler, runner, sandbox, and agent activity.
 
+Sandbox lifecycle observability is projected from events rather than a dedicated sandbox-session
+table in the MVP. Rhapsody records lifecycle events such as `sandbox.created`,
+`sandbox.command_started`, `sandbox.command_finished`, `sandbox.stop_requested`,
+`sandbox.stopped`, `sandbox.stop_failed`, and `sandbox.retained`, with correlation fields carried
+in `data_json`.
+
 Fields:
 
 - `event_id`
@@ -379,9 +385,10 @@ You are working on {{ item.identifier }}.
 
 Issue URL: {{ item.url }}
 
-Move this issue forward in the smallest useful increment. If implementation changes are needed,
-create a branch, commit the changes, and open a pull request. If no code change is needed, leave a
-clear issue comment instead.
+Implement the issue according to its stated desired behavior and acceptance criteria. Keep the
+solution focused and proportional: prefer the smallest design that satisfies the issue. If
+implementation changes are needed, create a branch, commit the changes, and open a pull request. If
+no code change is needed, leave a clear issue comment instead.
 ```
 
 ### 5.3 Differences from Symphony
@@ -722,6 +729,9 @@ decides needs human attention, not every pull request handoff. See
 [ADR 0013](adr/0013-define-post-run-decision-and-review-policy.md).
 Policy decisions are sourced from `.rhapsody/config.toml` with conservative defaults when policy data
 is missing or invalid.
+Deterministic format-repair matching is also sourced from `.rhapsody/config.toml` under `[repair]`
+and `[[repair.format_checks]]`, using Actions workflow path, job name, and failed step names when
+that metadata is available and falling back to coarse check-run-name heuristics otherwise.
 For the current MVP action set, `auto_merge_candidate` causes trusted Rhapsody code to merge the
 pull request and move the Project item to `post_run.auto_merge_success_status`, while `human_review`
 moves the Project item to `post_run.human_review_status`.
@@ -737,9 +747,11 @@ Minimum endpoints:
 - `GET /api/v1/items/:identifier`
   - Returns item-specific run/debug details.
 - `GET /api/v1/work-items/:encoded_work_item_id/graph`
-  - Returns worker runs, decisions, artifacts, and links for a single work item.
+  - Returns worker runs, decisions, artifacts, links, and projected `sandboxSessions` for a
+    single work item.
 - `GET /api/v1/runs/:run_id`
-  - Returns run attempts, sandbox references, logs, sandbox exports, snapshots, and GitHub links.
+  - Returns run attempts, events, projected `sandboxSessions`, sandbox references, logs, sandbox
+    exports, snapshots, and GitHub links.
 - `POST /api/v1/refresh`
   - Requests an immediate scheduler tick.
 

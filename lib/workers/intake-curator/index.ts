@@ -155,6 +155,7 @@ export type IntakeClassifierRunner = (input: {
 	outputMessagePath: string;
 	workItem: IntakeCuratorWorkItem;
 	attempt: number;
+	client?: Client;
 	workerRunId?: string;
 	workItemId?: string;
 }) => Promise<{
@@ -352,6 +353,7 @@ export async function runIntakeCurator(
 			humanReplies,
 			{
 				runner: options.classify ?? runCodexIntakeClassification,
+				client,
 				schemaFilePath: options.schemaFilePath,
 				nowMs: options.nowMs,
 				workerRunId: classifierWorkerRun?.id,
@@ -546,6 +548,7 @@ async function classifyWithHealing(
 	humanReplies: GitHubIssueComment[],
 	options: {
 		runner: IntakeClassifierRunner;
+		client?: Client;
 		nowMs?: number;
 		schemaFilePath?: string;
 		workerRunId?: string;
@@ -571,6 +574,7 @@ async function classifyWithHealing(
 				outputMessagePath,
 				workItem,
 				attempt,
+				client: options.client,
 				workerRunId: options.workerRunId,
 				workItemId: options.workItemId,
 			});
@@ -682,6 +686,7 @@ async function runCodexIntakeClassification(
 	const result = await runIntakeClassifierInSandbox({
 		prompt: input.prompt,
 		schemaFilePath: input.schemaFilePath,
+		client: input.client,
 		workerRunId: input.workerRunId,
 		workItemId: input.workItemId,
 	});
@@ -982,6 +987,7 @@ async function safeListWorkItemGraph(
 			decisions: [],
 			artifacts: [],
 			links: [],
+			sandboxSessions: [],
 		};
 	}
 }

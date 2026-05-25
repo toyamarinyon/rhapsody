@@ -2,6 +2,9 @@
 model = "gpt-5.4"
 reasoning_effort = "low"
 
+[sandbox.network_policy]
+preset = "common_dependencies"
+
 [post_run]
 auto_merge_success_status = "Done"
 human_review_status = "Human Review"
@@ -9,3 +12,10 @@ human_review_status = "Human Review"
 [[post_run.auto_merge_eligible]]
 paths = ["docs/**", "!docs/adr/**"]
 description = "Documentation-only changes with ADR documentation excluded from auto-merge."
+
+[repair]
+
+[[repair.format_checks]]
+workflow_path = ".github/workflows/ci.yml"
+job_name = "Static checks"
+step_names = ["Format check"]

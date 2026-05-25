@@ -226,6 +226,22 @@ export function buildVercelSandboxCodexNetworkPolicy(args: {
 	};
 }
 
+export function buildVercelSandboxDependencyNetworkPolicy(
+	hosts: readonly string[],
+): NetworkPolicy {
+	const allow: Record<string, NetworkPolicyRule[]> = {};
+
+	for (const host of new Set(hosts)) {
+		if (!host.trim()) {
+			continue;
+		}
+
+		allow[host] = [];
+	}
+
+	return { allow };
+}
+
 export async function createVercelSandbox(
 	input: CreateVercelSandboxInput = {},
 ) {
@@ -381,8 +397,14 @@ export async function createVercelSandboxSnapshot(
 	} satisfies VercelSandboxSnapshot;
 }
 
-export async function stopVercelSandbox(sandbox: RhapsodyVercelSandbox) {
-	await sandbox.stop();
+export async function stopVercelSandbox(
+	sandbox: RhapsodyVercelSandbox,
+	input?: { signal?: AbortSignal },
+) {
+	const stop = sandbox.stop as unknown as (options?: {
+		signal?: AbortSignal;
+	}) => Promise<unknown>;
+	await stop(input);
 }
 
 export async function withVercelSandbox<TResult>(

@@ -12,5 +12,6 @@ Attempt: {{ attempt.id }}
 Repository: {{ repository.owner }}/{{ repository.name }}
 Project owner: {{ project.owner }}
 
-Move this issue forward in the smallest useful increment. Keep changes focused, update docs when
-behavior changes, and leave the repository ready for review.
+Implement the issue according to its stated desired behavior and acceptance criteria. Keep the
+solution focused and proportional: prefer the smallest design that satisfies the issue, update docs
+when behavior changes, and leave the repository ready for review.

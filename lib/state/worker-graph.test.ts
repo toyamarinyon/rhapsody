@@ -219,6 +219,7 @@ test("listWorkItemGraph returns only rows for requested work item", async () => 
 		expect(graph.artifacts).toHaveLength(1);
 		expect(graph.artifacts[0]?.id).toBe("art_match");
 		expect(graph.links).toHaveLength(0);
+		expect(graph.sandboxSessions).toEqual([]);
 	} finally {
 		client.close();
 		database.cleanup();

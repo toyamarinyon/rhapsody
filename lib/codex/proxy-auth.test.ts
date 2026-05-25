@@ -49,6 +49,7 @@ describe("codex proxy auth helpers", () => {
 			run: { status: "running", workItemId: "workitem" } as never,
 			attempts: [{ id: "attempt-1", status: "running" } as never],
 			events: [],
+			sandboxSessions: [],
 			claim: null,
 		} as RunDetail);
 
@@ -97,6 +98,7 @@ describe("codex proxy auth helpers", () => {
 						decisions: [],
 						artifacts: [],
 						links: [],
+						sandboxSessions: [],
 					}) as WorkItemGraph,
 			);
 
