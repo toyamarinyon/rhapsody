@@ -1406,7 +1406,10 @@ test("scheduler does not retry fresh duplicate if repair attempts hit fingerprin
 	}
 });
 
-test("scheduler does not re-start repair while previous repair run is active", async () => {
+test.each([
+	"pending",
+	"running",
+] as const)("scheduler does not re-start repair while previous repair run is active (%s)", async (repairerRunStatus) => {
 	const database = await createTestDatabase();
 	const client = database.client;
 	const item = buildProjectItem({
@@ -1481,7 +1484,7 @@ test("scheduler does not re-start repair while previous repair run is active", a
 	await createWorkerRun(client, {
 		workItemId,
 		kind: "repairer",
-		status: "running",
+		status: repairerRunStatus,
 		metadata: { repairExecutionKey },
 	});
 
@@ -1515,24 +1518,13 @@ test("scheduler does not re-start repair while previous repair run is active", a
 		});
 
 		expect(result.ok).toBe(true);
-		expect(executeRepair).toHaveBeenCalledTimes(1);
-		const resultArg = executeRepair.mock.calls[0]?.[0] as Record<
-			"plan",
-			{ repairExecutionKey: string }
-		>;
-		expect(resultArg?.plan?.repairExecutionKey).toBe(
-			buildRepairExecutionKey({
-				pullRequestNumber: 108,
-				headSha,
-				failureFingerprint,
-			}),
-		);
+		expect(plannerSpy).toHaveBeenCalledTimes(0);
+		expect(executeRepair).toHaveBeenCalledTimes(0);
 	} finally {
 		client.close();
 		database.cleanup();
 	}
 });
-
 test("scheduler skips terminal repair execution for same execution key", async () => {
 	const database = await createTestDatabase();
 	const client = database.client;

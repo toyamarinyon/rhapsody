@@ -26,6 +26,7 @@ import {
 	createLink,
 	createWorkerRun,
 	type Decision,
+	type WorkItemGraph,
 	getStateSummary,
 	listWorkItemGraph,
 } from "@/lib/state";
@@ -39,6 +40,7 @@ import {
 } from "@/lib/workers/post-pr-curator";
 import {
 	buildFailureFingerprint,
+	buildRepairExecutionKey,
 	buildRepairPlanFromRepairDecision,
 	runRepairerPlanner,
 } from "@/lib/workers/repairer";
@@ -593,6 +595,7 @@ async function runPostPrCuratorForInProgress(
 				dependencies,
 				item,
 				workItemId,
+				graph,
 				graphDecisions: graph.decisions,
 				postPrDecisionId: postPrResult.decisionId,
 				postPrWorkerRunId,
@@ -768,6 +771,7 @@ async function handleFailedPostPrChecks(input: {
 	dependencies: SchedulerPostPrDependencies;
 	item: GitHubProjectIssueWorkItem;
 	workItemId: string;
+	graph: WorkItemGraph;
 	graphDecisions: Decision[];
 	postPrDecisionId: string;
 	postPrWorkerRunId: string | null;
@@ -776,6 +780,20 @@ async function handleFailedPostPrChecks(input: {
 	skippedFreshDuplicate: boolean;
 }) {
 	const failureFingerprint = buildFailureFingerprint(input.checkSummary);
+	const repairExecutionKey = buildRepairExecutionKey({
+		pullRequestNumber: input.pullRequestArtifact.number,
+		headSha: input.checkSummary.headSha,
+		failureFingerprint,
+	});
+
+	if (
+		hasActiveRepairerRunForKey({
+			workerRuns: input.graph.workerRuns,
+			repairExecutionKey,
+		})
+	) {
+		return;
+	}
 
 	if (input.skippedFreshDuplicate) {
 		const blockedDecision = findLatestRepairDecision({
@@ -1170,6 +1188,22 @@ async function mergePullRequestAndMarkDone(input: {
 			},
 		});
 	}
+}
+
+function hasActiveRepairerRunForKey(input: {
+	workerRuns: WorkItemGraph["workerRuns"];
+	repairExecutionKey: string;
+}) {
+	return input.workerRuns.some((run) => {
+		if (run.kind !== "repairer") {
+			return false;
+		}
+		if (!["pending", "running"].includes(run.status)) {
+			return false;
+		}
+		const metadata = asObject(run.metadata);
+		return metadata?.repairExecutionKey === input.repairExecutionKey;
+	});
 }
 
 async function moveUnknownChecksItemToHumanReview(input: {
