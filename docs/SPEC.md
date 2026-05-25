@@ -732,6 +732,9 @@ is missing or invalid.
 Deterministic format-repair matching is also sourced from `.rhapsody/config.toml` under `[repair]`
 and `[[repair.format_checks]]`, using Actions workflow path, job name, and failed step names when
 that metadata is available and falling back to coarse check-run-name heuristics otherwise.
+When post-PR checks are non-passing and the pull request branch is behind its base branch, curator
+workers SHOULD attempt a non-rewriting base-branch integration repair before spending normal CI
+repair budget or escalating unknown checks to human review.
 For the current MVP action set, `auto_merge_candidate` causes trusted Rhapsody code to merge the
 pull request and move the Project item to `post_run.auto_merge_success_status`, while `human_review`
 moves the Project item to `post_run.human_review_status`.

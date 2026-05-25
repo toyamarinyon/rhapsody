@@ -13,6 +13,7 @@ import {
 	getPullRequestChangedFiles,
 	getPullRequest,
 	mergePullRequest,
+	comparePullRequestBranches,
 } from "@/lib/github/pull-requests";
 import {
 	evaluatePostRunDecision,
@@ -45,6 +46,10 @@ import {
 	runRepairerPlanner,
 } from "@/lib/workers/repairer";
 import { runRepairerExecutor } from "@/lib/workers/repairer/format-executor";
+import {
+	runIntegrationRepairExecutor,
+	runIntegrationRepairPlanner,
+} from "@/lib/workers/integration-repair";
 
 type SchedulerTickCreatedRun = {
 	workItemId: string;
@@ -107,9 +112,12 @@ export type SchedulerTickDependencies = {
 	getPullRequestChangedFiles?: typeof getPullRequestChangedFiles;
 	getPullRequest?: typeof getPullRequest;
 	mergePullRequest?: typeof mergePullRequest;
+	comparePullRequestBranches?: typeof comparePullRequestBranches;
 	loadPostRunDecisionConfig?: typeof loadPostRunDecisionConfig;
 	runRepairerPlanner?: typeof runRepairerPlanner;
 	runRepairerExecutor?: typeof runRepairerExecutor;
+	runIntegrationRepairPlanner?: typeof runIntegrationRepairPlanner;
+	runIntegrationRepairExecutor?: typeof runIntegrationRepairExecutor;
 	runIntakeCurator?: typeof runIntakeCuratorNode;
 };
 
@@ -179,9 +187,14 @@ export async function runSchedulerTick(
 						getPullRequestCheckSummary: dependencies.getPullRequestCheckSummary,
 						getPullRequestChangedFiles: dependencies.getPullRequestChangedFiles,
 						mergePullRequest: dependencies.mergePullRequest,
+						comparePullRequestBranches: dependencies.comparePullRequestBranches,
 						loadPostRunDecisionConfig: dependencies.loadPostRunDecisionConfig,
 						runRepairerPlanner: dependencies.runRepairerPlanner,
 						runRepairerExecutor: dependencies.runRepairerExecutor,
+						runIntegrationRepairPlanner:
+							dependencies.runIntegrationRepairPlanner,
+						runIntegrationRepairExecutor:
+							dependencies.runIntegrationRepairExecutor,
 						updateProjectIssueStatus: updateIssueStatus,
 					},
 					item,
@@ -518,9 +531,12 @@ type SchedulerPostPrDependencies = {
 	getPullRequestCheckSummary?: typeof getPullRequestCheckSummary;
 	getPullRequestChangedFiles?: typeof getPullRequestChangedFiles;
 	mergePullRequest?: typeof mergePullRequest;
+	comparePullRequestBranches?: typeof comparePullRequestBranches;
 	loadPostRunDecisionConfig?: typeof loadPostRunDecisionConfig;
 	runRepairerPlanner?: typeof runRepairerPlanner;
 	runRepairerExecutor?: typeof runRepairerExecutor;
+	runIntegrationRepairPlanner?: typeof runIntegrationRepairPlanner;
+	runIntegrationRepairExecutor?: typeof runIntegrationRepairExecutor;
 	updateProjectIssueStatus: typeof updateProjectIssueStatus;
 };
 
@@ -561,20 +577,6 @@ async function runPostPrCuratorForInProgress(
 			)?.workerRunId ??
 			null;
 
-		if (postPrResult.classification === "checks_unknown") {
-			await moveUnknownChecksItemToHumanReview({
-				client,
-				config,
-				dependencies,
-				item,
-				workItemId,
-				postPrDecisionId: postPrResult.decisionId,
-				postPrWorkerRunId,
-				pullRequestArtifact,
-				checkSummary: postPrResult.checkSummary,
-			});
-		}
-
 		if (postPrResult.classification === "checks_success") {
 			await applyChecksSuccessPostPrPolicy({
 				client,
@@ -588,8 +590,11 @@ async function runPostPrCuratorForInProgress(
 			});
 		}
 
-		if (postPrResult.classification === "ci_failed") {
-			await handleFailedPostPrChecks({
+		if (
+			postPrResult.classification === "checks_unknown" ||
+			postPrResult.classification === "ci_failed"
+		) {
+			await handleNonPassingPostPrChecks({
 				client,
 				config,
 				dependencies,
@@ -765,6 +770,193 @@ async function applyChecksSuccessPostPrPolicy(input: {
 	});
 }
 
+async function handleNonPassingPostPrChecks(input: {
+	client: Client;
+	config: ReturnType<typeof loadRhapsodyConfig>;
+	dependencies: SchedulerPostPrDependencies;
+	item: GitHubProjectIssueWorkItem;
+	workItemId: string;
+	graph: WorkItemGraph;
+	graphDecisions: Decision[];
+	postPrDecisionId: string;
+	postPrWorkerRunId: string | null;
+	pullRequestArtifact: { id: string; number: number; url: string | null };
+	checkSummary: PullRequestCheckSummary;
+	skippedFreshDuplicate: boolean;
+}) {
+	const getPullRequestDetails =
+		input.dependencies.getPullRequest ?? getPullRequest;
+	const compareBranches =
+		input.dependencies.comparePullRequestBranches ?? comparePullRequestBranches;
+	let pullRequestDetails: Awaited<
+		ReturnType<typeof getPullRequestDetails>
+	> | null = null;
+	let branchComparison: Awaited<
+		ReturnType<typeof comparePullRequestBranches>
+	> | null = null;
+
+	try {
+		pullRequestDetails = await getPullRequestDetails({
+			owner: input.config.repository.owner,
+			repository: input.config.repository.name,
+			pullRequestNumber: input.pullRequestArtifact.number,
+		});
+		branchComparison = await compareBranches({
+			owner: input.config.repository.owner,
+			repository: input.config.repository.name,
+			base: pullRequestDetails.baseRef,
+			head: pullRequestDetails.headRef,
+		});
+	} catch (error) {
+		await createEvent(input.client, {
+			runId: null,
+			attemptId: null,
+			level: "warn",
+			type: "scheduler.pull_request_branch_comparison_failed",
+			message:
+				"Scheduler could not compare the pull request branch against its base branch.",
+			data: {
+				issueNumber: input.item.issueNumber,
+				pullRequestNumber: input.pullRequestArtifact.number,
+				error: serializeError(error),
+			},
+		});
+	}
+
+	if (pullRequestDetails && branchComparison) {
+		const integrationPlan = await (
+			input.dependencies.runIntegrationRepairPlanner ??
+			runIntegrationRepairPlanner
+		)(input.client, {
+			workItem: input.item,
+			workItemId: input.workItemId,
+			postPrDecisionId: input.postPrDecisionId,
+			pullRequestNumber: input.pullRequestArtifact.number,
+			pullRequestUrl: input.pullRequestArtifact.url ?? "",
+			headSha: input.checkSummary.headSha ?? pullRequestDetails.headSha ?? null,
+			baseSha: pullRequestDetails.baseSha ?? null,
+			branchComparison,
+			existingDecisions: input.graphDecisions,
+		});
+
+		await createEvent(input.client, {
+			runId: null,
+			attemptId: null,
+			level: "info",
+			type: "scheduler.integration_repair_planned",
+			message:
+				integrationPlan.outcome === "integration_repair_needed"
+					? "Scheduler planned base integration repair before normal CI handling."
+					: "Scheduler skipped base integration because the pull request branch was already current.",
+			data: {
+				issueNumber: input.item.issueNumber,
+				pullRequestNumber: input.pullRequestArtifact.number,
+				outcome: integrationPlan.outcome,
+				integrationExecutionKey: integrationPlan.integrationExecutionKey,
+				branchComparison,
+				skippedFreshDuplicate: integrationPlan.skippedFreshDuplicate,
+			},
+		});
+
+		if (integrationPlan.outcome === "integration_repair_needed") {
+			const result = await (
+				input.dependencies.runIntegrationRepairExecutor ??
+				runIntegrationRepairExecutor
+			)({
+				client: input.client,
+				workItem: input.item,
+				workItemId: input.workItemId,
+				pullRequestNumber: input.pullRequestArtifact.number,
+				pullRequestUrl: input.pullRequestArtifact.url ?? "",
+				owner: input.config.repository.owner,
+				repository: input.config.repository.name,
+				headRef: pullRequestDetails.headRef,
+				baseRef: pullRequestDetails.baseRef,
+				plan: integrationPlan,
+			});
+
+			await createEvent(input.client, {
+				runId: null,
+				attemptId: null,
+				level:
+					result.outcome === "integration_repair_applied" ||
+					result.outcome === "integration_repair_conflict_resolved"
+						? "info"
+						: result.outcome === "integration_repair_skipped_in_progress"
+							? "info"
+							: "warn",
+				type: "scheduler.integration_repair_result",
+				message:
+					result.outcome === "integration_repair_applied"
+						? "Scheduler applied base integration repair."
+						: result.outcome === "integration_repair_conflict_resolved"
+							? "Scheduler resolved merge conflicts during base integration repair."
+							: result.outcome === "integration_repair_skipped_in_progress"
+								? "Scheduler observed an integration repair was already running."
+								: result.outcome === "integration_repair_skipped_terminal"
+									? "Scheduler observed a terminal integration repair result for this branch state."
+									: "Scheduler could not complete base integration repair safely.",
+				data: {
+					issueNumber: input.item.issueNumber,
+					pullRequestNumber: input.pullRequestArtifact.number,
+					outcome: result.outcome,
+					terminalOutcome: result.terminalOutcome ?? null,
+					reason: result.reason ?? null,
+					integrationExecutionKey: integrationPlan.integrationExecutionKey,
+					branchComparison,
+				},
+			});
+
+			if (
+				result.outcome === "integration_repair_applied" ||
+				result.outcome === "integration_repair_conflict_resolved" ||
+				result.outcome === "integration_repair_skipped_in_progress" ||
+				(result.outcome === "integration_repair_skipped_terminal" &&
+					(result.terminalOutcome === "integration_repair_applied" ||
+						result.terminalOutcome === "integration_repair_conflict_resolved"))
+			) {
+				return;
+			}
+
+			await moveIntegrationRepairItemToHumanReview({
+				client: input.client,
+				config: input.config,
+				dependencies: input.dependencies,
+				item: input.item,
+				workItemId: input.workItemId,
+				postPrDecisionId: input.postPrDecisionId,
+				postPrWorkerRunId: input.postPrWorkerRunId,
+				pullRequestArtifact: input.pullRequestArtifact,
+				reason:
+					result.reason ??
+					"Base integration conflicted and the conflict-resolution agent could not produce a safe merge.",
+				branchComparison,
+				checkClassification: input.checkSummary.classification,
+				checkSummary: input.checkSummary,
+				integrationDecisionId: result.decisionId ?? null,
+			});
+			return;
+		}
+	}
+
+	if (input.checkSummary.classification === "checks_unknown") {
+		await moveUnknownChecksItemToHumanReview({
+			client: input.client,
+			config: input.config,
+			dependencies: input.dependencies,
+			item: input.item,
+			workItemId: input.workItemId,
+			postPrDecisionId: input.postPrDecisionId,
+			postPrWorkerRunId: input.postPrWorkerRunId,
+			pullRequestArtifact: input.pullRequestArtifact,
+			checkSummary: input.checkSummary,
+		});
+		return;
+	}
+
+	await handleFailedPostPrChecks(input);
+}
+
 async function handleFailedPostPrChecks(input: {
 	client: Client;
 	config: ReturnType<typeof loadRhapsodyConfig>;
@@ -923,6 +1115,62 @@ async function handleFailedPostPrChecks(input: {
 			"Repair was blocked because the failed checks were not safely format-fixable or the repair budget was exhausted.",
 		repairDecisionId: plan.decisionId,
 		checkSummary: input.checkSummary,
+	});
+}
+
+async function moveIntegrationRepairItemToHumanReview(input: {
+	client: Client;
+	config: ReturnType<typeof loadRhapsodyConfig>;
+	dependencies: SchedulerPostPrDependencies;
+	item: GitHubProjectIssueWorkItem;
+	workItemId: string;
+	postPrDecisionId: string;
+	postPrWorkerRunId: string | null;
+	pullRequestArtifact: { id: string; number: number; url: string | null };
+	reason: string;
+	branchComparison: Awaited<ReturnType<typeof comparePullRequestBranches>>;
+	checkClassification: PullRequestCheckSummary["classification"];
+	checkSummary: PullRequestCheckSummary;
+	integrationDecisionId: string | null;
+}) {
+	const policyLoadResult = await loadSchedulerPostRunPolicy(
+		input.dependencies.loadPostRunDecisionConfig,
+	);
+	const statusConfig = getPostRunStatusConfig(policyLoadResult.config);
+
+	const moved = await moveProjectItemToStatus({
+		client: input.client,
+		config: input.config,
+		updateProjectIssueStatus: input.dependencies.updateProjectIssueStatus,
+		item: input.item,
+		pullRequestNumber: input.pullRequestArtifact.number,
+		targetStatus: statusConfig.humanReviewStatus,
+		message: `Scheduler moved the Project item to ${statusConfig.humanReviewStatus} after integration repair could not resolve merge conflicts.`,
+		reason: input.reason,
+	});
+
+	if (!moved) {
+		return;
+	}
+
+	await recordPostPrResolutionDecision({
+		client: input.client,
+		workItemId: input.workItemId,
+		postPrDecisionId: input.postPrDecisionId,
+		postPrWorkerRunId: input.postPrWorkerRunId,
+		pullRequestArtifact: input.pullRequestArtifact,
+		outcome: "human_review",
+		policyRuleId: "integration_repair_blocked",
+		nextAction: `Move the Project item to ${statusConfig.humanReviewStatus} because integration repair could not safely resolve merge conflicts.`,
+		evidence: {
+			checkClassification: input.checkClassification,
+			reason: input.reason,
+			targetStatus: statusConfig.humanReviewStatus,
+			branchComparison: input.branchComparison,
+			integrationDecisionId: input.integrationDecisionId,
+			checkSummary: input.checkSummary,
+			loadedFromPath: policyLoadResult.loadedFromPath,
+		},
 	});
 }
 
