@@ -1,0 +1,61 @@
+[toyamarinyon/rhapsody#98](https://github.com/toyamarinyon/rhapsody/pull/98)CI 落ちてるんですが、auto heal動いていますかね？ ROOT_PASSWORDは `REDACTED` です。
+
+---
+
+auto healが動いていない理由が知りたいです。
+
+---
+
+post_pr_curatorはbuilderで動いています？
+
+---
+
+runnerってなんですか？
+scheduler,builder, post_pr_curatorじゃなかったでしたっけ？
+
+---
+
+あーlegacyなやつですね。それ削除して、post_pr_curatorでhuman reviewに移動できるようになってそうですか？
+
+---
+
+> ci_failed かつ repair 不可 / repair budget exhausted / checks_unknown / policy上 review 必要なら Human Review へ移動
+> checks_success なら post-run policy を評価して、auto-merge or Human Review へ移動
+
+いいですね。これissueにしましょう。背景と完了条件、このissueのスコープとしないことを丁寧に表現してください。作成したissueを読んで作られたpull requestが単体でmergeできることを目標にしてください。
+
+---
+
+[toyamarinyon/rhapsody#100](https://github.com/toyamarinyon/rhapsody/pull/100) prできたのでレビューして欲しい。
+
+---
+
+日本語で
+
+---
+
+ブランチチェックアウトして、 [@builder](subagent://builder) に実装させて、対応進めましょう。あなたはmerge後に期待した挙動になることに責任を持って進めてください。
+
+---
+
+We are reviewing/fixing PR #100 for toyamarinyon/rhapsody on branch `rhapsody/issue-99-1` in /Users/toyamarinyon/Documents/rhapsody. Implement the review finding: scheduler auto-merge success must be recoverable if merge succeeds but Project status update fails. Current `lib/scheduler/tick.ts` merges first then updates Project status; if update fails, next tick calls merge again and stops on already-merged merge failure, so it never retries moving to Done.
+
+Relevant files: `lib/scheduler/tick.ts`, `lib/scheduler/tick.test.ts`, `lib/github/pull-requests.ts` if needed. PR #100 moved post-PR finalization from legacy `workflows/runner.ts` into scheduler. The function to inspect is `mergePullRequestAndMarkDone` in `lib/scheduler/tick.ts`; tests around `scheduler auto-merges eligible pull requests after checks succeed` are in `lib/scheduler/tick.test.ts`.
+
+Your ownership: edit only `lib/scheduler/tick.ts`, `lib/scheduler/tick.test.ts`, and if truly needed `lib/github/pull-requests.ts` plus its tests. Do not touch docs. You are not alone in the codebase; do not revert unrelated edits, and adapt to current PR #100 changes.
+
+Desired behavior:
+- When `checks_success` and post-run policy allows auto-merge, scheduler should merge if needed and move Project item to configured success status.
+- If merge succeeded on an earlier tick but Project status update failed, a later tick should recognize or tolerate already-merged PR and retry only the Project status update.
+- Real merge failures for unmerged PRs should not move to Done.
+- Add focused regression test(s) covering merge success + status update failure, then later tick/attempt where already merged still updates status.
+
+Please implement directly in your workspace and report changed files and test commands/results.
+
+---
+
+builderまだ作業してますよ
+
+---
+
+Please stop where you are. I found your patch in the worktree, fixed the dependency wiring/format/type issues, added the real merge failure regression, and the targeted suite/typecheck/format now pass. Final integration is continuing in the parent agent.
