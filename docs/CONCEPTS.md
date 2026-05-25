@@ -23,6 +23,8 @@ Codex Configuration is the repository-owned `.codex/` configuration that Rhapsod
 inside the sandbox while Rhapsody still owns sandbox, network, credential, and verification
 boundaries.
 
+Custom Builder Subagents are project-scoped Codex agents loaded from `.codex/agents`.
+
 ## Scheduling Model
 
 A Scheduler is a durable workflow that finds eligible Work Items and creates Claims.
