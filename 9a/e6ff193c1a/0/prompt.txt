@@ -1,0 +1,43 @@
+修正しましょう。 [@lilas](agent://019e5cda-edb9-7440-86a9-ca709eafa8ba) に修正してもらって、merge 動作確認までお願いします。KISS, YAGNIでありたいですが、その場しのぎの修正にはならないようにアウトプットを評価・フィードバックしてください。
+
+---
+
+> #98 での動作確認は、途中まで実施しましたが repair 実行そのものの再確認はブロックされました。理由は #98 の current head に GitHub Actions の Static checks が再発火せず、Rhapsody からは Vercel の成功 check だけが見えて checks_success 判定になったためです。手動 commit status で Format check failure も付けましたが、現実装の check summary は check-run がある場合 commit status fallback を見ないので repair 判定には乗りませんでした。
+
+どうしたらいい？
+
+---
+
+> main から新しい PR を作って、format だけ壊す小さな変更を入れます。GitHub Actions が普通に走る形で push できれば、Static checks failure -> post_pr_curator -> repairer -> fix commit -> checks success まで確認できます。これが一番きれいです。
+
+これやってみて
+
+---
+
+調査しましょう
+
+---
+
+直しましょう。 [@builder](subagent://builder) に依頼して、merge, 再実行までやりましょう。
+
+---
+
+Rhapsody repoで修正をお願いします。ユーザーは production 検証 #102/#103 で repair executor が timeout し、さらに1回の失敗で budget exhausted になる問題を直したいです。
+
+背景:
+- #101 で active repairer 中の再planning抑止は入っていて本番確認済み。
+- 新しい検証 issue #102 -> PR #103 で Static checks format failure を作成。
+- post_pr_curator は ci_failed、repair planner は format_fixable/repair_allowed、repair executor は running になった。
+- executor は最終的に timeout: command exitCode 124, stderr `Command timed out after 470000ms.`, error `repair wrapper did not emit structured output`。
+- codeを見ると `lib/workers/repairer/format-executor.ts` は repair sandbox の networkPolicy に `buildVercelSandboxGitHubNetworkPolicy` だけ渡している。一方 wrapper `lib/workers/repairer/format-repair-wrapper.cjs` は `pnpm install --frozen-lockfile` を実行するので npm registry 等に出られず詰まる。builder側の sandbox-codex は `.rhapsody/config.toml` の `[sandbox.network_policy] preset = "common_dependencies"` を `expandSandboxNetworkPolicyForPreset` + `buildVercelSandboxDependencyNetworkPolicy` で反映しているので、repair executor も同等にするのが自然。
+- さらに `lib/workers/repairer/index.ts` の `countPriorFormatRepairAttempts` は `repair_allowed` も `repair_failed` も数えているため、1回の実行で planner decision + executor failure decision の2件になり、`maxAttempts.headSha=2` へ即到達する。実際の executor terminal outcome単位で数えるべき。少なくとも `repair_allowed` planner decision は attempt count に入れないのが期待。
+
+依頼:
+1. `lib/workers/repairer/format-executor.ts` に repair sandbox dependency network policy を追加してください。KISSで、既存の runner-codex config loader/helpersを使うのが良さそうです。GitHub policy + dependency policyを mergeする。広い設計変更は避ける。
+2. `countPriorFormatRepairAttempts` が plannerの `repair_allowed` decisionをattemptとして数えないよう修正してください。`repair_failed`, `repair_applied`, `repair_noop` のような executor terminal decisionsをattemptとして数えるのが自然です。既存テストの期待も更新/追加してください。
+3. テストを追加/更新してください。
+   - format executorが dependency network policy + GitHub policy を sandbox作成時に渡すこと。
+   - planner decision + failed executor decision の1回分が attemptCounts 1 になること、同一headのmax=2で1回失敗後も次plannerがまだ repair_allowed になること。
+4. 実行: `pnpm format:check`, `pnpm typecheck`, `pnpm lint`, 対象テスト。可能なら full test。
+
+あなたはコードを直接編集してください。完了したら変更ファイル、実装方針、実行テスト、残リスクを日本語で報告してください。他者の変更を巻き戻さないでください。
