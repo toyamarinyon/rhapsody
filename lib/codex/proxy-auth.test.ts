@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import * as state from "@/lib/state";
+import type { RunDetail, WorkItemGraph } from "@/lib/state";
 import {
 	buildExpectedOidcAudience,
 	isProxyRunContextActive,
@@ -41,13 +42,15 @@ describe("codex proxy auth helpers", () => {
 	});
 
 	test("isProxyRunContextActive validates legacy run/attempt context", async () => {
-		const client = { close: vi.fn() } as never;
+		const client = {
+			close: vi.fn(),
+		} as unknown as ReturnType<typeof state.createStateStoreClient>;
 		const getRunDetail = vi.spyOn(state, "getRunDetail").mockResolvedValue({
 			run: { status: "running", workItemId: "workitem" } as never,
 			attempts: [{ id: "attempt-1", status: "running" } as never],
 			events: [],
 			claim: null,
-		}) as never;
+		} as RunDetail);
 
 		vi.spyOn(state, "createStateStoreClient").mockReturnValue(client);
 
@@ -63,7 +66,9 @@ describe("codex proxy auth helpers", () => {
 	});
 
 	test("isProxyRunContextActive validates intake run-context via work item id", async () => {
-		const client = { close: vi.fn() } as never;
+		const client = {
+			close: vi.fn(),
+		} as unknown as ReturnType<typeof state.createStateStoreClient>;
 		const workItemId = "github_issue:org/repo#12";
 		const encodedWorkItemId = Buffer.from(workItemId, "utf8").toString(
 			"base64url",
@@ -71,26 +76,29 @@ describe("codex proxy auth helpers", () => {
 		const mismatchedWorkItemId = "github_issue:other#12";
 		const listWorkItemGraph = vi
 			.spyOn(state, "listWorkItemGraph")
-			.mockImplementation(async () => ({
-				workItemId,
-				workerRuns: [
-					{
-						id: "wrn-intake",
+			.mockImplementation(
+				async () =>
+					({
 						workItemId,
-						kind: "intake_curator",
-						status: "running",
-						metadata: {},
-						workItemSnapshot: {},
-						startedAt: 1,
-						finishedAt: null,
-						createdAt: 1,
-						updatedAt: 1,
-					} as never,
-				],
-				decisions: [],
-				artifacts: [],
-				links: [],
-			})) as never;
+						workerRuns: [
+							{
+								id: "wrn-intake",
+								workItemId,
+								kind: "intake_curator",
+								status: "running",
+								metadata: {},
+								workItemSnapshot: {},
+								startedAt: 1,
+								finishedAt: null,
+								createdAt: 1,
+								updatedAt: 1,
+							} as never,
+						],
+						decisions: [],
+						artifacts: [],
+						links: [],
+					}) as WorkItemGraph,
+			);
 
 		vi.spyOn(state, "getRunDetail").mockResolvedValue(null);
 		vi.spyOn(state, "createStateStoreClient").mockReturnValue(client);
@@ -119,12 +127,9 @@ describe("codex proxy auth helpers", () => {
 			}),
 		).toBe(false);
 
-		expect(listWorkItemGraph.mock.calls.map((call) => call[1])).toContain(
-			workItemId,
-		);
-		expect(listWorkItemGraph.mock.calls.map((call) => call[1])).toContain(
-			mismatchedWorkItemId,
-		);
+		const graphLookupIds = listWorkItemGraph.mock.calls.map((call) => call[1]);
+		expect(graphLookupIds).toContain(workItemId);
+		expect(graphLookupIds).toContain(mismatchedWorkItemId);
 		expect(client.close).toHaveBeenCalledTimes(3);
 	});
 });
