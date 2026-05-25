@@ -1,0 +1,44 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "b3bdddfbd950",
+  "session_id": "019e5c2e-83c5-7f72-b664-7622becb104c",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-25T22:11:28.470224Z",
+  "branch": "codex/extend-builder-timeout-60m",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "rhapsody.config.ts",
+    "docs/adr/0007-define-mvp-config-boundaries.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "5aeb962efbf0",
+  "token_usage": {
+    "input_tokens": 2561202,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 84626304,
+    "output_tokens": 133232,
+    "api_call_count": 650
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-25T22:11:28.278531Z",
+    "agent_lines": 2,
+    "agent_removed": 2,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 2,
+    "total_lines_changed": 4,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
