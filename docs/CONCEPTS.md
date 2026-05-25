@@ -23,6 +23,10 @@ Codex Configuration is the repository-owned `.codex/` configuration that Rhapsod
 inside the sandbox while Rhapsody still owns sandbox, network, credential, and verification
 boundaries.
 
+A Builder Coordinator is the top-level Codex agent for a Work Item that delegates concrete
+implementation to the project-scoped builder subagent while retaining responsibility for review
+quality.
+
 ## Scheduling Model
 
 A Scheduler is a durable workflow that finds eligible Work Items and creates Claims.
