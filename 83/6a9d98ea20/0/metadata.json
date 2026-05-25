@@ -1,0 +1,48 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "836a9d98ea20",
+  "session_id": "019e5c2e-83c5-7f72-b664-7622becb104c",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-25T04:23:01.961242Z",
+  "branch": "codex/verify-repair-flow-fresh",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "lib/repair-config.test.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "aa1ec0a97845",
+  "checkpoint_transcript_start": 283,
+  "transcript_lines_at_start": 283,
+  "token_usage": {
+    "input_tokens": 1007783,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 51499008,
+    "output_tokens": 72483,
+    "api_call_count": 386
+  },
+  "session_metrics": {
+    "turn_count": 19
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-25T04:23:01.867973Z",
+    "agent_lines": 2,
+    "agent_removed": 1,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 2,
+    "total_lines_changed": 3,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
