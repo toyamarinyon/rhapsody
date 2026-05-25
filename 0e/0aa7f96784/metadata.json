@@ -3,7 +3,7 @@
   "checkpoint_id": "0e0aa7f96784",
   "strategy": "manual-commit",
   "branch": "rhapsody/issue-99-1",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "lib/github/pull-requests.ts",
     "lib/scheduler/tick.test.ts",
@@ -15,13 +15,19 @@
       "transcript": "/0e/0aa7f96784/0/full.jsonl",
       "content_hash": "/0e/0aa7f96784/0/content_hash.txt",
       "prompt": "/0e/0aa7f96784/0/prompt.txt"
+    },
+    {
+      "metadata": "/0e/0aa7f96784/1/metadata.json",
+      "transcript": "/0e/0aa7f96784/1/full.jsonl",
+      "content_hash": "/0e/0aa7f96784/1/content_hash.txt",
+      "prompt": "/0e/0aa7f96784/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 150952,
+    "input_tokens": 208871,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 6034176,
-    "output_tokens": 39246,
-    "api_call_count": 82
+    "cache_read_tokens": 6361344,
+    "output_tokens": 42620,
+    "api_call_count": 90
   }
 }

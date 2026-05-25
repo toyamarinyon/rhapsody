@@ -1,0 +1,1 @@
+rhapsodyは `.rhapsody/config.toml`に指定しているmodelを使っているんですが、mainはそれを使いつつsubagentを起動したいんです。subagentの定義はsandboxにcloneするrepoの`.codex/agents`に指定しているものが使えるはずなので動作確認がしたいんですが、ローカルでvercel sandbox作って、確認できますかね？まずはディスカッションしましょう。
