@@ -101,7 +101,7 @@ function getBoolean(row: Row, column: string): boolean {
 	}
 
 	if (typeof value === "bigint") {
-		return value !== 0n;
+		return value !== BigInt(0);
 	}
 
 	throw new Error(`Expected ${column} to be a boolean-like integer.`);

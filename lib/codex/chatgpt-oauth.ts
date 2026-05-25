@@ -13,17 +13,20 @@ export async function requestChatGptOAuthRefresh(
 	refreshToken: string,
 	fetchImpl: typeof fetch = fetch,
 ): Promise<ChatGptOAuthRefreshResponse> {
-	const upstreamResponse = await fetchImpl("https://auth.openai.com/oauth/token", {
-		method: "POST",
-		headers: {
-			"content-type": "application/json",
+	const upstreamResponse = await fetchImpl(
+		"https://auth.openai.com/oauth/token",
+		{
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				client_id: CHATGPT_OAUTH_CLIENT_ID,
+				grant_type: "refresh_token",
+				refresh_token: refreshToken,
+			}),
 		},
-		body: JSON.stringify({
-			client_id: CHATGPT_OAUTH_CLIENT_ID,
-			grant_type: "refresh_token",
-			refresh_token: refreshToken,
-		}),
-	});
+	);
 	const bodyText = await upstreamResponse.text();
 
 	return {

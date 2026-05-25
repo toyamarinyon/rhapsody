@@ -36,8 +36,8 @@ describe("runChatGptRefreshHealthCheck", () => {
 				accountId: "acct_old",
 			});
 
-			const fetchMock = vi.fn().mockResolvedValue(
-				new Response(
+			const fetchMock = vi.fn().mockImplementation(async () => {
+				return new Response(
 					JSON.stringify({
 						access_token: "access-new",
 						refresh_token: "refresh-new",
@@ -50,8 +50,8 @@ describe("runChatGptRefreshHealthCheck", () => {
 							"content-type": "application/json",
 						},
 					},
-				),
-			);
+				);
+			});
 
 			const firstResult = await runChatGptRefreshHealthCheck({
 				now: 1_000,
@@ -123,8 +123,8 @@ describe("runChatGptRefreshHealthCheck", () => {
 				accountId: "acct_old",
 			});
 
-			const failingFetch = vi.fn().mockResolvedValue(
-				new Response(
+			const failingFetch = vi.fn().mockImplementation(async () => {
+				return new Response(
 					JSON.stringify({
 						error: "invalid_grant",
 						error_description: "redacted",
@@ -136,8 +136,8 @@ describe("runChatGptRefreshHealthCheck", () => {
 							"content-type": "application/json",
 						},
 					},
-				),
-			);
+				);
+			});
 
 			const firstFailure = await runChatGptRefreshHealthCheck({
 				now: 3_000,

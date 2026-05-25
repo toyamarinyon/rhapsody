@@ -79,7 +79,7 @@ export async function runChatGptRefreshHealthCheck(args?: {
 				checkedAt,
 				lastSucceededAt: upstream.ok
 					? checkedAt
-					: previous?.lastSucceededAt ?? null,
+					: (previous?.lastSucceededAt ?? null),
 				upstreamStatus: upstream.status,
 				upstreamStatusText: upstream.statusText || null,
 				errorCategory: upstream.ok ? null : categorizeUpstreamFailure(upstream),
