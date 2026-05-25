@@ -758,6 +758,7 @@ test("scheduler retries Done status after a prior merge succeeded", async () => 
 test("scheduler does not mark Done when merge fails for an open pull request", async () => {
 	const database = await createTestDatabase();
 	const client = database.client;
+	// Verification-only nudge for PR repair flow.
 	const item = buildProjectItem({
 		issueNumber: 144,
 		projectStatus: "In Progress",
