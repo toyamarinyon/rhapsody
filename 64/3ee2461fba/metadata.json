@@ -3,7 +3,7 @@
   "checkpoint_id": "643ee2461fba",
   "strategy": "manual-commit",
   "branch": "codex/repair-active-wait",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "lib/scheduler/tick.test.ts",
     "lib/scheduler/tick.ts"
@@ -14,13 +14,19 @@
       "transcript": "/64/3ee2461fba/0/full.jsonl",
       "content_hash": "/64/3ee2461fba/0/content_hash.txt",
       "prompt": "/64/3ee2461fba/0/prompt.txt"
+    },
+    {
+      "metadata": "/64/3ee2461fba/1/metadata.json",
+      "transcript": "/64/3ee2461fba/1/full.jsonl",
+      "content_hash": "/64/3ee2461fba/1/content_hash.txt",
+      "prompt": "/64/3ee2461fba/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 220651,
+    "input_tokens": 284699,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 4050944,
-    "output_tokens": 20169,
-    "api_call_count": 64
+    "cache_read_tokens": 7995520,
+    "output_tokens": 29485,
+    "api_call_count": 115
   }
 }

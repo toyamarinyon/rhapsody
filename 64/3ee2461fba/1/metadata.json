@@ -1,0 +1,49 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "643ee2461fba",
+  "session_id": "019e5ce2-36a9-7410-9e59-28bc036aef28",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-25T02:32:47.598446Z",
+  "branch": "codex/repair-active-wait",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "lib/scheduler/tick.test.ts",
+    "lib/scheduler/tick.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "42785e18a558",
+  "checkpoint_transcript_start": 107,
+  "transcript_lines_at_start": 107,
+  "token_usage": {
+    "input_tokens": 64048,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3944576,
+    "output_tokens": 9316,
+    "api_call_count": 51
+  },
+  "session_metrics": {
+    "turn_count": 5
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-25T02:32:47.574845Z",
+    "agent_lines": 41,
+    "agent_removed": 15,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 41,
+    "total_lines_changed": 56,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
