@@ -1,0 +1,30 @@
+<subagent_notification>
+{"agent_path":"019e5cda-edb9-7440-86a9-ca709eafa8ba","status":{"completed":"Understood — I’ll stop here.\n\nIf you want, I can do a final quick pass once your integration lands: review only for regressions in `mergePullRequestAndMarkDone` semantics against the intended recovery behavior and propose any edge-case tests before merge."}}
+</subagent_notification>
+
+---
+
+mergeしました。
+これの動作確認を　[toyamarinyon/rhapsody#98](https://github.com/toyamarinyon/rhapsody/pull/98) でやることはできますかね？
+
+---
+
+pr mergeしたので、deployされたられすの手順やってください。
+
+---
+
+修正しましょう。 [@lilas](agent://019e5cda-edb9-7440-86a9-ca709eafa8ba) に修正してもらって、merge 動作確認までお願いします。KISS, YAGNIでありたいですが、その場しのぎの修正にはならないようにアウトプットを評価・フィードバックしてください。
+
+---
+
+新しい修正タスクです。ユーザーは #100 merge 後に #98 で動作確認した結果、post_pr_curator -> repairer は起動したものの、repair executor が running の間に scheduler が同じ repairExecutionKey で planner を再実行して repair budget を消費し、最終的に Human Review に戻る挙動を直したいと言っています。
+
+担当してほしいこと:
+- KISS/YAGNIで、場当たりではなく、scheduler が active repair executor を尊重する修正を入れてください。
+- 主な対象は `lib/scheduler/tick.ts` と `lib/scheduler/tick.test.ts` の想定です。必要なら `lib/workers/repairer` の小さな helper export は可ですが、広い設計変更は避けてください。
+- 期待仕様: 同じ PR/headSha/failureFingerprint から作られる `repairExecutionKey` について `repairer` worker_run が `pending` または `running` の場合、scheduler は新しい `repair_allowed` / `repair_blocked` planner decision を積まない。Project を Human Review にも動かさない。既存 repair executor の完了を待つ。
+- 既存の「fresh duplicate の未実行 repair_allowed は executor を起動する」動作は壊さないでください。
+- 既存の terminal repair outcome がある場合、または budget exhausted の場合は従来通り Human Review へ移動できること。
+- テストで regression を捕まえてください。特に現在の `scheduler does not re-start repair while previous repair run is active` は planner が呼ばれる実装を許してしまっているので、そこを厳しくするのが自然です。
+
+あなたはコードを直接編集してください。完了したら、変更ファイル、実装方針、実行したテスト、残リスクを日本語で報告してください。あなたはこのコードベースで一人ではないので、他者の変更を巻き戻さず、現状に合わせてください。
