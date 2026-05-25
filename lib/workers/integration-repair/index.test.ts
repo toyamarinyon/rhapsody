@@ -302,12 +302,10 @@ function buildExecutorDependencies(input: { commandOutput: string }) {
 		loadRhapsodyProtectionBypassEnv: vi
 			.fn()
 			.mockReturnValue({ VERCEL_PROTECTION_BYPASS_SECRET: "bypass-secret" }),
-		loadRunnerCodexConfig: vi
-			.fn()
-			.mockResolvedValue({
-				config: null,
-				loadedFromPath: ".rhapsody/config.toml",
-			}),
+		loadRunnerCodexConfig: vi.fn().mockResolvedValue({
+			config: null,
+			loadedFromPath: ".rhapsody/config.toml",
+		}),
 	};
 }
 
