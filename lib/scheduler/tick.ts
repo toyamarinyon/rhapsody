@@ -11,6 +11,7 @@ import {
 } from "@/lib/github/project-items";
 import {
 	getPullRequestChangedFiles,
+	getPullRequest,
 	mergePullRequest,
 } from "@/lib/github/pull-requests";
 import {
@@ -102,6 +103,7 @@ export type SchedulerTickDependencies = {
 	updateProjectIssueStatus?: typeof updateProjectIssueStatus;
 	getPullRequestCheckSummary?: typeof getPullRequestCheckSummary;
 	getPullRequestChangedFiles?: typeof getPullRequestChangedFiles;
+	getPullRequest?: typeof getPullRequest;
 	mergePullRequest?: typeof mergePullRequest;
 	loadPostRunDecisionConfig?: typeof loadPostRunDecisionConfig;
 	runRepairerPlanner?: typeof runRepairerPlanner;
@@ -171,6 +173,7 @@ export async function runSchedulerTick(
 					client,
 					config,
 					{
+						getPullRequest: dependencies.getPullRequest,
 						getPullRequestCheckSummary: dependencies.getPullRequestCheckSummary,
 						getPullRequestChangedFiles: dependencies.getPullRequestChangedFiles,
 						mergePullRequest: dependencies.mergePullRequest,
@@ -509,6 +512,7 @@ async function createBuilderWorkerRun(
 }
 
 type SchedulerPostPrDependencies = {
+	getPullRequest?: typeof getPullRequest;
 	getPullRequestCheckSummary?: typeof getPullRequestCheckSummary;
 	getPullRequestChangedFiles?: typeof getPullRequestChangedFiles;
 	mergePullRequest?: typeof mergePullRequest;
@@ -990,14 +994,47 @@ async function mergePullRequestAndMarkDone(input: {
 	policyLoadedFromPath: string;
 	targetStatus: string;
 }) {
+	const getPullRequestDetails =
+		input.dependencies.getPullRequest ?? getPullRequest;
+	const mergePullRequestImpl =
+		input.dependencies.mergePullRequest ?? mergePullRequest;
+
 	try {
-		const mergeResult = await (
-			input.dependencies.mergePullRequest ?? mergePullRequest
-		)({
+		let mergeResult = await mergePullRequestImpl({
 			owner: input.config.repository.owner,
 			repository: input.config.repository.name,
 			pullRequestNumber: input.pullRequestArtifact.number,
 		});
+
+		if (!mergeResult.merged) {
+			const pullRequestSummary = await getPullRequestDetails({
+				owner: input.config.repository.owner,
+				repository: input.config.repository.name,
+				pullRequestNumber: input.pullRequestArtifact.number,
+			});
+
+			if (!pullRequestSummary.merged) {
+				await createEvent(input.client, {
+					runId: null,
+					attemptId: null,
+					level: "warn",
+					type: "scheduler.pull_request_merge_failed",
+					message: "Scheduler could not merge the trusted pull request.",
+					data: {
+						issueNumber: input.item.issueNumber,
+						pullRequestNumber: input.pullRequestArtifact.number,
+						mergeResult,
+					},
+				});
+				return;
+			}
+
+			mergeResult = {
+				...mergeResult,
+				merged: true,
+				sha: pullRequestSummary.sha ?? null,
+			};
+		}
 
 		await createEvent(input.client, {
 			runId: null,
@@ -1044,6 +1081,82 @@ async function mergePullRequestAndMarkDone(input: {
 			},
 		});
 	} catch (error) {
+		try {
+			const pullRequestSummary = await getPullRequestDetails({
+				owner: input.config.repository.owner,
+				repository: input.config.repository.name,
+				pullRequestNumber: input.pullRequestArtifact.number,
+			});
+
+			if (pullRequestSummary.merged) {
+				await createEvent(input.client, {
+					runId: null,
+					attemptId: null,
+					level: "info",
+					type: "scheduler.pull_request_already_merged",
+					message:
+						"Scheduler observed the pull request was already merged; retrying status update.",
+					data: {
+						issueNumber: input.item.issueNumber,
+						pullRequestNumber: input.pullRequestArtifact.number,
+						error: serializeError(error),
+					},
+				});
+
+				const moved = await moveProjectItemToStatus({
+					client: input.client,
+					config: input.config,
+					updateProjectIssueStatus: input.dependencies.updateProjectIssueStatus,
+					item: input.item,
+					pullRequestNumber: input.pullRequestArtifact.number,
+					targetStatus: input.targetStatus,
+					message: `Scheduler moved the Project item to ${input.targetStatus} after auto-merging the pull request.`,
+				});
+
+				if (!moved) {
+					return;
+				}
+
+				await recordPostPrResolutionDecision({
+					client: input.client,
+					workItemId: input.workItemId,
+					postPrDecisionId: input.postPrDecisionId,
+					postPrWorkerRunId: input.postPrWorkerRunId,
+					pullRequestArtifact: input.pullRequestArtifact,
+					outcome: "done",
+					policyRuleId: getPostRunDecisionRuleId(input.postRunDecision),
+					nextAction: `Merge the trusted pull request and move the Project item to ${input.targetStatus}.`,
+					evidence: {
+						checkClassification: "checks_success",
+						targetStatus: input.targetStatus,
+						postRunDecision: input.postRunDecision,
+						loadedFromPath: input.policyLoadedFromPath,
+						mergeResult: {
+							number: input.pullRequestArtifact.number,
+							merged: true,
+							message: "Pull request was already merged.",
+							sha: pullRequestSummary.sha ?? null,
+						},
+					},
+				});
+				return;
+			}
+		} catch (lookupError) {
+			await createEvent(input.client, {
+				runId: null,
+				attemptId: null,
+				level: "warn",
+				type: "scheduler.pull_request_merge_failed",
+				message:
+					"Scheduler could not resolve pull request merge status after merge failure.",
+				data: {
+					issueNumber: input.item.issueNumber,
+					pullRequestNumber: input.pullRequestArtifact.number,
+					error: serializeError(lookupError),
+				},
+			});
+		}
+
 		await createEvent(input.client, {
 			runId: null,
 			attemptId: null,
