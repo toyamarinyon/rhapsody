@@ -20,7 +20,8 @@ human_review_status = "Human Review"
 				{
 					workflowPath: ".github/workflows/ci.yml",
 					jobName: "Static checks",
-					stepNames: ["Format check", "Format"],
+					stepNames: [
+						"Format check", "Format" ],
 				},
 			],
 		},
