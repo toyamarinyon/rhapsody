@@ -11,8 +11,9 @@ export type PullRequestSummary = {
 	headSha?: string | null;
 	baseSha?: string | null;
 	title: string;
-	state?: string;
+	state?: "open" | "closed";
 	merged?: boolean;
+	mergedAt?: string | null;
 	sha?: string | null;
 	mergeable?: boolean | null;
 	mergeableState?: string | null;
@@ -210,8 +211,9 @@ export async function getPullRequest(
 		headSha: payload.head.sha ?? null,
 		baseRef: payload.base.ref,
 		baseSha: payload.base.sha ?? null,
-		state: payload.state,
+		state: normalizePullRequestState(payload.state),
 		merged: payload.merged ?? false,
+		mergedAt: payload.merged_at,
 		sha: payload.merge_commit_sha ?? payload.head.sha ?? null,
 		mergeable: payload.mergeable ?? null,
 		mergeableState: payload.mergeable_state ?? null,
@@ -402,6 +404,9 @@ async function findOpenPullRequestForHead({
 	headSha: string | null;
 	baseRef: string;
 	baseSha: string | null;
+	state: "open" | "closed";
+	merged: boolean;
+	mergedAt: string | null;
 } | null> {
 	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
 	const perPage = 100;
@@ -463,6 +468,9 @@ async function findOpenPullRequestForHead({
 		headSha: candidate.head.sha ?? null,
 		baseRef: candidate.base.ref,
 		baseSha: candidate.base.sha ?? null,
+		state: normalizePullRequestState(candidate.state),
+		merged: candidate.merged_at !== null,
+		mergedAt: candidate.merged_at,
 	};
 }
 
@@ -485,6 +493,9 @@ async function createPullRequest(args: {
 	headSha: string | null;
 	baseRef: string;
 	baseSha: string | null;
+	state: "open" | "closed";
+	merged: boolean;
+	mergedAt: string | null;
 }> {
 	const octokit =
 		args.options?.octokit ?? new Octokit({ auth: args.env.GITHUB_TOKEN });
@@ -522,7 +533,14 @@ async function createPullRequest(args: {
 		headSha: created.head.sha ?? null,
 		baseRef: created.base.ref,
 		baseSha: created.base.sha ?? null,
+		state: normalizePullRequestState(created.state),
+		merged: created.merged ?? false,
+		mergedAt: created.merged_at,
 	};
+}
+
+function normalizePullRequestState(state: string): "open" | "closed" {
+	return state === "closed" ? "closed" : "open";
 }
 
 function getErrorStatus(value: unknown): number {
