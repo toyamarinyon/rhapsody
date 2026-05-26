@@ -1,0 +1,16 @@
+curator workerはin-progressで動きますが、human reviewに移動してからconflictが発生することもあると思うのでここの対応方法を考えたい
+
+---
+
+> conflict は “human review decision の失効” 
+
+良い設計ですね。
+human reviewに移動した時点でその時は、human reviewに値すると判断したが、それが時間を経て状況が変わったことを表現できていて良いと思います。
+
+> Human Review 中の自動 branch 更新は明示的に policy 化する
+
+これは、デフォルトonでconfigで設定可能(optional)で良いです。手元でやるよりもやっておいてくれた方が嬉しい。
+
+> Project status は安易に戻さない
+
+そうですね。これは同意です。
