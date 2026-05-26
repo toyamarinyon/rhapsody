@@ -181,6 +181,8 @@ The post-PR curator should:
 
 - identify the pull request associated with the work item and builder worker;
 - observe check suites, check runs, statuses, preview deployments, reviews, and comments;
+- when non-passing checks are observed on a branch that is behind its base branch, attempt a
+  non-rewriting base integration before spending normal CI repair budget;
 - classify failures with deterministic rules before using model judgment;
 - start repair only when the failure class is safe and the repair budget allows it;
 - avoid infinite loops by recording failure fingerprints, head SHAs, and repair attempt counts;

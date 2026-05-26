@@ -1153,6 +1153,414 @@ test("scheduler runs post-PR curator and repairer planner for failed format chec
 	}
 });
 
+test("scheduler prefers integration repair before CI repair when the PR branch is behind base", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const item = buildProjectItem({
+		issueNumber: 111,
+		projectStatus: "In Progress",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#111";
+	const builderRun = await createWorkerRun(client, {
+		workItemId,
+		kind: "builder",
+		status: "completed",
+	});
+	await createArtifact(client, {
+		workItemId,
+		workerRunId: builderRun.id,
+		kind: "pull_request",
+		externalId: "111",
+		externalUrl: "https://github.com/toyamarinyon/rhapsody/pull/111",
+	});
+
+	try {
+		const runIntegrationRepairPlannerSpy = vi.fn().mockResolvedValue({
+			workerRunId: "integration-planner-run",
+			decisionId: "integration-planner-decision",
+			outcome: "integration_repair_needed",
+			skippedFreshDuplicate: false,
+			integrationExecutionKey: "111:head-sha:base-sha",
+			headSha: "head-sha",
+			baseSha: "base-sha",
+			branchComparison: {
+				base: "main",
+				head: "feature",
+				status: "behind",
+				aheadBy: 0,
+				behindBy: 2,
+				mergeBaseCommitSha: "base-sha",
+			},
+		});
+		const runIntegrationRepairExecutorSpy = vi.fn().mockResolvedValue({
+			executed: true,
+			outcome: "integration_repair_applied",
+		});
+		const runRepairerPlannerSpy = vi.fn();
+		const runRepairerExecutorSpy = vi.fn();
+		const result = await runSchedulerTick(client, {
+			config: baseConfig,
+			fetchProjectIssueWorkItems: async () => [item],
+			getPullRequest: async () => ({
+				reused: true,
+				number: 111,
+				htmlUrl: "https://github.com/toyamarinyon/rhapsody/pull/111",
+				headRef: "feature",
+				headSha: "head-sha",
+				baseRef: "main",
+				baseSha: "base-sha",
+				title: "Feature",
+				sha: "head-sha",
+			}),
+			getPullRequestCheckSummary: async () => ({
+				classification: "ci_failed",
+				headSha: "head-sha",
+				status: "failure",
+				checkRuns: [
+					{
+						name: "Format check",
+						status: "completed",
+						conclusion: "failure",
+						detailsUrl:
+							"https://github.com/toyamarinyon/rhapsody/actions/runs/1",
+					},
+				],
+			}),
+			comparePullRequestBranches: async () => ({
+				base: "main",
+				head: "feature",
+				status: "behind",
+				aheadBy: 0,
+				behindBy: 2,
+				mergeBaseCommitSha: "base-sha",
+			}),
+			runIntegrationRepairPlanner: runIntegrationRepairPlannerSpy,
+			runIntegrationRepairExecutor: runIntegrationRepairExecutorSpy,
+			runRepairerPlanner: runRepairerPlannerSpy,
+			runRepairerExecutor: runRepairerExecutorSpy,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(runIntegrationRepairPlannerSpy).toHaveBeenCalledTimes(1);
+		expect(runIntegrationRepairExecutorSpy).toHaveBeenCalledTimes(1);
+		expect(runRepairerPlannerSpy).not.toHaveBeenCalled();
+		expect(runRepairerExecutorSpy).not.toHaveBeenCalled();
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("scheduler prefers integration repair before Human Review when unknown checks are behind base", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const item = buildProjectItem({
+		issueNumber: 112,
+		projectStatus: "In Progress",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#112";
+	const builderRun = await createWorkerRun(client, {
+		workItemId,
+		kind: "builder",
+		status: "completed",
+	});
+	await createArtifact(client, {
+		workItemId,
+		workerRunId: builderRun.id,
+		kind: "pull_request",
+		externalId: "112",
+		externalUrl: "https://github.com/toyamarinyon/rhapsody/pull/112",
+	});
+
+	try {
+		const updateProjectIssueStatus = vi.fn();
+		const runIntegrationRepairPlannerSpy = vi.fn().mockResolvedValue({
+			workerRunId: "integration-planner-run",
+			decisionId: "integration-planner-decision",
+			outcome: "integration_repair_needed",
+			skippedFreshDuplicate: false,
+			integrationExecutionKey: "112:head-sha:base-sha",
+			headSha: "head-sha",
+			baseSha: "base-sha",
+			branchComparison: {
+				base: "main",
+				head: "feature",
+				status: "behind",
+				aheadBy: 0,
+				behindBy: 1,
+				mergeBaseCommitSha: "merge-base-sha",
+			},
+		});
+		const runIntegrationRepairExecutorSpy = vi.fn().mockResolvedValue({
+			executed: true,
+			outcome: "integration_repair_applied",
+		});
+		const result = await runSchedulerTick(client, {
+			config: baseConfig,
+			fetchProjectIssueWorkItems: async () => [item],
+			updateProjectIssueStatus,
+			getPullRequest: async () => ({
+				reused: true,
+				number: 112,
+				htmlUrl: "https://github.com/toyamarinyon/rhapsody/pull/112",
+				headRef: "feature",
+				headSha: "head-sha",
+				baseRef: "main",
+				baseSha: "base-sha",
+				title: "Feature",
+				sha: "head-sha",
+			}),
+			getPullRequestCheckSummary: async () => ({
+				classification: "checks_unknown",
+				headSha: "head-sha",
+				status: "unknown",
+				checkRuns: [],
+			}),
+			comparePullRequestBranches: async () => ({
+				base: "main",
+				head: "feature",
+				status: "behind",
+				aheadBy: 0,
+				behindBy: 1,
+				mergeBaseCommitSha: "merge-base-sha",
+			}),
+			runIntegrationRepairPlanner: runIntegrationRepairPlannerSpy,
+			runIntegrationRepairExecutor: runIntegrationRepairExecutorSpy,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(runIntegrationRepairPlannerSpy).toHaveBeenCalledTimes(1);
+		expect(runIntegrationRepairExecutorSpy).toHaveBeenCalledTimes(1);
+		expect(updateProjectIssueStatus).not.toHaveBeenCalled();
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("scheduler routes unresolved integration conflicts to Human Review with evidence", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const item = buildProjectItem({
+		issueNumber: 113,
+		projectStatus: "In Progress",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#113";
+	const builderRun = await createWorkerRun(client, {
+		workItemId,
+		kind: "builder",
+		status: "completed",
+	});
+	await createArtifact(client, {
+		workItemId,
+		workerRunId: builderRun.id,
+		kind: "pull_request",
+		externalId: "113",
+		externalUrl: "https://github.com/toyamarinyon/rhapsody/pull/113",
+	});
+
+	try {
+		const updateProjectIssueStatus = vi.fn().mockResolvedValue({
+			projectId: "project",
+			itemId: "item",
+			fieldId: "field",
+			optionId: "option",
+			status: "Human Review",
+		});
+		const result = await runSchedulerTick(client, {
+			config: baseConfig,
+			fetchProjectIssueWorkItems: async () => [item],
+			updateProjectIssueStatus,
+			getPullRequest: async () => ({
+				reused: true,
+				number: 113,
+				htmlUrl: "https://github.com/toyamarinyon/rhapsody/pull/113",
+				headRef: "feature",
+				headSha: "head-sha",
+				baseRef: "main",
+				baseSha: "base-sha",
+				title: "Feature",
+				sha: "head-sha",
+			}),
+			getPullRequestCheckSummary: async () => ({
+				classification: "ci_failed",
+				headSha: "head-sha",
+				status: "failure",
+				checkRuns: [
+					{
+						name: "Format check",
+						status: "completed",
+						conclusion: "failure",
+						detailsUrl:
+							"https://github.com/toyamarinyon/rhapsody/actions/runs/1",
+					},
+				],
+			}),
+			comparePullRequestBranches: async () => ({
+				base: "main",
+				head: "feature",
+				status: "behind",
+				aheadBy: 0,
+				behindBy: 1,
+				mergeBaseCommitSha: "merge-base-sha",
+			}),
+			runIntegrationRepairPlanner: async () => ({
+				workerRunId: "integration-planner-run",
+				decisionId: "integration-planner-decision",
+				outcome: "integration_repair_needed",
+				skippedFreshDuplicate: false,
+				integrationExecutionKey: "113:head-sha:base-sha",
+				headSha: "head-sha",
+				baseSha: "base-sha",
+				branchComparison: {
+					base: "main",
+					head: "feature",
+					status: "behind",
+					aheadBy: 0,
+					behindBy: 1,
+					mergeBaseCommitSha: "merge-base-sha",
+				},
+			}),
+			runIntegrationRepairExecutor: async () => ({
+				executed: true,
+				decisionId: "dec_integration_unresolved",
+				outcome: "integration_repair_conflict_unresolved",
+				reason: "conflicts remained after conflict resolution",
+			}),
+		});
+
+		expect(result.ok).toBe(true);
+		expect(updateProjectIssueStatus).toHaveBeenCalledWith(
+			expect.objectContaining({
+				status: "Human Review",
+			}),
+		);
+		const graph = await listWorkItemGraph(client, workItemId);
+		expect(
+			graph.decisions.some(
+				(decision) =>
+					decision.phase === "post_pr" && decision.outcome === "human_review",
+			),
+		).toBe(true);
+		const resolutionDecision = graph.decisions.find(
+			(decision) =>
+				decision.phase === "post_pr" && decision.outcome === "human_review",
+		);
+		expect(resolutionDecision?.evidence).toEqual(
+			expect.objectContaining({
+				checkClassification: "ci_failed",
+				integrationDecisionId: "dec_integration_unresolved",
+			}),
+		);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("scheduler keeps existing CI repair path available after integration says branch is current", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const item = buildProjectItem({
+		issueNumber: 114,
+		projectStatus: "In Progress",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#114";
+	const builderRun = await createWorkerRun(client, {
+		workItemId,
+		kind: "builder",
+		status: "completed",
+	});
+	await createArtifact(client, {
+		workItemId,
+		workerRunId: builderRun.id,
+		kind: "pull_request",
+		externalId: "114",
+		externalUrl: "https://github.com/toyamarinyon/rhapsody/pull/114",
+	});
+
+	try {
+		const runRepairerPlannerSpy = vi.fn().mockResolvedValue({
+			workerRunId: "repair-planner-run",
+			decisionId: "repair-planner-decision",
+			outcome: "repair_allowed",
+			classification: "format_fixable",
+			attemptCount: 0,
+			attemptCounts: { headSha: 0, pullRequest: 0, fingerprint: 0 },
+			maxAttempts: { headSha: 2, pullRequest: 6, fingerprint: 2 },
+			repairExecutionKey: "114:head-sha:fingerprint",
+			failureFingerprint: "fingerprint",
+		});
+		const runRepairerExecutorSpy = vi.fn().mockResolvedValue({
+			executed: true,
+			outcome: "repair_noop",
+		});
+		const result = await runSchedulerTick(client, {
+			config: baseConfig,
+			fetchProjectIssueWorkItems: async () => [item],
+			getPullRequest: async () => ({
+				reused: true,
+				number: 114,
+				htmlUrl: "https://github.com/toyamarinyon/rhapsody/pull/114",
+				headRef: "feature",
+				headSha: "head-sha",
+				baseRef: "main",
+				baseSha: "base-sha",
+				title: "Feature",
+				sha: "head-sha",
+			}),
+			getPullRequestCheckSummary: async () => ({
+				classification: "ci_failed",
+				headSha: "head-sha",
+				status: "failure",
+				checkRuns: [
+					{
+						name: "Format check",
+						status: "completed",
+						conclusion: "failure",
+						detailsUrl:
+							"https://github.com/toyamarinyon/rhapsody/actions/runs/1",
+					},
+				],
+			}),
+			comparePullRequestBranches: async () => ({
+				base: "main",
+				head: "feature",
+				status: "ahead",
+				aheadBy: 1,
+				behindBy: 0,
+				mergeBaseCommitSha: "merge-base-sha",
+			}),
+			runIntegrationRepairPlanner: async () => ({
+				workerRunId: "integration-planner-run",
+				decisionId: "integration-planner-decision",
+				outcome: "integration_repair_current",
+				skippedFreshDuplicate: false,
+				integrationExecutionKey: "114:head-sha:base-sha",
+				headSha: "head-sha",
+				baseSha: "base-sha",
+				branchComparison: {
+					base: "main",
+					head: "feature",
+					status: "ahead",
+					aheadBy: 1,
+					behindBy: 0,
+					mergeBaseCommitSha: "merge-base-sha",
+				},
+			}),
+			runRepairerPlanner: runRepairerPlannerSpy,
+			runRepairerExecutor: runRepairerExecutorSpy,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(runRepairerPlannerSpy).toHaveBeenCalledTimes(1);
+		expect(runRepairerExecutorSpy).toHaveBeenCalledTimes(1);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
 test("scheduler executes unexecuted repair_allowed from fresh post-PR duplicate", async () => {
 	const database = await createTestDatabase();
 	const client = database.client;
