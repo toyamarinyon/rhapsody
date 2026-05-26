@@ -3,12 +3,14 @@ import { expect, test, vi } from "vitest";
 
 import {
 	createIssueComment,
+	createIssueReaction,
 	fetchGitHubIssue,
 	fetchIssueComments,
 	fetchIssueDependenciesBlockedBy,
 	type GitHubIssueComment,
 	GitHubIssueCommentError,
 	GitHubIssueFetchError,
+	GitHubIssueReactionError,
 } from "@/lib/github/issues";
 
 type ListDependenciesBlockedByResponse = Awaited<
@@ -23,9 +25,13 @@ type ListIssueCommentsComment = ListIssueCommentsResponse["data"][number];
 type CreateIssueCommentResponse = Awaited<
 	ReturnType<Octokit["rest"]["issues"]["createComment"]>
 >;
+type CreateIssueReactionResponse = Awaited<
+	ReturnType<Octokit["rest"]["reactions"]["createForIssue"]>
+>;
 type ListDependenciesBlockedByMock = ReturnType<typeof vi.fn>;
 type ListIssueCommentsMock = ReturnType<typeof vi.fn>;
 type CreateIssueCommentMock = ReturnType<typeof vi.fn>;
+type CreateIssueReactionMock = ReturnType<typeof vi.fn>;
 type GetIssueMock = ReturnType<typeof vi.fn>;
 type MockOctokit = {
 	rest: {
@@ -34,6 +40,9 @@ type MockOctokit = {
 			listComments: ListIssueCommentsMock;
 			createComment: CreateIssueCommentMock;
 			get: GetIssueMock;
+		};
+		reactions: {
+			createForIssue: CreateIssueReactionMock;
 		};
 	};
 };
@@ -45,6 +54,9 @@ const createOctokitMock = () => ({
 			listComments: vi.fn(),
 			createComment: vi.fn(),
 			get: vi.fn(),
+		},
+		reactions: {
+			createForIssue: vi.fn(),
 		},
 	},
 });
@@ -546,6 +558,77 @@ test("fetchIssueComments returns normalized comments from multiple pages", async
 			"X-GitHub-Api-Version": "2022-11-28",
 		},
 	});
+});
+
+test("createIssueReaction returns normalized eyes reaction from Octokit", async () => {
+	const octokit = createOctokitMock() as MockOctokit;
+	const createForIssue = octokit.rest.reactions
+		.createForIssue as CreateIssueReactionMock;
+
+	const response: CreateIssueReactionResponse = {
+		data: {
+			id: 987,
+			content: "eyes",
+		} as CreateIssueReactionResponse["data"],
+		status: 201,
+		headers: {},
+		url: "",
+	};
+	createForIssue.mockResolvedValue(response);
+
+	const result = await createIssueReaction(
+		{
+			owner: "octo",
+			repository: "rhapsody",
+			issueNumber: 12,
+			content: "eyes",
+		},
+		{
+			GITHUB_TOKEN: "test-token",
+		},
+		{
+			octokit,
+		},
+	);
+
+	expect(result).toEqual({ id: 987, content: "eyes" });
+	expect(createForIssue).toHaveBeenCalledWith({
+		owner: "octo",
+		repo: "rhapsody",
+		issue_number: 12,
+		content: "eyes",
+		headers: {
+			Accept: "application/vnd.github+json",
+			"X-GitHub-Api-Version": "2022-11-28",
+		},
+	});
+});
+
+test("createIssueReaction fails when Octokit request rejects", async () => {
+	const octokit = createOctokitMock() as MockOctokit;
+	const createForIssue = octokit.rest.reactions
+		.createForIssue as CreateIssueReactionMock;
+
+	createForIssue.mockRejectedValue(
+		Object.assign(new Error("forbidden"), { status: 403 }),
+	);
+
+	await expect(
+		createIssueReaction(
+			{
+				owner: "octo",
+				repository: "rhapsody",
+				issueNumber: 12,
+				content: "eyes",
+			},
+			{
+				GITHUB_TOKEN: "test-token",
+			},
+			{
+				octokit,
+			},
+		),
+	).rejects.toBeInstanceOf(GitHubIssueReactionError);
 });
 
 test("fetchIssueComments fails when Octokit request rejects", async () => {

@@ -7,6 +7,7 @@ import type { Client } from "@libsql/client";
 import { z } from "zod";
 import {
 	createIssueComment,
+	createIssueReaction,
 	fetchIssueComments,
 	fetchIssueDependenciesBlockedBy,
 	type GitHubBlockedByDependency,
@@ -18,6 +19,7 @@ import {
 	createDecision,
 	createLink,
 	createWorkerRun,
+	createEvent,
 	type Decision,
 	listWorkItemGraph,
 	updateWorkerRunStatus,
@@ -246,6 +248,13 @@ export type IssueCommenter = (input: {
 	body: string;
 }) => Promise<{ id: number; htmlUrl: string }>;
 
+export type IssueReactor = (input: {
+	owner: string;
+	repository: string;
+	issueNumber: number;
+	content: "eyes";
+}) => Promise<{ id: number; content: string }>;
+
 type IntakeIssueCommentFetcher = (input: {
 	owner: string;
 	repository: string;
@@ -257,6 +266,7 @@ export type IntakeCuratorOptions = {
 	classify?: IntakeClassifierRunner;
 	nowMs?: number;
 	comment?: IssueCommenter;
+	reaction?: IssueReactor;
 	schemaFilePath?: string;
 	dependencies?: {
 		fetchBlockedBy?: IntakeBlockedByDependencyFetcher;
@@ -314,6 +324,13 @@ export async function runIntakeCurator(
 					: "No-op: reused intake decision.",
 		};
 	}
+
+	await addIntakeEyesReaction({
+		client,
+		workItem,
+		workItemId,
+		reaction: options.reaction ?? createIssueReaction,
+	});
 
 	let finalClassification: IntakeWorkerClassification;
 	let classifierDiagnostics: IntakeClassifierDiagnostics | null = null;
@@ -475,6 +492,55 @@ export async function runIntakeCurator(
 		commentPosted,
 		classificationReason: getClassificationReason(finalClassification),
 	};
+}
+
+async function addIntakeEyesReaction(input: {
+	client: Client;
+	workItem: IntakeCuratorWorkItem;
+	workItemId: string;
+	reaction: IssueReactor;
+}) {
+	try {
+		await input.reaction({
+			owner: input.workItem.repository.owner,
+			repository: input.workItem.repository.name,
+			issueNumber: input.workItem.issueNumber,
+			content: "eyes",
+		});
+	} catch (error) {
+		await recordIntakeCuratorWarningEvent({
+			client: input.client,
+			workItemId: input.workItemId,
+			workItem: input.workItem,
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+}
+
+async function recordIntakeCuratorWarningEvent(input: {
+	client: Client;
+	workItemId: string;
+	workItem: IntakeCuratorWorkItem;
+	error: string;
+}) {
+	try {
+		await createEvent(input.client, {
+			level: "warn",
+			type: "intake_curator.issue_reaction_failed",
+			message: "Failed to add eyes reaction to GitHub issue.",
+			data: {
+				workItemId: input.workItemId,
+				issueNumber: input.workItem.issueNumber,
+				issueTitle: input.workItem.issueTitle,
+				issueOwner: input.workItem.repository.owner,
+				issueRepository: input.workItem.repository.name,
+				reaction: "eyes",
+				error: boundedRedactedOutputPreview(input.error, 300),
+			},
+		});
+	} catch {
+		return;
+	}
 }
 
 export async function linkIntakeToBuilder(
