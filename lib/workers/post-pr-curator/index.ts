@@ -47,17 +47,29 @@ type ObservedHumanReviewActivity = {
 	latestCommentAt: string | null;
 };
 
-type HumanReviewMonitoringAssessment = {
-	stale: boolean;
-	outcome: "human_review_fresh" | "human_review_stale" | "review_blocked";
-	reason: string;
-	reasonCode: string;
-	signals: string[];
-	shouldAttemptBaseIntegration: boolean;
-	shouldComment: boolean;
-	commentBody: string | null;
-	nextAction: string | null;
-};
+type HumanReviewMonitoringAssessment =
+	| {
+			stale: false;
+			outcome: "human_review_fresh";
+			reason: string;
+			reasonCode: string;
+			signals: string[];
+			shouldAttemptBaseIntegration: false;
+			shouldComment: false;
+			commentBody: null;
+			nextAction: null;
+	  }
+	| {
+			stale: true;
+			outcome: "human_review_stale" | "review_blocked";
+			reason: string;
+			reasonCode: string;
+			signals: string[];
+			shouldAttemptBaseIntegration: boolean;
+			shouldComment: boolean;
+			commentBody: string | null;
+			nextAction: string | null;
+	  };
 
 export async function runPostPrCurator(
 	client: Client,
@@ -617,6 +629,7 @@ function applyIntegrationOutcomeToAssessment(
 	if (successLike) {
 		return {
 			...assessment,
+			stale: true,
 			outcome: "human_review_stale",
 			reason:
 				"Base branch moved and Rhapsody started or completed a non-rewriting base integration before human review resumed.",
@@ -636,6 +649,7 @@ function applyIntegrationOutcomeToAssessment(
 	if (blockedLike) {
 		return {
 			...assessment,
+			stale: true,
 			outcome: "review_blocked",
 			reason:
 				integrationResult.reason ??
