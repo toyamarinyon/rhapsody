@@ -48,6 +48,12 @@ Rhapsody reads this policy from `.rhapsody/config.toml`:
 auto_merge_success_status = "Done"
 human_review_status = "Human Review"
 
+[post_run.human_review_monitoring]
+enabled = true
+auto_integrate_base_before_human_activity = true
+auto_integrate_base_after_human_activity = false
+comment_on_conflict = true
+
 [[post_run.auto_merge_eligible]]
 paths = ["docs/**", "!docs/adr/**"]
 description = "Documentation-only changes, excluding ADR updates."
@@ -69,6 +75,16 @@ Decision semantics:
 - `!` entries in `paths` take precedence over positive matches for that file.
 - If no rule matches, default remains human review.
 - Unknown/missing changed file signals are conservative (not eligible).
+- `human_review_monitoring.enabled` defaults to `true`. While enabled, open pull requests linked to
+  `Human Review` work items remain eligible for lightweight curator observation.
+- `auto_integrate_base_before_human_activity` defaults to `true`. The curator may request a
+  non-rewriting base integration when the branch is behind and no human review activity has begun.
+- `auto_integrate_base_after_human_activity` defaults to `false`. Once a human has reviewed,
+  requested changes, commented substantively, or pushed to the branch, Rhapsody should avoid
+  automatic branch updates unless policy explicitly allows them.
+- `comment_on_conflict` defaults to `true`. When the human review decision becomes stale because of
+  base movement or conflict that Rhapsody cannot safely repair, trusted Rhapsody code should leave a
+  concise pull request comment.
 
 ## Workflow Shape
 
@@ -144,6 +160,12 @@ Project status updates are workflow-owned lifecycle transitions:
 Creating a pull request is not sufficient to move an item to `Human Review`.
 Likewise, an auto-merge candidate is not complete until trusted Rhapsody code merges the pull
 request and updates the Project item to `Done`.
+`Human Review` is also not a scheduler terminal state while the linked pull request remains open.
+Later curator observations may mark the prior human review decision stale, for example when the base
+branch moves, required checks are invalidated, or GitHub reports a conflict. In those cases Rhapsody
+should keep the Project item in `Human Review` and surface the blocked or stale state through graph
+decisions, dashboard projections, and pull request comments rather than moving the item back to
+`In Progress`.
 
 ## Consequences
 

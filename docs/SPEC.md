@@ -738,6 +738,17 @@ that metadata is available and falling back to coarse check-run-name heuristics 
 When post-PR checks are non-passing and the pull request branch is behind its base branch, curator
 workers SHOULD attempt a non-rewriting base-branch integration repair before spending normal CI
 repair budget or escalating unknown checks to human review.
+Moving a work item to `Human Review` MUST NOT make the associated pull request invisible to
+curation. While the pull request remains open, scheduler ticks SHOULD continue lightweight post-PR
+curation so that base branch movement, check invalidation, mergeability changes, and conflicts can
+be observed. A `human_review` decision records why human attention was needed at the time it was
+made; later curator observations MAY mark that decision stale when its evidence no longer matches
+the current pull request state. Human review monitoring SHOULD attempt non-rewriting base-branch
+integration by default before human activity begins, and implementations MAY expose optional
+configuration to disable or narrow that behavior. If integration is unsafe, conflicts, or human
+review activity has already begun, Rhapsody SHOULD leave the Project item in `Human Review`, record
+a stale or blocked decision, and comment with the next required human action instead of silently
+moving the item back to `In Progress`.
 For the current MVP action set, `auto_merge_candidate` causes trusted Rhapsody code to merge the
 pull request and move the Project item to `post_run.auto_merge_success_status`, while `human_review`
 moves the Project item to `post_run.human_review_status`.

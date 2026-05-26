@@ -183,11 +183,22 @@ The post-PR curator should:
 - observe check suites, check runs, statuses, preview deployments, reviews, and comments;
 - when non-passing checks are observed on a branch that is behind its base branch, attempt a
   non-rewriting base integration before spending normal CI repair budget;
+- continue lightweight monitoring for open pull requests after a work item moves to `Human Review`;
+- treat base branch movement, mergeability changes, invalidated checks, or newly observed conflicts
+  as possible evidence that the earlier `human_review` decision has gone stale;
 - classify failures with deterministic rules before using model judgment;
 - start repair only when the failure class is safe and the repair budget allows it;
 - avoid infinite loops by recording failure fingerprints, head SHAs, and repair attempt counts;
 - escalate with a clear comment when the failure is not safely repairable or the budget is
   exhausted.
+
+Human review monitoring is not a normal build restart. The Project item should remain in
+`Human Review` while Rhapsody observes whether the pull request is still reviewable. If the branch is
+behind its base branch before any human review activity, the curator should request or start a
+non-rewriting base integration by default. If that integration conflicts, if a human has already
+reviewed or pushed to the branch, or if the change appears semantic rather than mechanical, the
+curator should record a stale or blocked decision and leave a concise pull request comment. This
+keeps the human review queue stable while still making changed circumstances visible.
 
 Initial deterministic repair classes should be conservative. Formatting failures such as Biome or
 Prettier check failures are good first candidates. Type errors, failing tests, dependency changes,
