@@ -1,6 +1,6 @@
 name = "builder"
 description = "Implementation-focused Sandkit worker for concrete, scoped code changes once the relevant code path is known."
-model = "gpt-5.3-codex-spark"
+model = "gpt-5.4-mini"
 model_reasoning_effort = "low"
 sandbox_mode = "workspace-write"
 approvals_reviewer = "auto_review"

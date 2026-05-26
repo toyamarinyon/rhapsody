@@ -8,11 +8,15 @@ export type PullRequestSummary = {
 	htmlUrl: string;
 	headRef: string;
 	baseRef: string;
+	headSha?: string | null;
+	baseSha?: string | null;
 	title: string;
-	state: "open" | "closed";
-	merged: boolean;
-	mergedAt: string | null;
+	state?: "open" | "closed";
+	merged?: boolean;
+	mergedAt?: string | null;
 	sha?: string | null;
+	mergeable?: boolean | null;
+	mergeableState?: string | null;
 };
 
 export type PullRequestMergeResult = {
@@ -22,16 +26,29 @@ export type PullRequestMergeResult = {
 	sha: string | null;
 };
 
+export type PullRequestBranchComparison = {
+	base: string;
+	head: string;
+	status: "ahead" | "behind" | "identical" | "diverged" | "unknown";
+	aheadBy: number | null;
+	behindBy: number | null;
+	mergeBaseCommitSha: string | null;
+};
+
 type GetPullRequestFn = Octokit["rest"]["pulls"]["get"];
 type ListOpenPullsFn = Octokit["rest"]["pulls"]["list"];
 type ListPullFilesFn = Octokit["rest"]["pulls"]["listFiles"];
 type CreatePullRequestFn = Octokit["rest"]["pulls"]["create"];
 type MergePullRequestFn = Octokit["rest"]["pulls"]["merge"];
+type ComparePullRequestsFn = NonNullable<
+	Octokit["rest"]["repos"]
+>["compareCommits"];
 type GetPullRequestResponse = Awaited<ReturnType<GetPullRequestFn>>;
 type ListOpenPullsResponse = Awaited<ReturnType<ListOpenPullsFn>>;
 type ListOpenPullsResponseData = ListOpenPullsResponse["data"];
 type CreatePullRequestResponse = Awaited<ReturnType<CreatePullRequestFn>>;
 type MergePullRequestResponse = Awaited<ReturnType<MergePullRequestFn>>;
+type ComparePullRequestsResponse = Awaited<ReturnType<ComparePullRequestsFn>>;
 
 type OctokitPullRequestClient = {
 	rest: {
@@ -51,6 +68,11 @@ type OctokitPullRequestClient = {
 			merge: (
 				...args: Parameters<MergePullRequestFn>
 			) => ReturnType<MergePullRequestFn>;
+		};
+		repos: {
+			compareCommits: (
+				...args: Parameters<ComparePullRequestsFn>
+			) => ReturnType<ComparePullRequestsFn>;
 		};
 	};
 };
@@ -186,11 +208,15 @@ export async function getPullRequest(
 		htmlUrl: payload.html_url,
 		title: payload.title,
 		headRef: payload.head.ref,
+		headSha: payload.head.sha ?? null,
 		baseRef: payload.base.ref,
+		baseSha: payload.base.sha ?? null,
 		state: normalizePullRequestState(payload.state),
-		merged: payload.merged,
+		merged: payload.merged ?? false,
 		mergedAt: payload.merged_at,
 		sha: payload.merge_commit_sha ?? payload.head.sha ?? null,
+		mergeable: payload.mergeable ?? null,
+		mergeableState: payload.mergeable_state ?? null,
 	};
 }
 
@@ -301,6 +327,59 @@ export async function mergePullRequest(
 	};
 }
 
+export async function comparePullRequestBranches(
+	input: {
+		owner: string;
+		repository: string;
+		base: string;
+		head: string;
+	},
+	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
+	options?: {
+		octokit?: OctokitPullRequestClient;
+	},
+): Promise<PullRequestBranchComparison> {
+	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
+	let response: ComparePullRequestsResponse;
+	try {
+		response = await octokit.rest.repos.compareCommits({
+			owner: input.owner,
+			repo: input.repository,
+			base: input.base,
+			head: input.head,
+			headers: {
+				Accept: "application/vnd.github+json",
+				"X-GitHub-Api-Version": "2022-11-28",
+			},
+		});
+	} catch (error) {
+		const status = getErrorStatus(error);
+		throw new GitHubPullRequestError(
+			status,
+			input.owner,
+			input.repository,
+			"compare",
+			error instanceof Error ? error.message : "request failed",
+		);
+	}
+
+	const payload = response.data;
+	return {
+		base: input.base,
+		head: input.head,
+		status:
+			payload.status === "ahead" ||
+			payload.status === "behind" ||
+			payload.status === "identical" ||
+			payload.status === "diverged"
+				? payload.status
+				: "unknown",
+		aheadBy: typeof payload.ahead_by === "number" ? payload.ahead_by : null,
+		behindBy: typeof payload.behind_by === "number" ? payload.behind_by : null,
+		mergeBaseCommitSha: payload.merge_base_commit?.sha ?? null,
+	};
+}
+
 async function findOpenPullRequestForHead({
 	env,
 	owner,
@@ -322,7 +401,9 @@ async function findOpenPullRequestForHead({
 	htmlUrl: string;
 	title: string;
 	headRef: string;
+	headSha: string | null;
 	baseRef: string;
+	baseSha: string | null;
 	state: "open" | "closed";
 	merged: boolean;
 	mergedAt: string | null;
@@ -384,7 +465,9 @@ async function findOpenPullRequestForHead({
 		htmlUrl: candidate.html_url,
 		title: candidate.title,
 		headRef: candidate.head.ref,
+		headSha: candidate.head.sha ?? null,
 		baseRef: candidate.base.ref,
+		baseSha: candidate.base.sha ?? null,
 		state: normalizePullRequestState(candidate.state),
 		merged: candidate.merged_at !== null,
 		mergedAt: candidate.merged_at,
@@ -407,7 +490,9 @@ async function createPullRequest(args: {
 	htmlUrl: string;
 	title: string;
 	headRef: string;
+	headSha: string | null;
 	baseRef: string;
+	baseSha: string | null;
 	state: "open" | "closed";
 	merged: boolean;
 	mergedAt: string | null;
@@ -445,9 +530,11 @@ async function createPullRequest(args: {
 		htmlUrl: created.html_url,
 		title: created.title,
 		headRef: created.head.ref,
+		headSha: created.head.sha ?? null,
 		baseRef: created.base.ref,
+		baseSha: created.base.sha ?? null,
 		state: normalizePullRequestState(created.state),
-		merged: created.merged,
+		merged: created.merged ?? false,
 		mergedAt: created.merged_at,
 	};
 }

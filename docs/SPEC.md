@@ -648,6 +648,8 @@ dummy sandbox-local auth state. ChatGPT backend and OAuth refresh traffic are fo
 outside the execution sandbox so real ChatGPT tokens remain in trusted server-side storage. See
 [ADR 0004](adr/0004-broker-chatgpt-auth-for-codex-sandboxes.md) and
 [ADR 0008](adr/0008-define-mediator-endpoint-contract.md).
+Rhapsody SHOULD periodically probe the server-side OAuth refresh path and record only safe health
+metadata such as refresh success, `needsReauth`, timestamps, and sanitized error categories.
 
 For GitHub operations, the MVP uses a trusted GitHub mediator. The sandboxed agent may perform
 workflow-specific GitHub operations through the mediator, but the upstream `GITHUB_TOKEN` remains in
@@ -673,8 +675,9 @@ database client APIs directly. The initial implementation uses `@libsql/client` 
 migrations so correctness-sensitive coordination queries remain visible in source control. See
 [ADR 0001](adr/0001-use-turso-libsql-for-state-store.md).
 
-The MVP durable schema consists of `claims`, `runs`, `attempts`, and `events`. Rhapsody deliberately
-defers separate work item projections, saved work product tables, log tables, dispatch slot tables,
+The MVP durable schema consists of `claims`, `runs`, `attempts`, `events`, mediator-held ChatGPT
+credential state, and ChatGPT credential refresh health status. Rhapsody deliberately defers
+separate work item projections, saved work product tables, log tables, dispatch slot tables,
 tracker caches, and multi-tenant schema until needed. See
 [ADR 0002](adr/0002-define-mvp-state-model-and-claim-lifecycle.md).
 
@@ -732,6 +735,20 @@ is missing or invalid.
 Deterministic format-repair matching is also sourced from `.rhapsody/config.toml` under `[repair]`
 and `[[repair.format_checks]]`, using Actions workflow path, job name, and failed step names when
 that metadata is available and falling back to coarse check-run-name heuristics otherwise.
+When post-PR checks are non-passing and the pull request branch is behind its base branch, curator
+workers SHOULD attempt a non-rewriting base-branch integration repair before spending normal CI
+repair budget or escalating unknown checks to human review.
+Moving a work item to `Human Review` MUST NOT make the associated pull request invisible to
+curation. While the pull request remains open, scheduler ticks SHOULD continue lightweight post-PR
+curation so that base branch movement, check invalidation, mergeability changes, and conflicts can
+be observed. A `human_review` decision records why human attention was needed at the time it was
+made; later curator observations MAY mark that decision stale when its evidence no longer matches
+the current pull request state. Human review monitoring SHOULD attempt non-rewriting base-branch
+integration by default before human activity begins, and implementations MAY expose optional
+configuration to disable or narrow that behavior. If integration is unsafe, conflicts, or human
+review activity has already begun, Rhapsody SHOULD leave the Project item in `Human Review`, record
+a stale or blocked decision, and comment with the next required human action instead of silently
+moving the item back to `In Progress`.
 For the current MVP action set, `auto_merge_candidate` causes trusted Rhapsody code to reconcile
 the pull request merge state and move the Project item to `post_run.auto_merge_success_status`,
 while `human_review` moves the Project item to `post_run.human_review_status`. Later scheduler

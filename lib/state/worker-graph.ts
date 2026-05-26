@@ -11,6 +11,7 @@ export type WorkerRunKind =
 	| "builder"
 	| "post_pr_curator"
 	| "repairer"
+	| "integration_repairer"
 	| "reviewer"
 	| (string & {});
 
