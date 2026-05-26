@@ -7,6 +7,10 @@
 		{
 			"path": "/api/v1/admin/reconcile",
 			"schedule": "*/5 * * * *"
+		},
+		{
+			"path": "/api/v1/admin/codex-chatgpt-credentials/health-check",
+			"schedule": "0 */6 * * *"
 		}
 	]
 }
