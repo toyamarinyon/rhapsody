@@ -1486,10 +1486,7 @@ async function reconcilePullRequestSuccess(input: {
 				pullRequest: refreshedPullRequest,
 			};
 		}
-		if (
-			refreshedPullRequest?.state &&
-			refreshedPullRequest.state !== "open"
-		) {
+		if (refreshedPullRequest?.state && refreshedPullRequest.state !== "open") {
 			throw new Error("Trusted pull request is closed without merge.");
 		}
 		throw error;
