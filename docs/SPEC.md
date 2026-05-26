@@ -536,6 +536,9 @@ Required steps:
 17. Evaluate final builder status separately from wrapper execution status.
 18. Release or transfer claim according to worker graph policy.
 
+Successful builder completion means trusted handoff production and durable artifact recording, not
+later curator verification, repair, review, merge, or Project status transitions.
+
 The builder MUST NOT depend on local Vercel Function filesystem state for correctness.
 The builder MUST NOT poll the sandbox for the full agent runtime inside one Vercel Function
 invocation. Agent execution completion is callback-driven, with watchdog reconciliation as a
@@ -585,11 +588,11 @@ hook. When using builder-owned completion, the builder MUST enforce the same val
 unapplied terminal transition as a failed builder response.
 
 The agent execution status is not authoritative for final builder success. The builder workflow MUST
-evaluate final attempt and builder status separately using terminal handoff data. Curator workers
-evaluate GitHub handoff verification and workflow policy.
+evaluate final attempt and builder status separately using terminal handoff data. Later curator
+workers evaluate GitHub handoff identity verification and workflow policy.
 
-Post-PR verification is required before a successful accepted-work outcome. The MVP uses tiered
-verification for active worker run and attempt consistency, GitHub handoff state, mediator denial
+Curator-owned post-PR verification is required before a successful accepted-work outcome. The MVP
+uses tiered verification for builder completion integrity, GitHub handoff identity, mediator denial
 events, ProjectV2 status consistency, and secret hygiene checks before any configured sandbox export
 or snapshot. See
 [ADR 0012](adr/0012-define-post-run-verification-policy.md).
@@ -715,8 +718,9 @@ Rhapsody MAY update GitHub state directly for scheduler-owned lifecycle transiti
 
 Agent-owned write intent, such as pull request titles and descriptions, MAY be generated inside the
 sandbox as structured handoff artifacts. GitHub side effects that require trusted credentials, such
-as pull request creation, are executed by Rhapsody-owned code after branch and handoff verification.
-The MVP uses a PAT in `GITHUB_TOKEN`; GitHub App installation tokens are deferred. See
+as pull request creation, are executed by Rhapsody-owned code after branch verification. Later
+curator workers verify that the visible GitHub handoff matches the recorded work-item context. The
+MVP uses a PAT in `GITHUB_TOKEN`; GitHub App installation tokens are deferred. See
 [ADR 0005](adr/0005-use-run-scoped-github-mediation-for-agent-writes.md).
 
 After a builder produces a pull request, Rhapsody MUST verify and curate the GitHub handoff before

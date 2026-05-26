@@ -6,14 +6,14 @@ Accepted
 
 ## Context
 
-ADR 0012 defines post-run verification: before Rhapsody marks a run successful, it checks that the
-visible GitHub handoff state matches the active run, attempt, repository, branch, issue, and project
-boundaries.
+ADR 0012 defines curator-owned post-run handoff verification: after the builder records a trusted
+handoff artifact, post-PR curation checks that the visible GitHub handoff state still matches the
+active run, repository, branch, issue, and project boundaries.
 
-That verification is necessary, but it does not answer what Rhapsody should do next. A pull request
-can be valid and still need code review. A small documentation-only pull request can be safe enough
-to merge automatically. A failed or ambiguous handoff can need a retry, a clarifying comment, or
-human intervention.
+That verification is necessary, but it does not answer what curator-owned post-PR curation should do
+next. A pull request can be valid and still need code review. A small documentation-only pull
+request can be safe enough to merge automatically. A failed or ambiguous handoff can need a retry,
+a clarifying comment, or human intervention.
 
 `Human Review` should not mean "a pull request was created." It should mean Rhapsody has decided
 that a human needs to look at the work. Unnecessary items should not be moved into the human review
@@ -21,14 +21,14 @@ queue just because automation reached a handoff point.
 
 ## Decision
 
-Add a post-run decision phase after GitHub handoff verification and before GitHub Project status
-handoff.
+Add a curator-owned post-run decision phase after GitHub handoff verification and before GitHub
+Project status handoff.
 
 For the MVP worker-graph model, the builder workflow stops after sandbox execution, callback
-resume, trusted pull request creation or reuse, ADR 0012 verification, and durable handoff
-recording. Post-run decision is then owned by scheduler-driven post-PR curation on later ticks
-while the Project item remains `In Progress`. It is not applied inline in the same builder
-workflow.
+resume, trusted pull request creation or reuse, durable trusted handoff recording, and any
+builder-local retention cleanup. Post-run decision is then owned by scheduler-driven post-PR
+curation on later ticks while the Project item remains `In Progress`. That curator phase begins by
+applying ADR 0012 handoff verification; it is not applied inline in the same builder workflow.
 
 The decision phase evaluates the verified run outcome and chooses the next action:
 
@@ -37,7 +37,7 @@ The decision phase evaluates the verified run outcome and chooses the next actio
 - move the item to `Human Review`;
 - mark the run failed, retryable, or blocked according to policy.
 
-`Human Review` is a decision outcome, not the default post-PR status.
+`Human Review` is a curator decision outcome, not the default post-PR status.
 
 ## Configuration
 
@@ -93,10 +93,10 @@ The successful builder-plus-curator flow becomes:
 1. Run Codex in the sandbox wrapper.
 2. Resume the builder workflow from the wrapper callback.
 3. Create or reuse trusted GitHub handoff artifacts, such as a pull request.
-4. Verify the handoff according to ADR 0012.
-5. Persist the final builder outcome and release the claim while the Project item stays
+4. Persist the trusted handoff artifact and release the builder claim while the Project item stays
    `In Progress`.
-6. Let a later scheduler tick run post-PR curation against checks and policy.
+5. Let a later scheduler tick start post-PR curation.
+6. Verify the handoff according to ADR 0012.
 7. Optionally run repairer or reviewer workers for follow-up.
 8. Apply deterministic policy to choose the next action.
 9. Apply the action through trusted Rhapsody code.
@@ -133,7 +133,7 @@ Required deterministic inputs:
 - linked issue or issue reference;
 - available check or test status when implemented.
 
-Initial decisions:
+Initial curator decisions:
 
 - A completed run with a valid pull request may move to `Human Review` only after post-run decision
   concludes that human review is needed.
@@ -142,8 +142,8 @@ Initial decisions:
 - Code changes, low confidence, missing checks, ambiguous handoff, or reviewer uncertainty should
   move to `Human Review`.
 - Clear reviewer-requested changes should produce a pull request comment and keep the item active.
-- Verification failure remains a failed or retryable runner outcome, not a successful review
-  handoff.
+- Verification failure remains a curator-owned failed or retryable handoff outcome, not a
+  successful review handoff.
 
 Auto-merge should start disabled or limited to a narrow allowlist until Rhapsody has enough
 observability and confidence in reviewer output.
@@ -166,6 +166,10 @@ branch moves, required checks are invalidated, or GitHub reports a conflict. In 
 should keep the Project item in `Human Review` and surface the blocked or stale state through graph
 decisions, dashboard projections, and pull request comments rather than moving the item back to
 `In Progress`.
+
+Follow-up note: the first post-PR curator implementation should surface ADR 0012 `handoff_*`
+outcomes explicitly before it reuses the same worker for check observation, repair routing, or
+merge policy. This ADR does not define the storage schema.
 
 ## Consequences
 
