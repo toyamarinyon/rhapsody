@@ -77,7 +77,7 @@ type SchedulerTickSkippedIssue = {
 };
 
 type FetchIssueComments = typeof GitHubIssues.fetchIssueComments;
-type CreateIssueComment = typeof GitHubIssues.createIssueComment;
+type CreateReviewComment = typeof GitHubIssues.createIssueComment;
 
 export type SchedulerTickResponse = {
 	scanned: number;
@@ -124,7 +124,7 @@ export type SchedulerTickDependencies = {
 	runIntegrationRepairPlanner?: typeof runIntegrationRepairPlanner;
 	runIntegrationRepairExecutor?: typeof runIntegrationRepairExecutor;
 	fetchIssueComments?: FetchIssueComments;
-	createIssueComment?: CreateIssueComment;
+	createReviewComment?: CreateReviewComment;
 	runIntakeCurator?: typeof runIntakeCuratorNode;
 };
 
@@ -250,7 +250,7 @@ export async function runSchedulerTick(
 						runIntegrationRepairExecutor:
 							dependencies.runIntegrationRepairExecutor,
 						fetchIssueComments: dependencies.fetchIssueComments,
-						createIssueComment: dependencies.createIssueComment,
+						createReviewComment: dependencies.createReviewComment,
 						updateProjectIssueStatus: updateIssueStatus,
 					},
 					item,
@@ -603,7 +603,7 @@ type SchedulerPostPrDependencies = {
 	runIntegrationRepairPlanner?: typeof runIntegrationRepairPlanner;
 	runIntegrationRepairExecutor?: typeof runIntegrationRepairExecutor;
 	fetchIssueComments?: FetchIssueComments;
-	createIssueComment?: CreateIssueComment;
+	createReviewComment?: CreateReviewComment;
 	updateProjectIssueStatus: typeof updateProjectIssueStatus;
 };
 
@@ -740,7 +740,7 @@ async function runPostPrCuratorForHumanReview(
 			runIntegrationRepairPlanner: dependencies.runIntegrationRepairPlanner,
 			runIntegrationRepairExecutor: dependencies.runIntegrationRepairExecutor,
 			fetchIssueComments: dependencies.fetchIssueComments,
-			createIssueComment: dependencies.createIssueComment,
+			createIssueComment: dependencies.createReviewComment,
 		});
 
 		return {
@@ -754,7 +754,8 @@ async function runPostPrCuratorForHumanReview(
 			type: "scheduler.human_review_monitoring_failed",
 			runId: null,
 			attemptId: null,
-			message: "Scheduler could not monitor the linked Human Review pull request.",
+			message:
+				"Scheduler could not monitor the linked Human Review pull request.",
 			data: {
 				workItemId,
 				issueNumber: item.issueNumber,
