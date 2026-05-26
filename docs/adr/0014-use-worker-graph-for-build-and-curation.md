@@ -54,6 +54,10 @@ The builder worker owns only the build handoff:
 - create or reuse a pull request;
 - record the produced artifacts and finish.
 
+Builder success means the trusted handoff artifact exists and is durably recorded. It does not
+imply curator verification, passing checks, human review, merge eligibility, or Project status
+transition.
+
 When trusted Rhapsody code creates a new pull request from builder handoff and the agent-provided
 body does not already contain a GitHub-supported closing keyword for the current work item, it
 should append one before creation so GitHub links the pull request to the issue. Reused pull
@@ -63,12 +67,21 @@ The curator worker owns decision-making around readiness and next action:
 
 - intake curation before the builder runs;
 - post-PR curation after a pull request exists;
+- handoff identity verification using the trusted builder artifact and GitHub state;
 - check and CI observation;
 - deterministic failure classification;
 - repair budget enforcement;
 - agent review orchestration;
 - human clarification or human review escalation;
 - project status transitions and merge decisions through trusted Rhapsody code.
+
+Curator-side handoff verification should emit a small, explicit outcome set for the first
+implementation:
+
+- `handoff_verified`
+- `handoff_missing`
+- `handoff_invalid`
+- `handoff_ambiguous`
 
 This ADR supersedes the parts of ADR 0012 and ADR 0013 that place post-run verification, post-run
 decision, review, and project status handoff inside the same runner workflow. The verification and
@@ -116,8 +129,9 @@ local extension rather than a redesign of the graph.
 understand the decision without replaying raw logs:
 
 - phase, such as `intake`, `build`, `post_pr`, `repair`, or `review`;
-- outcome, such as `buildable`, `ask_human`, `pr_created`, `checks_pending`, `ci_failed`,
-  `repair_allowed`, `repair_blocked`, `human_review`, `auto_merge_allowed`, or `done`;
+- outcome, such as `buildable`, `ask_human`, `pr_created`, `handoff_verified`, `handoff_missing`,
+  `handoff_invalid`, `handoff_ambiguous`, `checks_pending`, `ci_failed`, `repair_allowed`,
+  `repair_blocked`, `human_review`, `auto_merge_allowed`, or `done`;
 - whether the decision was deterministic;
 - policy version or rule ID when a deterministic classifier was used;
 - evidence, including relevant artifact IDs, check names, logs, fingerprints, and summaries;
@@ -146,7 +160,8 @@ The intended happy path is:
 5. Builder produces a branch and pull request, records artifacts, and exits.
 6. Scheduler observes the `In Progress` item and pull request.
 7. Scheduler starts a post-PR curator when checks or review state need evaluation.
-8. Post-PR curator records `checks_pending`, `repair_allowed`, `human_review`,
+8. Post-PR curator records `handoff_verified`, `handoff_missing`, `handoff_invalid`,
+   `handoff_ambiguous`, `checks_pending`, `repair_allowed`, `human_review`,
    `auto_merge_allowed`, `done`, or another policy outcome.
 9. Scheduler starts any follow-up worker required by the curator decision.
 
@@ -275,6 +290,9 @@ Existing `runs`, `attempts`, and `events` may be migrated, wrapped, or replaced.
 reset during early development, the new model should be optimized for worker graph traceability
 rather than preserving the old runner-centric shape.
 
+Follow-up note: keep the builder handoff record narrow; let curator follow-up own richer post-PR
+decision history.
+
 ## Consequences
 
 Positive consequences:
@@ -293,7 +311,8 @@ Negative consequences:
 - Workers need explicit decision schemas and policy versions.
 - The scheduler must reason over graph freshness and active worker claims.
 - Early implementations need discipline to avoid hiding important edges inside unstructured JSON.
-- ADR 0012 and ADR 0013 require follow-up edits to remove runner-centric sequencing.
+- Early implementations need discipline to keep post-PR verification and judgment out of builder
+  scope.
 
 ## Revisit When
 

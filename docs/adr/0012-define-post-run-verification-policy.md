@@ -11,25 +11,28 @@ mediator described in ADR 0005 and ADR 0008. This keeps raw GitHub credentials o
 while preserving a natural agent workflow.
 
 The MVP mediator cannot fully inspect git smart HTTP push bodies. In particular, it cannot prove
-which branches were updated by reading packfile contents before GitHub accepts the push. The runner
-therefore needs a post-run verification step after the sandbox wrapper completes and before the run
-is marked successful.
+which branches were updated by reading packfile contents before GitHub accepts the push. Rhapsody
+therefore needs follow-up verification after the sandbox wrapper completes. Under ADR 0014, the
+builder first records a trusted handoff artifact, and curator-owned post-PR curation later verifies
+that the visible GitHub handoff still matches the active work-item context.
 
 ADR 0011 separates wrapper execution status from final run evaluation. Successful wrapper execution
 and `codex exec` completion are necessary signals, but they are not enough to prove that the work was
 handed to the correct repository, branch, base, issue, project item, or pull request.
 
-ADR 0013 defines the next phase after this verification: scheduler-owned post-PR decision and
-review policy. Verification success is an input to that decision. It is not by itself a decision to
-merge, move an item to `Human Review`, or mark the work done.
+ADR 0013 defines the next phase after this verification: curator-owned post-PR curation and review
+policy. Verification success is an input to that curation. It is not by itself a decision to merge,
+move an item to `Human Review`, or mark the work done.
 
 ## Decision
 
-Use tiered post-run verification before finalizing a successful run.
+Use tiered post-run verification split between builder-local completion integrity and curator-owned
+handoff identity verification.
 
-Post-run verification checks the active run and attempt, the externally visible GitHub handoff
-state, mediator decision events, and any configured sandbox export or snapshot hygiene. Verification
-must finish before Rhapsody releases the claim.
+Builder completion remains responsible for active run and attempt integrity, callback validation,
+and secret hygiene before any retained sandbox export or snapshot. Curator-owned handoff identity
+verification runs after the builder records a trusted handoff artifact and before repair, human
+review, merge, or Project status decisions rely on that handoff.
 
 Rhapsody does not define first-class saved work products in the MVP. This ADR avoids that broader
 term and refers directly to GitHub handoff state, sandbox exports, and sandbox snapshots when those
@@ -50,14 +53,41 @@ For the MVP, a GitHub handoff may include:
 A GitHub handoff is not a separate database entity in the MVP. Rhapsody records verification events
 and selected GitHub links or metadata on run and attempt records as needed for observability.
 
-## Required Checks
+A trusted handoff artifact is a GitHub handoff artifact that trusted Rhapsody code created or
+reused and durably recorded. It is builder output, not curator verification.
 
-These checks are required before a run can be marked completed:
+## Verification Outcomes
+
+Curator-side handoff verification should normalize its first outcomes to a small, explicit set:
+
+- `handoff_verified`
+- `handoff_missing`
+- `handoff_invalid`
+- `handoff_ambiguous`
+
+These names fit the current policy shape and should be reused unless a later ADR or schema review
+shows a clearer boundary.
+
+## Builder-Local Completion Integrity Checks
+
+These checks are required before the builder can record a successful handoff-production outcome:
 
 - The run still exists and is not already terminal.
 - The attempt belongs to the run and is the current attempt being finalized.
 - The claim still exists for the work item and its fencing token matches the runner context.
 - The callback payload matches the stored run, attempt, sandbox, and command metadata.
+- If Rhapsody will export sandbox filesystem state or create a sandbox snapshot, secret hygiene
+  checks pass first.
+
+Failure of a builder-local completion integrity check prevents builder success. The builder may
+retry, fail, or leave the work item for later reconciliation according to retry policy and the
+failure class.
+
+## Curator-Side Handoff Identity Checks
+
+These checks are required before curator-owned post-PR curation can emit `handoff_verified` or use
+the handoff as accepted input for later repair, review, merge, or Project status policy:
+
 - If a pull request exists, it belongs to the configured owner and repository.
 - If a pull request exists, its base branch matches the configured base branch.
 - If a pull request exists, its head branch uses the configured branch prefix.
@@ -68,11 +98,10 @@ These checks are required before a run can be marked completed:
   agent changed that status.
 - Fatal mediator denial events for the attempt are absent, unless the denial reason is explicitly
   classified as non-fatal by policy.
-- If Rhapsody will export sandbox filesystem state or create a sandbox snapshot, secret hygiene
-  checks pass first.
 
-Failure of a required check prevents a completed outcome. The runner may retry, mark the attempt as
-failed, or move the run to a human-review outcome according to retry policy and the failure class.
+Failure of a curator-side handoff identity check prevents `handoff_verified`. The curator should
+persist `handoff_missing`, `handoff_invalid`, or `handoff_ambiguous` and then choose retry,
+escalation, or other follow-up according to policy.
 
 ## Recommended Checks
 
@@ -82,11 +111,10 @@ These checks should be implemented as warnings before they become required:
 - Presence of a conventional run marker in pull request or issue comments.
 - Expected labels, reviewers, or assignees.
 - Exact status transition wording.
-- Successful repository checks or CI status.
 - Branch naming beyond the configured prefix.
 
 Warning checks should emit structured events and dashboard-visible messages, but they do not block
-a completed outcome in the MVP.
+handoff verification or later post-PR decisions in the MVP.
 
 ## Pull Request Identification
 
@@ -106,49 +134,63 @@ ambiguous and require retry or human review.
 
 ## Outcome Evaluation
 
-Wrapper execution status, verification status, final builder outcome, and later post-PR workflow
-resolution are separate concepts.
+Wrapper execution status, builder handoff production, curator handoff verification, and later
+post-PR curation resolution are separate concepts.
 
 The wrapper reports observed execution facts such as exit code, start time, completion time, and
-error summary. Verification evaluates whether the visible GitHub and sandbox state is consistent
-with the active run. The builder workflow then decides the final attempt and builder outcome.
-Scheduler-owned post-PR curation later decides whether the pull request should be repaired,
-escalated to human review, auto-merged, or moved to done.
+error summary. The builder workflow decides whether it produced and recorded a trusted handoff
+artifact. Curator-owned handoff identity verification later evaluates whether the visible GitHub
+state is consistent with that recorded handoff. Scheduler-owned post-PR curation then decides
+whether the pull request should be repaired, escalated to human review, auto-merged, or moved to
+done.
 
 MVP outcome rules:
 
-- A successful pull request handoff can complete the run when all required checks pass.
-- A legitimate no-change result can complete the run when it is documented in an issue comment and
-  required checks pass.
+- A successful builder outcome means a trusted handoff artifact was produced and recorded and the
+  builder-local completion integrity checks passed.
+- `handoff_verified` means the curator-side handoff identity checks passed.
+- A legitimate no-change result can complete the builder outcome when a trusted issue comment
+  handoff artifact is recorded and builder-local completion integrity checks pass.
 - A blocker or clarification request can complete the agent attempt but should leave the work item
   in a workflow-defined human-review or active status rather than pretending code work was done.
-- A missing, ambiguous, or inconsistent handoff is a verification failure.
-- A wrong owner, repository, base branch, or branch prefix is a policy failure.
-- Secret hygiene failure before sandbox export or snapshot is a policy failure.
+- `handoff_missing`, `handoff_invalid`, and `handoff_ambiguous` are curator verification
+  outcomes, not builder-success outcomes.
+- A wrong owner, repository, base branch, or branch prefix is a handoff identity failure.
+- Secret hygiene failure before sandbox export or snapshot is a builder-local policy failure.
 - Transient GitHub, state-store, or sandbox inspection failures are retryable verification failures
   when retry budget remains.
 
 ## Claim Release Boundary
 
-The runner must not release the claim until terminal verification and cleanup decisions have been
-persisted.
+The builder must not release its claim until callback handling, trusted handoff artifact recording,
+and builder-local cleanup decisions have been persisted.
 
 The normal successful builder sequence is:
 
 1. Receive and persist the terminal sandbox callback.
-2. Evaluate wrapper execution status.
-3. Verify GitHub handoff state.
-4. Run secret hygiene checks for any configured sandbox export or snapshot.
-5. Persist final attempt and builder outcome.
-6. Clean up, export, or snapshot the sandbox according to policy.
-7. Release the claim.
-8. Let a later scheduler tick evaluate post-PR decision and review policy according to ADR 0013.
-9. Update GitHub Project status according to workflow policy when curation reaches a terminal
-   destination.
+2. Evaluate wrapper execution status and builder-local completion integrity.
+3. Create or reuse trusted GitHub handoff artifacts.
+4. Persist the builder handoff artifacts and builder outcome.
+5. Run secret hygiene checks for any configured sandbox export or snapshot, then clean up, export,
+   or snapshot according to policy.
+6. Release the builder claim.
+7. Let a later scheduler tick start curator-owned handoff identity verification and post-PR
+   curation according to ADR 0013 and ADR 0014.
 
-If verification fails, the runner must persist the failure reason before releasing or extending the
-claim. Reconciliation must be able to distinguish a runner that has not verified yet from a runner
-that verified and failed.
+The later curator sequence is:
+
+1. Observe the recorded handoff artifact and current GitHub state.
+2. Run the handoff identity checks in this ADR.
+3. Persist `handoff_verified`, `handoff_missing`, `handoff_invalid`, or `handoff_ambiguous`.
+4. Apply later repair, review, merge, and Project status policy only after that verification step.
+
+If curator verification fails, the curator must persist the failure reason before applying later
+post-PR actions. Reconciliation must be able to distinguish a builder that finished handoff
+production from a handoff that has not yet been curator-verified and from one that verified and
+failed.
+
+Follow-up note: the implementation should record these verification outcomes on durable curator
+decisions or equivalent graph records, but this ADR does not prescribe the storage shape yet.
 
 ## Secret Hygiene
 
@@ -167,11 +209,12 @@ events, callback payloads, and dashboard projections still require redaction.
 
 Positive consequences:
 
-- A successful run means the externally visible GitHub state matches the active Rhapsody run.
+- A successful builder run means Rhapsody recorded a trusted handoff artifact; accepted-work
+  outcomes still require curator verification.
 - Git smart HTTP branch uncertainty is contained by post-run verification.
 - Wrapper execution success remains separate from workflow success.
 - No-change and blocker outcomes can be represented without requiring a pull request.
-- Claims are not released before the final run outcome is known.
+- Builder claims are not released before builder-local completion state is known.
 - Sandbox export and snapshot retention are gated by explicit secret hygiene checks.
 
 Negative consequences:
@@ -187,4 +230,4 @@ Negative consequences:
 - GitHub App installation tokens replace the MVP PAT and mediator model.
 - Git smart HTTP mediation can enforce branch-level rules before GitHub accepts a push.
 - Pull request creation moves from agent-owned behavior to a trusted-host operation.
-- The workflow needs stricter CI/check gating before handoff is considered complete.
+- The workflow needs stricter CI/check gating before work is considered accepted.
