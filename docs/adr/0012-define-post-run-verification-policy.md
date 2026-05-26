@@ -19,9 +19,9 @@ ADR 0011 separates wrapper execution status from final run evaluation. Successfu
 and `codex exec` completion are necessary signals, but they are not enough to prove that the work was
 handed to the correct repository, branch, base, issue, project item, or pull request.
 
-ADR 0013 defines the next phase after this verification: post-run decision and review policy.
-Verification success is an input to that decision. It is not by itself a decision to merge, move an
-item to `Human Review`, or mark the work done.
+ADR 0013 defines the next phase after this verification: scheduler-owned post-PR decision and
+review policy. Verification success is an input to that decision. It is not by itself a decision to
+merge, move an item to `Human Review`, or mark the work done.
 
 ## Decision
 
@@ -106,11 +106,14 @@ ambiguous and require retry or human review.
 
 ## Outcome Evaluation
 
-Wrapper execution status, verification status, and final run outcome are separate concepts.
+Wrapper execution status, verification status, final builder outcome, and later post-PR workflow
+resolution are separate concepts.
 
 The wrapper reports observed execution facts such as exit code, start time, completion time, and
 error summary. Verification evaluates whether the visible GitHub and sandbox state is consistent
-with the active run. The runner workflow then decides the final attempt and run outcome.
+with the active run. The builder workflow then decides the final attempt and builder outcome.
+Scheduler-owned post-PR curation later decides whether the pull request should be repaired,
+escalated to human review, auto-merged, or moved to done.
 
 MVP outcome rules:
 
@@ -130,17 +133,18 @@ MVP outcome rules:
 The runner must not release the claim until terminal verification and cleanup decisions have been
 persisted.
 
-The normal successful sequence is:
+The normal successful builder sequence is:
 
 1. Receive and persist the terminal sandbox callback.
 2. Evaluate wrapper execution status.
 3. Verify GitHub handoff state.
 4. Run secret hygiene checks for any configured sandbox export or snapshot.
-5. Persist final attempt and run outcome.
-6. Evaluate post-run decision and review policy according to ADR 0013.
-7. Update GitHub Project status according to workflow policy.
-8. Clean up, export, or snapshot the sandbox according to policy.
-9. Release the claim.
+5. Persist final attempt and builder outcome.
+6. Clean up, export, or snapshot the sandbox according to policy.
+7. Release the claim.
+8. Let a later scheduler tick evaluate post-PR decision and review policy according to ADR 0013.
+9. Update GitHub Project status according to workflow policy when curation reaches a terminal
+   destination.
 
 If verification fails, the runner must persist the failure reason before releasing or extending the
 claim. Reconciliation must be able to distinguish a runner that has not verified yet from a runner

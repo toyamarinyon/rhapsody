@@ -4,12 +4,16 @@ import {
 	createStateStoreClient,
 	getRunDetail,
 	markAttemptStarted,
+	setRunnerWorkflowRunId,
 } from "@/lib/state";
 import {
 	buildAttemptBranchName,
 	parseWorkItemIssueNumber,
 } from "@/lib/attempt-branch";
 import { loadRhapsodyConfig } from "@/lib/config";
+import { start } from "workflow/api";
+
+import { runnerWorkflow } from "@/workflows/runner";
 
 export const runtime = "nodejs";
 
@@ -76,7 +80,37 @@ export async function POST(
 			return Response.json(result, { status: 409 });
 		}
 
-		return Response.json(result, { status: result.idempotent ? 200 : 202 });
+		const run = await getRunDetail(client, runId);
+		if (result.idempotent && run?.run?.runnerWorkflowRunId) {
+			return Response.json(
+				{
+					...result,
+					runnerWorkflowRunId: run.run.runnerWorkflowRunId,
+				},
+				{ status: 200 },
+			);
+		}
+
+		const workflow = await start(runnerWorkflow, [
+			{
+				runId,
+				attemptId,
+				startedBy: "manual",
+				callbackBaseUrl: new URL(request.url).origin,
+			},
+		]);
+		await setRunnerWorkflowRunId(client, {
+			runId,
+			runnerWorkflowRunId: workflow.runId,
+		});
+
+		return Response.json(
+			{
+				...result,
+				runnerWorkflowRunId: workflow.runId,
+			},
+			{ status: result.idempotent ? 200 : 202 },
+		);
 	} finally {
 		client.close();
 	}

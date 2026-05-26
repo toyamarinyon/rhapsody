@@ -1,3 +1,5 @@
+import { Octokit } from "@octokit/rest";
+
 import { loadRhapsodyGitHubEnv, type RhapsodyGitHubEnv } from "@/lib/config";
 
 export type PullRequestCheckClassification =
@@ -6,11 +8,21 @@ export type PullRequestCheckClassification =
 	| "ci_failed"
 	| "checks_unknown";
 
+export type PullRequestCheckRunActionsSummary = {
+	workflowRunId: number | null;
+	workflowName: string | null;
+	workflowPath: string | null;
+	jobId: number | null;
+	jobName: string | null;
+	failedStepNames: string[];
+};
+
 export type PullRequestCheckRunSummary = {
 	name: string;
 	status: string;
 	conclusion: string | null;
 	detailsUrl: string | null;
+	actions?: PullRequestCheckRunActionsSummary | null;
 };
 
 export type PullRequestCheckSummary = {
@@ -23,25 +35,47 @@ export type PullRequestCheckSummary = {
 	fallbackStatus?: string | null;
 };
 
-type GitHubPullRequestResponse = {
-	number: number;
-	html_url: string;
-	head: {
-		sha: string;
+type PullRequestResponseFn = Octokit["rest"]["pulls"]["get"];
+type ListCheckRunsFn = Octokit["rest"]["checks"]["listForRef"];
+type GetCombinedStatusFn = Octokit["rest"]["repos"]["getCombinedStatusForRef"];
+type GetWorkflowRunFn = Octokit["rest"]["actions"]["getWorkflowRun"];
+type ListJobsForWorkflowRunFn =
+	Octokit["rest"]["actions"]["listJobsForWorkflowRun"];
+type PullRequestResponse = Awaited<ReturnType<PullRequestResponseFn>>;
+type ListCheckRunsResponse = Awaited<ReturnType<ListCheckRunsFn>>;
+type GetCombinedStatusResponse = Awaited<ReturnType<GetCombinedStatusFn>>;
+type GetWorkflowRunResponse = Awaited<ReturnType<GetWorkflowRunFn>>;
+type ListJobsForWorkflowRunResponse = Awaited<
+	ReturnType<ListJobsForWorkflowRunFn>
+>;
+type CheckRuns = ListCheckRunsResponse["data"]["check_runs"];
+type ActionsJobs = ListJobsForWorkflowRunResponse["data"]["jobs"];
+type OctokitChecksClient = {
+	rest: {
+		pulls: {
+			get: (
+				...args: Parameters<PullRequestResponseFn>
+			) => ReturnType<PullRequestResponseFn>;
+		};
+		checks: {
+			listForRef: (
+				...args: Parameters<ListCheckRunsFn>
+			) => ReturnType<ListCheckRunsFn>;
+		};
+		repos: {
+			getCombinedStatusForRef: (
+				...args: Parameters<GetCombinedStatusFn>
+			) => ReturnType<GetCombinedStatusFn>;
+		};
+		actions: {
+			getWorkflowRun: (
+				...args: Parameters<GetWorkflowRunFn>
+			) => ReturnType<GetWorkflowRunFn>;
+			listJobsForWorkflowRun: (
+				...args: Parameters<ListJobsForWorkflowRunFn>
+			) => ReturnType<ListJobsForWorkflowRunFn>;
+		};
 	};
-};
-
-type GitHubCommitStatusResponse = {
-	state: string;
-};
-
-type GitHubCommitCheckRunResponse = {
-	check_runs?: Array<{
-		name?: unknown;
-		status?: unknown;
-		conclusion?: unknown;
-		details_url?: unknown;
-	}> | null;
 };
 
 export async function getPullRequestCheckSummary(
@@ -51,9 +85,12 @@ export async function getPullRequestCheckSummary(
 		pullRequestNumber: number;
 	},
 	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
+	options?: {
+		octokit?: OctokitChecksClient;
+	},
 ): Promise<PullRequestCheckSummary> {
 	try {
-		const pullRequest = await fetchPullRequest(input, env);
+		const pullRequest = await fetchPullRequest(input, env, options);
 
 		const checkRunResult = await fetchCheckRuns(
 			{
@@ -62,6 +99,7 @@ export async function getPullRequestCheckSummary(
 			},
 			pullRequest.head.sha,
 			env,
+			options,
 		);
 		if (checkRunResult.ok) {
 			const classification = classifyCheckRuns(checkRunResult.checkRuns);
@@ -83,6 +121,7 @@ export async function getPullRequestCheckSummary(
 			},
 			pullRequest.head.sha,
 			env,
+			options,
 		);
 		if (!status.ok) {
 			return {
@@ -203,29 +242,35 @@ async function fetchPullRequest(
 		pullRequestNumber: number;
 	},
 	env: RhapsodyGitHubEnv,
-): Promise<GitHubPullRequestResponse> {
-	const response = await fetch(
-		`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}/pulls/${input.pullRequestNumber}`,
-		{
+	options?: {
+		octokit?: OctokitChecksClient;
+	},
+): Promise<{ number: number; head: { sha: string } }> {
+	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
+
+	let response: PullRequestResponse;
+	try {
+		response = await octokit.rest.pulls.get({
+			owner: input.owner,
+			repo: input.repository,
+			pull_number: input.pullRequestNumber,
 			headers: {
 				Accept: "application/vnd.github+json",
-				Authorization: `Bearer ${env.GITHUB_TOKEN}`,
 				"X-GitHub-Api-Version": "2022-11-28",
 			},
+		});
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : "request failed";
+		throw new Error(`GitHub pull request lookup failed: ${reason}`);
+	}
+
+	const payload = response.data;
+	return {
+		number: payload.number,
+		head: {
+			sha: payload.head.sha,
 		},
-	);
-
-	if (!response.ok) {
-		const message = await safeResponseText(response);
-		throw new Error(`GitHub pull request lookup failed: ${message}`);
-	}
-
-	const payload = (await response.json()) as unknown;
-	if (!isGitHubPullRequestResponse(payload)) {
-		throw new Error("GitHub pull request response had an unexpected shape.");
-	}
-
-	return payload;
+	};
 }
 
 async function fetchCheckRuns(
@@ -235,33 +280,44 @@ async function fetchCheckRuns(
 	},
 	headSha: string,
 	env: RhapsodyGitHubEnv,
+	options?: {
+		octokit?: OctokitChecksClient;
+	},
 ): Promise<
 	| { ok: true; status: string; checkRuns: PullRequestCheckRunSummary[] }
 	| { ok: false; status: string; reason: string }
 > {
-	const response = await fetch(
-		`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}/commits/${encodeURIComponent(headSha)}/check-runs`,
-		{
+	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
+	let response: ListCheckRunsResponse;
+	try {
+		response = await octokit.rest.checks.listForRef({
+			owner: input.owner,
+			repo: input.repository,
+			ref: headSha,
 			headers: {
 				Accept: "application/vnd.github+json",
-				Authorization: `Bearer ${env.GITHUB_TOKEN}`,
 				"X-GitHub-Api-Version": "2022-11-28",
 			},
-		},
-	);
-
-	if (!response.ok) {
-		const message = await safeResponseText(response);
+		});
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : "request failed";
 		return {
 			ok: false,
 			status: "unknown",
-			reason: `GitHub check-runs lookup failed: ${message}`,
+			reason: `GitHub check-runs lookup failed: ${reason}`,
 		};
 	}
 
-	const payload = (await response.json()) as GitHubCommitCheckRunResponse;
-	const runs = normalizeCheckRuns(payload);
-
+	const actionsMetadata = await fetchActionsMetadataForCheckRuns(
+		input,
+		response.data.check_runs ?? [],
+		env,
+		options,
+	);
+	const runs = normalizeCheckRuns(
+		response.data.check_runs ?? [],
+		actionsMetadata,
+	);
 	return {
 		ok: true,
 		status: runs.length > 0 ? "available" : "none",
@@ -269,47 +325,352 @@ async function fetchCheckRuns(
 	};
 }
 
-function normalizeCheckRuns(
-	payload: GitHubCommitCheckRunResponse,
-): PullRequestCheckRunSummary[] {
-	if (!Array.isArray(payload.check_runs)) {
-		return [];
-	}
+type WorkflowRunJobMetadata = {
+	jobId: number;
+	jobName: string;
+	failedStepNames: string[];
+};
 
-	return payload.check_runs
+type WorkflowRunMetadata = {
+	workflowRunId: number;
+	workflowName: string | null;
+	workflowPath: string | null;
+	jobsById: Map<number, WorkflowRunJobMetadata>;
+	jobsByName: Map<string, WorkflowRunJobMetadata[]>;
+};
+
+async function fetchActionsMetadataForCheckRuns(
+	input: {
+		owner: string;
+		repository: string;
+	},
+	checkRuns: CheckRuns,
+	env: RhapsodyGitHubEnv,
+	options?: {
+		octokit?: OctokitChecksClient;
+	},
+): Promise<Map<number, PullRequestCheckRunActionsSummary>> {
+	const parsedCheckRuns = checkRuns
+		.map((checkRun) => {
+			const checkRunId = typeof checkRun.id === "number" ? checkRun.id : null;
+			const detailsUrl =
+				typeof checkRun.details_url === "string" ? checkRun.details_url : null;
+			const parsedDetailsUrl = parseActionsDetailsUrl(detailsUrl);
+			const checkRunName =
+				typeof checkRun.name === "string" ? checkRun.name.trim() : "";
+
+			return {
+				checkRunId,
+				checkRunName,
+				parsedDetailsUrl,
+			};
+		})
 		.filter(
 			(
 				checkRun,
 			): checkRun is {
-				name?: unknown;
-				status?: unknown;
-				conclusion?: unknown;
-				details_url?: unknown;
-			} =>
-				typeof checkRun === "object" &&
-				checkRun !== null &&
-				"status" in checkRun,
-		)
+				checkRunId: number;
+				checkRunName: string;
+				parsedDetailsUrl: {
+					workflowRunId: number;
+					jobId: number | null;
+				};
+			} => checkRun.checkRunId !== null && checkRun.parsedDetailsUrl !== null,
+		);
+
+	if (parsedCheckRuns.length === 0) {
+		return new Map();
+	}
+
+	const workflowRunIds = Array.from(
+		new Set(
+			parsedCheckRuns.map(
+				(checkRun) => checkRun.parsedDetailsUrl.workflowRunId,
+			),
+		),
+	);
+	const metadataEntries = await Promise.all(
+		workflowRunIds.map(async (workflowRunId) => {
+			try {
+				const metadata = await loadWorkflowRunMetadata(
+					input,
+					workflowRunId,
+					env,
+					options,
+				);
+				return [workflowRunId, metadata] as const;
+			} catch {
+				return null;
+			}
+		}),
+	);
+	const metadataByWorkflowRunId = new Map<number, WorkflowRunMetadata>();
+
+	for (const entry of metadataEntries) {
+		if (!entry) {
+			continue;
+		}
+
+		metadataByWorkflowRunId.set(entry[0], entry[1]);
+	}
+
+	const actionsMetadataByCheckRunId = new Map<
+		number,
+		PullRequestCheckRunActionsSummary
+	>();
+
+	for (const checkRun of parsedCheckRuns) {
+		const workflowRunMetadata = metadataByWorkflowRunId.get(
+			checkRun.parsedDetailsUrl.workflowRunId,
+		);
+		if (!workflowRunMetadata) {
+			continue;
+		}
+
+		const jobMetadata =
+			(checkRun.parsedDetailsUrl.jobId !== null
+				? workflowRunMetadata.jobsById.get(checkRun.parsedDetailsUrl.jobId)
+				: undefined) ??
+			findWorkflowJobByName(
+				workflowRunMetadata.jobsByName,
+				checkRun.checkRunName,
+			);
+
+		actionsMetadataByCheckRunId.set(checkRun.checkRunId, {
+			workflowRunId: workflowRunMetadata.workflowRunId,
+			workflowName: workflowRunMetadata.workflowName,
+			workflowPath: workflowRunMetadata.workflowPath,
+			jobId: jobMetadata?.jobId ?? checkRun.parsedDetailsUrl.jobId,
+			jobName:
+				jobMetadata?.jobName ??
+				(checkRun.checkRunName.length > 0 ? checkRun.checkRunName : null),
+			failedStepNames: jobMetadata?.failedStepNames ?? [],
+		});
+	}
+
+	return actionsMetadataByCheckRunId;
+}
+
+async function loadWorkflowRunMetadata(
+	input: {
+		owner: string;
+		repository: string;
+	},
+	workflowRunId: number,
+	env: RhapsodyGitHubEnv,
+	options?: {
+		octokit?: OctokitChecksClient;
+	},
+): Promise<WorkflowRunMetadata> {
+	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
+	const workflowRunResponse = await octokit.rest.actions.getWorkflowRun({
+		owner: input.owner,
+		repo: input.repository,
+		run_id: workflowRunId,
+		headers: {
+			Accept: "application/vnd.github+json",
+			"X-GitHub-Api-Version": "2022-11-28",
+		},
+	});
+	const jobs = await listWorkflowRunJobs(input, workflowRunId, env, options);
+	const jobsById = new Map<number, WorkflowRunJobMetadata>();
+	const jobsByName = new Map<string, WorkflowRunJobMetadata[]>();
+
+	for (const job of jobs) {
+		const metadata = {
+			jobId: job.jobId,
+			jobName: job.jobName,
+			failedStepNames: job.failedStepNames,
+		} satisfies WorkflowRunJobMetadata;
+		jobsById.set(metadata.jobId, metadata);
+
+		const existing = jobsByName.get(metadata.jobName) ?? [];
+		existing.push(metadata);
+		jobsByName.set(metadata.jobName, existing);
+	}
+
+	return {
+		workflowRunId,
+		workflowName: normalizeOptionalString(workflowRunResponse.data.name),
+		workflowPath: normalizeWorkflowPath(
+			readWorkflowRunPath(workflowRunResponse),
+		),
+		jobsById,
+		jobsByName,
+	};
+}
+
+async function listWorkflowRunJobs(
+	input: {
+		owner: string;
+		repository: string;
+	},
+	workflowRunId: number,
+	env: RhapsodyGitHubEnv,
+	options?: {
+		octokit?: OctokitChecksClient;
+	},
+): Promise<WorkflowRunJobMetadata[]> {
+	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
+	const jobs: WorkflowRunJobMetadata[] = [];
+	const perPage = 100;
+	let page = 1;
+
+	while (true) {
+		const response = await octokit.rest.actions.listJobsForWorkflowRun({
+			owner: input.owner,
+			repo: input.repository,
+			run_id: workflowRunId,
+			per_page: perPage,
+			page,
+			headers: {
+				Accept: "application/vnd.github+json",
+				"X-GitHub-Api-Version": "2022-11-28",
+			},
+		});
+		const payload = response.data.jobs ?? [];
+
+		for (const job of payload) {
+			const jobId = typeof job.id === "number" ? job.id : null;
+			const jobName = normalizeOptionalString(job.name);
+
+			if (jobId === null || !jobName) {
+				continue;
+			}
+
+			jobs.push({
+				jobId,
+				jobName,
+				failedStepNames: extractFailedStepNames(job.steps),
+			});
+		}
+
+		const linkHeader = response.headers.link;
+		if (
+			payload.length < perPage ||
+			!linkHeader ||
+			!linkHeader.includes('rel="next"')
+		) {
+			return jobs;
+		}
+
+		page += 1;
+	}
+}
+
+function normalizeCheckRuns(
+	payload: CheckRuns,
+	actionsMetadataByCheckRunId = new Map<
+		number,
+		PullRequestCheckRunActionsSummary
+	>(),
+): PullRequestCheckRunSummary[] {
+	return payload
 		.map((checkRun) => {
 			const name =
-				typeof checkRun.name === "string" && checkRun.name.trim().length > 0
-					? checkRun.name
-					: "unknown";
+				typeof checkRun.name === "string" ? checkRun.name : "unknown";
 			const status =
 				typeof checkRun.status === "string" ? checkRun.status : "unknown";
 			const conclusion =
 				typeof checkRun.conclusion === "string" ? checkRun.conclusion : null;
 			const detailsUrl =
 				typeof checkRun.details_url === "string" ? checkRun.details_url : null;
+			const checkRunId = typeof checkRun.id === "number" ? checkRun.id : null;
+			const actions =
+				checkRunId !== null
+					? (actionsMetadataByCheckRunId.get(checkRunId) ?? null)
+					: null;
 
 			return {
-				name,
+				name: name.trim() || "unknown",
 				status,
 				conclusion,
 				detailsUrl,
+				...(actions ? { actions } : {}),
 			};
 		})
 		.slice(0, 20);
+}
+
+function parseActionsDetailsUrl(detailsUrl: string | null) {
+	if (!detailsUrl) {
+		return null;
+	}
+
+	const match = /\/actions\/runs\/(\d+)(?:\/job\/(\d+))?/.exec(detailsUrl);
+	if (!match) {
+		return null;
+	}
+
+	const workflowRunId = Number.parseInt(match[1] ?? "", 10);
+	const jobId = match[2] ? Number.parseInt(match[2], 10) : null;
+
+	if (!Number.isFinite(workflowRunId) || workflowRunId <= 0) {
+		return null;
+	}
+
+	if (jobId !== null && (!Number.isFinite(jobId) || jobId <= 0)) {
+		return null;
+	}
+
+	return {
+		workflowRunId,
+		jobId,
+	};
+}
+
+function findWorkflowJobByName(
+	jobsByName: Map<string, WorkflowRunJobMetadata[]>,
+	jobName: string,
+) {
+	const matches = jobsByName.get(jobName) ?? [];
+	return matches.length === 1 ? matches[0] : null;
+}
+
+function readWorkflowRunPath(response: GetWorkflowRunResponse) {
+	const payload = response.data as GetWorkflowRunResponse["data"] & {
+		path?: unknown;
+	};
+	return typeof payload.path === "string" ? payload.path : null;
+}
+
+function normalizeWorkflowPath(value: string | null) {
+	if (!value) {
+		return null;
+	}
+
+	const normalized = value.split("@", 1)[0]?.trim() ?? "";
+	return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeOptionalString(value: unknown) {
+	return typeof value === "string" && value.trim().length > 0
+		? value.trim()
+		: null;
+}
+
+function extractFailedStepNames(steps: ActionsJobs[number]["steps"]) {
+	if (!Array.isArray(steps)) {
+		return [];
+	}
+
+	return steps
+		.filter((step) => {
+			const conclusion =
+				typeof step.conclusion === "string" ? step.conclusion : null;
+			return (
+				conclusion !== null &&
+				[
+					"failure",
+					"error",
+					"timed_out",
+					"cancelled",
+					"action_required",
+				].includes(conclusion)
+			);
+		})
+		.map((step) => (typeof step.name === "string" ? step.name.trim() : ""))
+		.filter((stepName) => stepName.length > 0);
 }
 
 async function fetchCommitCheckStatus(
@@ -319,73 +680,32 @@ async function fetchCommitCheckStatus(
 	},
 	headSha: string,
 	env: RhapsodyGitHubEnv,
+	options?: {
+		octokit?: OctokitChecksClient;
+	},
 ): Promise<
 	{ ok: true; state: string } | { ok: false; state: string; reason: string }
 > {
-	const response = await fetch(
-		`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}/commits/${encodeURIComponent(headSha)}/status`,
-		{
+	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
+	let response: GetCombinedStatusResponse;
+	try {
+		response = await octokit.rest.repos.getCombinedStatusForRef({
+			owner: input.owner,
+			repo: input.repository,
+			ref: headSha,
 			headers: {
 				Accept: "application/vnd.github+json",
-				Authorization: `Bearer ${env.GITHUB_TOKEN}`,
 				"X-GitHub-Api-Version": "2022-11-28",
 			},
-		},
-	);
-
-	if (!response.ok) {
-		const message = await safeResponseText(response);
+		});
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : "request failed";
 		return {
 			ok: false,
 			state: "unknown",
-			reason: `GitHub commit status lookup failed: ${message}`,
+			reason: `GitHub commit status lookup failed: ${reason}`,
 		};
 	}
 
-	const payload = (await response.json()) as unknown;
-	if (!isGitHubCommitStatusResponse(payload)) {
-		return {
-			ok: false,
-			state: "unknown",
-			reason: "GitHub commit status response had an unexpected shape.",
-		};
-	}
-
-	return { ok: true, state: payload.state };
-}
-
-function isGitHubPullRequestResponse(
-	value: unknown,
-): value is GitHubPullRequestResponse {
-	if (typeof value !== "object" || value === null) {
-		return false;
-	}
-
-	const pullRequest = value as Partial<GitHubPullRequestResponse>;
-	return (
-		typeof pullRequest.number === "number" &&
-		typeof pullRequest.head === "object" &&
-		pullRequest.head !== null &&
-		typeof pullRequest.head.sha === "string"
-	);
-}
-
-function isGitHubCommitStatusResponse(
-	value: unknown,
-): value is GitHubCommitStatusResponse {
-	if (typeof value !== "object" || value === null) {
-		return false;
-	}
-
-	const status = value as Partial<GitHubCommitStatusResponse>;
-	return typeof status.state === "string";
-}
-
-async function safeResponseText(response: Response): Promise<string> {
-	try {
-		const text = await response.text();
-		return text || `${response.status} ${response.statusText}`;
-	} catch {
-		return `${response.status} ${response.statusText}`;
-	}
+	return { ok: true, state: response.data.state };
 }

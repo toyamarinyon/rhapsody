@@ -1,16 +1,14 @@
 import type { Client } from "@libsql/client";
-
+import { getRun } from "workflow/api";
 import { loadRhapsodyConfig } from "@/lib/config";
 import {
 	createStateStoreClient,
 	listStaleRunningAttempts,
-	reconcileStaleRunningAttempt,
 	type ReconcileStaleRunningAttemptResult,
+	reconcileStaleRunningAttempt,
 	type StaleRunningAttempt,
 } from "@/lib/state";
-import { getRun } from "workflow/api";
 
-const DEFAULT_RUNNING_ATTEMPT_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_RECONCILER_LIMIT = 20;
 
 export type ReconcilerTickInput = {
@@ -78,9 +76,7 @@ async function runReconcilerTickWithClient(
 	const config = loadRhapsodyConfig();
 	const now = input.now ?? Date.now();
 	const maxRunningAttemptAgeMs =
-		input.maxRunningAttemptAgeMs ??
-		config.scheduler.runningAttemptTimeoutMs ??
-		DEFAULT_RUNNING_ATTEMPT_TIMEOUT_MS;
+		input.maxRunningAttemptAgeMs ?? config.runner.runningAttemptTimeoutMs;
 	const limit = input.limit ?? DEFAULT_RECONCILER_LIMIT;
 	const cutoff = now - maxRunningAttemptAgeMs;
 	const staleAttempts = await listStaleRunningAttempts(client, {

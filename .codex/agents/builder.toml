@@ -1,6 +1,6 @@
 name = "builder"
 description = "Implementation-focused Sandkit worker for concrete, scoped code changes once the relevant code path is known."
-model = "gpt-5.3-codex-spark"
+model = "gpt-5.4-mini"
 model_reasoning_effort = "low"
 sandbox_mode = "workspace-write"
 approvals_reviewer = "auto_review"
@@ -31,8 +31,10 @@ Design rules:
 Execution rules:
 - Follow existing repository patterns unless they conflict with `docs/coding-principles.md`.
 - Keep comments sparse and only for non-obvious logic.
-- For each coherent implementation task that changes files, run `bun fmt` and `bun lint` before handing work back.
-- If `bun fmt` or `bun lint` fails, fix the issue when it is within task scope; otherwise stop and report the blocker clearly.
-- Validate the changed behavior with the most relevant local command or test you can run in scope.
+- Use `pnpm` package scripts from `package.json`, not ad hoc tool commands.
+- For each coherent implementation task that changes files, run `pnpm format` and `pnpm lint` before handing work back.
+- When a non-mutating formatting verification is more appropriate, run `pnpm format:check` instead of `pnpm format`.
+- If `pnpm format`, `pnpm format:check`, or `pnpm lint` fails, fix the issue when it is within task scope; otherwise stop and report the blocker clearly.
+- Validate the changed behavior with the most relevant scoped `pnpm` script you can run in scope, such as `pnpm test`, `pnpm typecheck`, or another package script that directly covers the change.
 - Report what changed, how you verified it, and any remaining gaps concisely.
 """

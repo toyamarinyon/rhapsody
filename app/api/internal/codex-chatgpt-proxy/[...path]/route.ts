@@ -1,17 +1,21 @@
-import {
-	DUMMY_CHATGPT_REFRESH_TOKEN,
-	buildCodexChatGPTDummyAuthFile,
-} from "@/lib/codex/auth";
 import { decodeJwt } from "jose";
+import {
+	buildCodexChatGPTDummyAuthFile,
+	DUMMY_CHATGPT_REFRESH_TOKEN,
+} from "@/lib/codex/auth";
 import {
 	loadMediatorCredentialState,
 	updateMediatorCredentialsFromOAuthResponse,
 } from "@/lib/codex/credentials";
 import {
+	createStateStoreClient,
+	getRunDetail,
+	listWorkItemGraph,
+} from "@/lib/state";
+import {
 	extractSafeOidcClaimSnapshot,
 	verifyVercelSandboxOidcToken,
 } from "@/lib/vercel/oidc";
-import { createStateStoreClient, getRunDetail } from "@/lib/state";
 
 export const runtime = "nodejs";
 
@@ -131,9 +135,9 @@ export async function DELETE(
 	return handleCodexChatGPTProxy(request, context);
 }
 
-async function handleAuthTokenExchange(
+export async function handleAuthTokenExchange(
 	_request: Request,
-	body: ArrayBuffer | null,
+	_body: ArrayBuffer | null,
 	method: string,
 ) {
 	const state = await loadMediatorCredentialState();
@@ -162,7 +166,7 @@ async function handleAuthTokenExchange(
 			"content-type": "application/json",
 		},
 		body: JSON.stringify({
-			client_id: readOAuthClientId(body) ?? CHATGPT_OAUTH_CLIENT_ID,
+			client_id: CHATGPT_OAUTH_CLIENT_ID,
 			grant_type: "refresh_token",
 			refresh_token: state.refreshToken,
 		}),
@@ -331,7 +335,7 @@ function decodeSafeOidcClaims(token: string) {
 	}
 }
 
-function buildExpectedOidcAudience(
+export function buildExpectedOidcAudience(
 	origin: string,
 	runContext: ProxyRunContext | null,
 ) {
@@ -342,18 +346,18 @@ function buildExpectedOidcAudience(
 	return `${origin}/api/internal/codex-chatgpt-proxy/runs/${runContext.runId}/attempts/${runContext.attemptId}${runContext.audienceSuffix}`;
 }
 
-type ProxyRunContext = {
+export type ProxyRunContext = {
 	runId: string;
 	attemptId: string;
 	audienceSuffix: string;
 };
 
-function parseProxyPath(path: string[]): {
+export function parseProxyPath(path: string[]): {
 	upstreamPath: string;
 	runContext: ProxyRunContext | null;
 } {
 	if (
-		path.length >= 5 &&
+		path.length >= 4 &&
 		path[0] === "runs" &&
 		path[2] === "attempts" &&
 		path[1]?.trim() &&
@@ -399,22 +403,64 @@ function parsePathPrefixForward(path: string[]) {
 	};
 }
 
-async function isProxyRunContextActive(runContext: ProxyRunContext | null) {
+export async function isProxyRunContextActive(
+	runContext: ProxyRunContext | null,
+): Promise<boolean> {
 	if (!runContext) {
 		return false;
+	}
+
+	let decodedAttemptId = runContext.attemptId;
+	try {
+		decodedAttemptId = decodeURIComponent(runContext.attemptId);
+	} catch {
+		// Keep the raw attemptId if decoding fails.
+	}
+	const workItemIdCandidates = new Set<string>([decodedAttemptId]);
+	const base64DecodedAttemptId = tryDecodeBase64Url(decodedAttemptId);
+	if (base64DecodedAttemptId) {
+		workItemIdCandidates.add(base64DecodedAttemptId);
 	}
 
 	const client = createStateStoreClient();
 
 	try {
 		const detail = await getRunDetail(client, runContext.runId);
-		const attempt = detail?.attempts.find(
-			(candidate) => candidate.id === runContext.attemptId,
-		);
+		if (detail?.run) {
+			const attempt = detail.attempts.find(
+				(candidate) => candidate.id === decodedAttemptId,
+			);
 
-		return detail?.run.status === "running" && attempt?.status === "running";
+			return detail.run.status === "running" && attempt?.status === "running";
+		}
+
+		for (const candidateAttemptId of workItemIdCandidates) {
+			const graph = await listWorkItemGraph(client, candidateAttemptId);
+			if (graph.workItemId !== candidateAttemptId) {
+				continue;
+			}
+			const activeIntakeRun = graph.workerRuns.find(
+				(candidate) =>
+					candidate.id === runContext.runId &&
+					candidate.kind === "intake_curator" &&
+					candidate.status === "running",
+			);
+			if (activeIntakeRun) {
+				return true;
+			}
+		}
 	} finally {
 		client.close();
+	}
+
+	return false;
+}
+
+function tryDecodeBase64Url(value: string) {
+	try {
+		return Buffer.from(value, "base64url").toString("utf8");
+	} catch {
+		return undefined;
 	}
 }
 
@@ -425,31 +471,6 @@ function isBodyAllowedForMethod(method: string) {
 function isWebsocketUpgrade(headers: Headers) {
 	return headers.get("upgrade")?.toLowerCase() === "websocket";
 }
-
-function readOAuthClientId(body: ArrayBuffer | null) {
-	if (!body) {
-		return null;
-	}
-
-	try {
-		const value = JSON.parse(Buffer.from(body).toString("utf8")) as unknown;
-
-		if (
-			value &&
-			typeof value === "object" &&
-			"client_id" in value &&
-			typeof value.client_id === "string" &&
-			value.client_id.trim()
-		) {
-			return value.client_id;
-		}
-	} catch {
-		return null;
-	}
-
-	return null;
-}
-
 function sanitizeMediatorRequestHeaders(
 	request: Request,
 ): Record<string, string> {

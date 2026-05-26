@@ -1,3 +1,4 @@
+import { resumeHook } from "workflow/api";
 import { loadRhapsodyMediatorEnv } from "@/lib/config";
 import { isRecord, optionalString, readJson } from "@/lib/server/json";
 import {
@@ -6,11 +7,11 @@ import {
 	validateAttemptCanReceiveCallback,
 } from "@/lib/state";
 import { buildAttemptHookToken } from "@/lib/workflows/attempt-hook";
-import { resumeHook } from "workflow/api";
 
 export const runtime = "nodejs";
 
 type RunnerCallbackRequest = {
+	callbackType: "terminal" | "progress";
 	runId: string;
 	attemptId: string;
 	claimToken: string;
@@ -25,6 +26,7 @@ type RunnerCallbackRequest = {
 	branchName?: string | null;
 	prSpec?: unknown;
 	postflight?: unknown;
+	diagnostics?: unknown;
 };
 
 export async function POST(request: Request) {
@@ -76,6 +78,33 @@ export async function POST(request: Request) {
 			);
 		}
 
+		if (parsed.value.callbackType === "progress") {
+			const event = await createEvent(client, {
+				runId: parsed.value.runId,
+				attemptId: parsed.value.attemptId,
+				level: "info",
+				type: "attempt.progress",
+				message: "Attempt progress callback received.",
+				data: buildProgressEventPayload(parsed.value),
+			});
+
+			return Response.json(
+				{
+					accepted: true,
+					idempotent: false,
+					eventId: event.id,
+					runStatus: acceptance.runStatus,
+					attemptStatus: acceptance.attemptStatus,
+					workflowResume: {
+						resumed: false,
+						skipped: true,
+						reason: "progress_callback",
+					},
+				},
+				{ status: 202 },
+			);
+		}
+
 		const event = await createEvent(client, {
 			runId: parsed.value.runId,
 			attemptId: parsed.value.attemptId,
@@ -117,6 +146,7 @@ export async function POST(request: Request) {
 
 function buildCallbackEventPayload(callback: RunnerCallbackRequest) {
 	return {
+		callbackType: callback.callbackType,
 		executionStatus: callback.executionStatus,
 		exitCode: callback.exitCode ?? null,
 		sandboxId: callback.sandboxId ?? null,
@@ -128,6 +158,21 @@ function buildCallbackEventPayload(callback: RunnerCallbackRequest) {
 		branchName: callback.branchName ?? null,
 		prSpec: callback.prSpec ?? null,
 		postflight: callback.postflight ?? null,
+		diagnostics: sanitizeDiagnostics(callback.diagnostics),
+	};
+}
+
+function buildProgressEventPayload(callback: RunnerCallbackRequest) {
+	return {
+		callbackType: callback.callbackType,
+		executionStatus: callback.executionStatus,
+		exitCode: callback.exitCode ?? null,
+		sandboxId: callback.sandboxId ?? null,
+		commandId: callback.commandId ?? null,
+		startedAt: callback.startedAt ?? null,
+		completedAt: callback.completedAt ?? null,
+		error: callback.error ? redactAndBound(callback.error, 500) : null,
+		diagnostics: sanitizeDiagnostics(callback.diagnostics),
 	};
 }
 
@@ -277,10 +322,16 @@ function parseRunnerCallbackRequest(
 			error: "branch_name must be a string or null when provided.",
 		};
 	}
+	const callbackType = parseCallbackType(value.callback_type);
+
+	if (!callbackType.ok) {
+		return callbackType;
+	}
 
 	return {
 		ok: true,
 		value: {
+			callbackType: callbackType.value,
 			runId: runId.value,
 			attemptId: attemptId.value,
 			claimToken: claimToken.value,
@@ -295,8 +346,86 @@ function parseRunnerCallbackRequest(
 			branchName,
 			prSpec: value.pr_spec,
 			postflight: value.postflight,
+			diagnostics: value.diagnostics,
 		},
 	};
+}
+
+function parseCallbackType(
+	value: unknown,
+): { ok: true; value: "terminal" | "progress" } | { ok: false; error: string } {
+	if (value === undefined || value === null) {
+		return { ok: true, value: "terminal" };
+	}
+
+	if (value === "terminal" || value === "progress") {
+		return { ok: true, value };
+	}
+
+	return {
+		ok: false,
+		error: 'callback_type must be "terminal", "progress", null, or omitted.',
+	};
+}
+
+const DIAGNOSTIC_PREVIEW_LENGTH = 1000;
+
+function sanitizeDiagnostics(value: unknown) {
+	if (!isRecord(value)) {
+		return null;
+	}
+
+	return {
+		stdoutTail:
+			typeof value.stdout_tail === "string"
+				? redactAndBound(value.stdout_tail, DIAGNOSTIC_PREVIEW_LENGTH)
+				: null,
+		stderrTail:
+			typeof value.stderr_tail === "string"
+				? redactAndBound(value.stderr_tail, DIAGNOSTIC_PREVIEW_LENGTH)
+				: null,
+		stdoutBytes:
+			typeof value.stdout_bytes === "number" &&
+			Number.isFinite(value.stdout_bytes)
+				? value.stdout_bytes
+				: null,
+		stderrBytes:
+			typeof value.stderr_bytes === "number" &&
+			Number.isFinite(value.stderr_bytes)
+				? value.stderr_bytes
+				: null,
+		lastOutputAt: optionalIsoString(value.last_output_at),
+		lastStdoutAt: optionalIsoString(value.last_stdout_at),
+		lastStderrAt: optionalIsoString(value.last_stderr_at),
+		lastCodexEventType:
+			typeof value.last_codex_event_type === "string"
+				? redactAndBound(value.last_codex_event_type, 120)
+				: null,
+		lastCodexError:
+			typeof value.last_codex_error === "string"
+				? redactAndBound(value.last_codex_error, 500)
+				: null,
+	};
+}
+
+function optionalIsoString(value: unknown) {
+	if (typeof value !== "string" || !value.trim()) {
+		return null;
+	}
+
+	const timestamp = Date.parse(value);
+	return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+}
+
+function redactAndBound(value: string, limit: number) {
+	return value
+		.replace(
+			/([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API[_-]?KEY|AUTH)[A-Z0-9_]*\s*[=:]\s*)[^\s"',;]+/gi,
+			"$1[REDACTED]",
+		)
+		.replace(/(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, "$1[REDACTED]")
+		.replace(/(sk-[A-Za-z0-9_-]{8,})/g, "[REDACTED]")
+		.slice(0, limit);
 }
 
 function serializeError(error: unknown) {

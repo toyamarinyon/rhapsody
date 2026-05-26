@@ -1,3 +1,5 @@
+import { Octokit } from "@octokit/rest";
+
 import { loadRhapsodyGitHubEnv, type RhapsodyGitHubEnv } from "@/lib/config";
 
 export type PullRequestSummary = {
@@ -6,7 +8,12 @@ export type PullRequestSummary = {
 	htmlUrl: string;
 	headRef: string;
 	baseRef: string;
+	headSha?: string | null;
+	baseSha?: string | null;
 	title: string;
+	state?: string;
+	merged?: boolean;
+	sha?: string | null;
 };
 
 export type PullRequestMergeResult = {
@@ -16,26 +23,55 @@ export type PullRequestMergeResult = {
 	sha: string | null;
 };
 
-type GitHubApiPullRequest = {
-	number: number;
-	html_url: string;
-	title: string;
-	head: {
-		ref: string;
-	};
-	base: {
-		ref: string;
-	};
+export type PullRequestBranchComparison = {
+	base: string;
+	head: string;
+	status: "ahead" | "behind" | "identical" | "diverged" | "unknown";
+	aheadBy: number | null;
+	behindBy: number | null;
+	mergeBaseCommitSha: string | null;
 };
 
-type GitHubApiPullRequestFile = {
-	filename: string;
-};
+type GetPullRequestFn = Octokit["rest"]["pulls"]["get"];
+type ListOpenPullsFn = Octokit["rest"]["pulls"]["list"];
+type ListPullFilesFn = Octokit["rest"]["pulls"]["listFiles"];
+type CreatePullRequestFn = Octokit["rest"]["pulls"]["create"];
+type MergePullRequestFn = Octokit["rest"]["pulls"]["merge"];
+type ComparePullRequestsFn = NonNullable<
+	Octokit["rest"]["repos"]
+>["compareCommits"];
+type GetPullRequestResponse = Awaited<ReturnType<GetPullRequestFn>>;
+type ListOpenPullsResponse = Awaited<ReturnType<ListOpenPullsFn>>;
+type ListOpenPullsResponseData = ListOpenPullsResponse["data"];
+type CreatePullRequestResponse = Awaited<ReturnType<CreatePullRequestFn>>;
+type MergePullRequestResponse = Awaited<ReturnType<MergePullRequestFn>>;
+type ComparePullRequestsResponse = Awaited<ReturnType<ComparePullRequestsFn>>;
 
-type GitHubApiPullRequestMergeResponse = {
-	sha: string | null;
-	merged: boolean;
-	message: string;
+type OctokitPullRequestClient = {
+	rest: {
+		pulls: {
+			get: (
+				...args: Parameters<GetPullRequestFn>
+			) => ReturnType<GetPullRequestFn>;
+			list: (
+				...args: Parameters<ListOpenPullsFn>
+			) => ReturnType<ListOpenPullsFn>;
+			listFiles: (
+				...args: Parameters<ListPullFilesFn>
+			) => ReturnType<ListPullFilesFn>;
+			create: (
+				...args: Parameters<CreatePullRequestFn>
+			) => ReturnType<CreatePullRequestFn>;
+			merge: (
+				...args: Parameters<MergePullRequestFn>
+			) => ReturnType<MergePullRequestFn>;
+		};
+		repos: {
+			compareCommits: (
+				...args: Parameters<ComparePullRequestsFn>
+			) => ReturnType<ComparePullRequestsFn>;
+		};
+	};
 };
 
 export class GitHubPullRequestError extends Error {
@@ -63,6 +99,9 @@ export async function createOrReuseOpenPullRequest(
 		body: string;
 	},
 	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
+	options?: {
+		octokit?: OctokitPullRequestClient;
+	},
 ): Promise<PullRequestSummary> {
 	const existing = await findOpenPullRequestForHead({
 		env,
@@ -70,6 +109,7 @@ export async function createOrReuseOpenPullRequest(
 		repository: input.repository,
 		head: input.head,
 		base: input.base,
+		options,
 	});
 
 	if (existing) {
@@ -89,6 +129,7 @@ export async function createOrReuseOpenPullRequest(
 			body: input.body,
 			head: input.head,
 			base: input.base,
+			options,
 		});
 	} catch (error) {
 		if (
@@ -104,6 +145,7 @@ export async function createOrReuseOpenPullRequest(
 			repository: input.repository,
 			head: input.head,
 			base: input.base,
+			options,
 		});
 
 		if (racedExisting) {
@@ -129,37 +171,46 @@ export async function getPullRequest(
 		pullRequestNumber: number;
 	},
 	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
+	options?: {
+		octokit?: OctokitPullRequestClient;
+	},
 ): Promise<PullRequestSummary> {
-	const response = await fetch(
-		`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}/pulls/${encodeURIComponent(String(input.pullRequestNumber))}`,
-		{
+	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
+	let response: GetPullRequestResponse;
+	try {
+		response = await octokit.rest.pulls.get({
+			owner: input.owner,
+			repo: input.repository,
+			pull_number: input.pullRequestNumber,
 			headers: {
 				Accept: "application/vnd.github+json",
-				Authorization: `Bearer ${env.GITHUB_TOKEN}`,
 				"X-GitHub-Api-Version": "2022-11-28",
 			},
-		},
-	);
-
-	if (!response.ok) {
-		const message = await safeResponseText(response);
+		});
+	} catch (error) {
+		const status = getErrorStatus(error);
 		throw new GitHubPullRequestError(
-			response.status,
+			status,
 			input.owner,
 			input.repository,
 			"lookup",
-			message,
+			error instanceof Error ? error.message : "request failed",
 		);
 	}
 
-	const payload = normalizePullRequest(await response.json());
+	const payload = response.data;
 	return {
 		reused: true,
 		number: payload.number,
 		htmlUrl: payload.html_url,
 		title: payload.title,
 		headRef: payload.head.ref,
+		headSha: payload.head.sha ?? null,
 		baseRef: payload.base.ref,
+		baseSha: payload.base.sha ?? null,
+		state: payload.state,
+		merged: payload.merged ?? false,
+		sha: payload.merge_commit_sha ?? payload.head.sha ?? null,
 	};
 }
 
@@ -170,49 +221,56 @@ export async function getPullRequestChangedFiles(
 		pullRequestNumber: number;
 	},
 	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
+	options?: {
+		octokit?: OctokitPullRequestClient;
+	},
 ): Promise<string[]> {
-	const perPage = 100;
-	let page = 1;
-	const filenames: string[] = [];
+	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
 
-	while (true) {
-		const response = await fetch(
-			`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}/pulls/${encodeURIComponent(String(input.pullRequestNumber))}/files?per_page=${perPage}&page=${page}`,
-			{
+	const perPage = 100;
+	const filenames: string[] = [];
+	let page = 1;
+	try {
+		while (true) {
+			const response = await octokit.rest.pulls.listFiles({
+				owner: input.owner,
+				repo: input.repository,
+				pull_number: input.pullRequestNumber,
+				per_page: perPage,
+				page,
 				headers: {
 					Accept: "application/vnd.github+json",
-					Authorization: `Bearer ${env.GITHUB_TOKEN}`,
 					"X-GitHub-Api-Version": "2022-11-28",
 				},
-			},
+			});
+
+			const payload = response.data;
+			for (const file of payload) {
+				filenames.push(file.filename);
+			}
+
+			const linkHeader = response.headers.link;
+			if (
+				payload.length < perPage ||
+				!linkHeader ||
+				!linkHeader.includes('rel="next"')
+			) {
+				return filenames;
+			}
+
+			page += 1;
+		}
+	} catch (error) {
+		const status = getErrorStatus(error);
+		throw new GitHubPullRequestError(
+			status,
+			input.owner,
+			input.repository,
+			"list_files",
+			error instanceof Error ? error.message : "request failed",
 		);
-
-		if (!response.ok) {
-			const message = await safeResponseText(response);
-			throw new GitHubPullRequestError(
-				response.status,
-				input.owner,
-				input.repository,
-				"list_files",
-				message,
-			);
-		}
-
-		const payload = normalizePullRequestFiles(await response.json());
-		for (const candidate of payload) {
-			filenames.push(candidate.filename);
-		}
-
-		if (payload.length < perPage) {
-			return filenames;
-		}
-
-		const linkHeader = response.headers.get("link");
-		if (!linkHeader || !linkHeader.includes('rel="next"')) {
-			return filenames;
-		}
-		page += 1;
 	}
+	return filenames;
 }
 
 export async function mergePullRequest(
@@ -224,36 +282,36 @@ export async function mergePullRequest(
 		commitTitle?: string;
 	},
 	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
+	options?: {
+		octokit?: OctokitPullRequestClient;
+	},
 ): Promise<PullRequestMergeResult> {
-	const response = await fetch(
-		`https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}/pulls/${input.pullRequestNumber}/merge`,
-		{
-			method: "PUT",
+	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
+	let response: MergePullRequestResponse;
+	try {
+		response = await octokit.rest.pulls.merge({
+			owner: input.owner,
+			repo: input.repository,
+			pull_number: input.pullRequestNumber,
+			merge_method: input.mergeMethod ?? "squash",
+			commit_title: input.commitTitle,
 			headers: {
 				Accept: "application/vnd.github+json",
-				Authorization: `Bearer ${env.GITHUB_TOKEN}`,
 				"X-GitHub-Api-Version": "2022-11-28",
-				"content-type": "application/json",
 			},
-			body: JSON.stringify({
-				merge_method: input.mergeMethod ?? "squash",
-				commit_title: input.commitTitle,
-			}),
-		},
-	);
-
-	if (!response.ok) {
-		const message = await safeResponseText(response);
+		});
+	} catch (error) {
+		const status = getErrorStatus(error);
 		throw new GitHubPullRequestError(
-			response.status,
+			status,
 			input.owner,
 			input.repository,
 			"merge",
-			message,
+			error instanceof Error ? error.message : "request failed",
 		);
 	}
 
-	const payload = normalizePullRequestMergeResponse(await response.json());
+	const payload = response.data;
 
 	return {
 		number: input.pullRequestNumber,
@@ -263,57 +321,132 @@ export async function mergePullRequest(
 	};
 }
 
+export async function comparePullRequestBranches(
+	input: {
+		owner: string;
+		repository: string;
+		base: string;
+		head: string;
+	},
+	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
+	options?: {
+		octokit?: OctokitPullRequestClient;
+	},
+): Promise<PullRequestBranchComparison> {
+	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
+	let response: ComparePullRequestsResponse;
+	try {
+		response = await octokit.rest.repos.compareCommits({
+			owner: input.owner,
+			repo: input.repository,
+			base: input.base,
+			head: input.head,
+			headers: {
+				Accept: "application/vnd.github+json",
+				"X-GitHub-Api-Version": "2022-11-28",
+			},
+		});
+	} catch (error) {
+		const status = getErrorStatus(error);
+		throw new GitHubPullRequestError(
+			status,
+			input.owner,
+			input.repository,
+			"compare",
+			error instanceof Error ? error.message : "request failed",
+		);
+	}
+
+	const payload = response.data;
+	return {
+		base: input.base,
+		head: input.head,
+		status:
+			payload.status === "ahead" ||
+			payload.status === "behind" ||
+			payload.status === "identical" ||
+			payload.status === "diverged"
+				? payload.status
+				: "unknown",
+		aheadBy: typeof payload.ahead_by === "number" ? payload.ahead_by : null,
+		behindBy: typeof payload.behind_by === "number" ? payload.behind_by : null,
+		mergeBaseCommitSha: payload.merge_base_commit?.sha ?? null,
+	};
+}
+
 async function findOpenPullRequestForHead({
 	env,
 	owner,
 	repository,
 	head,
 	base,
+	options,
 }: {
 	env: RhapsodyGitHubEnv;
 	owner: string;
 	repository: string;
 	head: string;
 	base: string;
+	options?: {
+		octokit?: OctokitPullRequestClient;
+	};
 }): Promise<{
 	number: number;
 	htmlUrl: string;
 	title: string;
 	headRef: string;
+	headSha: string | null;
 	baseRef: string;
+	baseSha: string | null;
 } | null> {
-	const response = await fetch(
-		`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(
-			repository,
-		)}/pulls?state=open&head=${encodeURIComponent(`${owner}:${head}`)}`,
-		{
-			headers: {
-				Accept: "application/vnd.github+json",
-				Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-				"X-GitHub-Api-Version": "2022-11-28",
-			},
-		},
-	);
+	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
+	const perPage = 100;
+	let page = 1;
+	let pulls: ListOpenPullsResponseData = [];
+	try {
+		while (true) {
+			const response = await octokit.rest.pulls.list({
+				owner,
+				repo: repository,
+				state: "open",
+				head: `${owner}:${head}`,
+				per_page: perPage,
+				page,
+				headers: {
+					Accept: "application/vnd.github+json",
+					"X-GitHub-Api-Version": "2022-11-28",
+				},
+			});
 
-	if (!response.ok) {
-		const message = await safeResponseText(response);
+			pulls = [...pulls, ...response.data];
+
+			if (response.data.length < perPage) {
+				break;
+			}
+
+			const linkHeader = response.headers.link;
+			if (!linkHeader?.includes('rel="next"')) {
+				break;
+			}
+
+			page += 1;
+		}
+	} catch (error) {
+		const status = getErrorStatus(error);
 		throw new GitHubPullRequestError(
-			response.status,
+			status,
 			owner,
 			repository,
 			"lookup",
-			message,
+			error instanceof Error ? error.message : "request failed",
 		);
 	}
-
-	const pulls = normalizePullRequestList(await response.json());
 
 	if (pulls.length === 0) {
 		return null;
 	}
 
 	const candidate = pulls.find((pull) => pull.base.ref === base);
-
 	if (!candidate) {
 		return null;
 	}
@@ -323,7 +456,9 @@ async function findOpenPullRequestForHead({
 		htmlUrl: candidate.html_url,
 		title: candidate.title,
 		headRef: candidate.head.ref,
+		headSha: candidate.head.sha ?? null,
 		baseRef: candidate.base.ref,
+		baseSha: candidate.base.sha ?? null,
 	};
 }
 
@@ -335,147 +470,66 @@ async function createPullRequest(args: {
 	body: string;
 	head: string;
 	base: string;
+	options?: {
+		octokit?: OctokitPullRequestClient;
+	};
 }): Promise<{
 	number: number;
 	htmlUrl: string;
 	title: string;
 	headRef: string;
+	headSha: string | null;
 	baseRef: string;
+	baseSha: string | null;
 }> {
-	const response = await fetch(
-		`https://api.github.com/repos/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repository)}/pulls`,
-		{
-			method: "POST",
+	const octokit =
+		args.options?.octokit ?? new Octokit({ auth: args.env.GITHUB_TOKEN });
+	let response: CreatePullRequestResponse;
+	try {
+		response = await octokit.rest.pulls.create({
+			owner: args.owner,
+			repo: args.repository,
+			title: args.title,
+			body: args.body,
+			head: args.head,
+			base: args.base,
 			headers: {
 				Accept: "application/vnd.github+json",
-				Authorization: `Bearer ${args.env.GITHUB_TOKEN}`,
 				"X-GitHub-Api-Version": "2022-11-28",
-				"content-type": "application/json",
 			},
-			body: JSON.stringify({
-				title: args.title,
-				body: args.body,
-				head: args.head,
-				base: args.base,
-			}),
-		},
-	);
-
-	if (!response.ok) {
-		const message = await safeResponseText(response);
+		});
+	} catch (error) {
+		const status = getErrorStatus(error);
 		throw new GitHubPullRequestError(
-			response.status,
+			status,
 			args.owner,
 			args.repository,
 			"create",
-			message,
+			error instanceof Error ? error.message : "request failed",
 		);
 	}
 
-	const created = normalizePullRequest(await response.json());
+	const created = response.data;
 	return {
 		number: created.number,
 		htmlUrl: created.html_url,
 		title: created.title,
 		headRef: created.head.ref,
+		headSha: created.head.sha ?? null,
 		baseRef: created.base.ref,
+		baseSha: created.base.sha ?? null,
 	};
 }
 
-function normalizePullRequest(value: unknown): GitHubApiPullRequest {
-	if (!isGitHubPullRequest(value)) {
-		throw new Error("GitHub pull request response had an unexpected shape.");
+function getErrorStatus(value: unknown): number {
+	if (
+		typeof value === "object" &&
+		value !== null &&
+		"status" in value &&
+		typeof (value as { status?: unknown }).status === "number"
+	) {
+		return (value as { status: number }).status;
 	}
 
-	return value;
-}
-
-function normalizePullRequestList(value: unknown): GitHubApiPullRequest[] {
-	if (!Array.isArray(value)) {
-		throw new Error(
-			"GitHub pull request list response had an unexpected shape.",
-		);
-	}
-
-	return value.flatMap((candidate) =>
-		isGitHubPullRequest(candidate) ? [candidate] : [],
-	);
-}
-
-function normalizePullRequestFiles(value: unknown): GitHubApiPullRequestFile[] {
-	if (!Array.isArray(value)) {
-		throw new Error(
-			"GitHub pull request files response had an unexpected shape.",
-		);
-	}
-
-	return value.flatMap((candidate) =>
-		isGitHubPullRequestFile(candidate) ? [candidate] : [],
-	);
-}
-
-function normalizePullRequestMergeResponse(
-	value: unknown,
-): GitHubApiPullRequestMergeResponse {
-	if (!isGitHubPullRequestMergeResponse(value)) {
-		throw new Error(
-			"GitHub pull request merge response had an unexpected shape.",
-		);
-	}
-
-	return value;
-}
-
-function isGitHubPullRequest(value: unknown): value is GitHubApiPullRequest {
-	if (typeof value !== "object" || value === null) {
-		return false;
-	}
-
-	const pr = value as Partial<GitHubApiPullRequest>;
-	return (
-		typeof pr.number === "number" &&
-		typeof pr.html_url === "string" &&
-		typeof pr.title === "string" &&
-		typeof pr.head === "object" &&
-		pr.head !== null &&
-		typeof pr.head.ref === "string" &&
-		typeof pr.base === "object" &&
-		pr.base !== null &&
-		typeof pr.base.ref === "string"
-	);
-}
-
-function isGitHubPullRequestFile(
-	value: unknown,
-): value is GitHubApiPullRequestFile {
-	if (typeof value !== "object" || value === null) {
-		return false;
-	}
-
-	const candidate = value as Partial<GitHubApiPullRequestFile>;
-	return typeof candidate.filename === "string";
-}
-
-function isGitHubPullRequestMergeResponse(
-	value: unknown,
-): value is GitHubApiPullRequestMergeResponse {
-	if (typeof value !== "object" || value === null) {
-		return false;
-	}
-
-	const merge = value as Partial<GitHubApiPullRequestMergeResponse>;
-	return (
-		(merge.sha === null || typeof merge.sha === "string") &&
-		typeof merge.merged === "boolean" &&
-		typeof merge.message === "string"
-	);
-}
-
-async function safeResponseText(response: Response): Promise<string> {
-	try {
-		const text = await response.text();
-		return text || `${response.status} ${response.statusText}`;
-	} catch {
-		return `${response.status} ${response.statusText}`;
-	}
+	return 500;
 }

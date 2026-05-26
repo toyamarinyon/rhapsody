@@ -70,8 +70,8 @@ Codex configuration files.
 
 ## `rhapsody.config.ts`
 
-`rhapsody.config.ts` defines what this deployment schedules and the scheduler constraints that must
-be known before claiming work.
+`rhapsody.config.ts` defines what this deployment schedules and the runner boundary that must be
+known before claiming work.
 
 Initial shape:
 
@@ -97,8 +97,11 @@ export default {
   scheduler: {
     maxConcurrentRuns: 3,
     maxConcurrentRunsByStatus: {},
-    claimTtlMs: 900000,
     maxRetryBackoffMs: 300000,
+  },
+  runner: {
+    kind: "sandbox-codex",
+    timeoutMs: 60 * 60 * 1000,
   },
 } satisfies RhapsodyProjectConfig;
 ```
@@ -108,7 +111,17 @@ The config file owns:
 - GitHub ProjectV2 owner, repository, project number, status field, active statuses, and terminal
   statuses;
 - target repository, default branch, and branch prefix;
-- scheduler concurrency limits, claim TTL, and retry backoff cap.
+- scheduler concurrency limits and retry backoff cap;
+- runner timeout and optional flat runner buffers (`sandboxTimeoutBufferMs`, `claimTtlBufferMs`,
+  `runningAttemptTimeoutBufferMs`) and preview controls.
+
+Derived values from `runner` are computed by config loading:
+
+- sandbox lifetime = `runner.timeoutMs + runner.sandboxTimeoutBufferMs`
+- scheduler claim TTL = `runner.timeoutMs + runner.claimTtlBufferMs`
+- stale running attempt cutoff = `runner.timeoutMs + runner.runningAttemptTimeoutBufferMs`
+- progress/output preview intervals use runner preview settings (or defaults).
+- defaults are applied when buffer/preview values are omitted.
 
 It does not own:
 

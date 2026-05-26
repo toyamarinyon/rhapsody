@@ -7,9 +7,9 @@ const repository = {
 };
 
 test("appends a supported issue-link keyword when the body lacks one", () => {
-	expect(appendIssueReference("Implements the runner fix.", 56, repository)).toBe(
-		"Implements the runner fix.\n\nResolves #56",
-	);
+	expect(
+		appendIssueReference("Implements the runner fix.", 56, repository),
+	).toBe("Implements the runner fix.\n\nResolves #56");
 });
 
 test("does not append when the body already contains a supported keyword", () => {
@@ -34,7 +34,11 @@ test("matches supported keywords case-insensitively", () => {
 
 test("does not treat unsupported refs wording as sufficient linkage", () => {
 	expect(
-		appendIssueReference("Implements the runner fix.\n\nRefs #56", 56, repository),
+		appendIssueReference(
+			"Implements the runner fix.\n\nRefs #56",
+			56,
+			repository,
+		),
 	).toBe("Implements the runner fix.\n\nRefs #56\n\nResolves #56");
 });
 
@@ -49,7 +53,7 @@ test("does not treat a different repository issue reference as the same issue", 
 });
 
 test("returns the body unchanged when no work-item issue number is available", () => {
-	expect(appendIssueReference("Implements the runner fix.", null, repository)).toBe(
-		"Implements the runner fix.",
-	);
+	expect(
+		appendIssueReference("Implements the runner fix.", null, repository),
+	).toBe("Implements the runner fix.");
 });

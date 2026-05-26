@@ -3,7 +3,13 @@ import { readFile } from "node:fs/promises";
 import type { Client } from "@libsql/client";
 import { loadRhapsodyGitHubEnv } from "@/lib/config";
 import {
+	expandSandboxNetworkPolicyForPreset,
+	loadRunnerCodexConfig,
+} from "@/lib/runner-codex-config";
+import {
+	buildVercelSandboxDependencyNetworkPolicy,
 	buildVercelSandboxGitHubNetworkPolicy,
+	mergeNetworkPolicies,
 	createVercelSandbox,
 	runVercelSandboxCommand,
 	stopVercelSandbox,
@@ -346,13 +352,39 @@ export async function runRepairerExecutor(
 
 	try {
 		const wrapperSource = await readFile(WRAPPER_SOURCE_PATH, "utf8");
-		let networkPolicy:
-			| ReturnType<typeof buildVercelSandboxGitHubNetworkPolicy>
-			| undefined;
+		let networkPolicy: ReturnType<typeof mergeNetworkPolicies> | undefined;
 		try {
-			networkPolicy = buildVercelSandboxGitHubNetworkPolicy({
-				githubToken: loadRhapsodyGitHubEnv().GITHUB_TOKEN,
-			});
+			let githubPolicy:
+				| ReturnType<typeof buildVercelSandboxGitHubNetworkPolicy>
+				| undefined;
+			let dependencyPolicy:
+				| ReturnType<typeof buildVercelSandboxDependencyNetworkPolicy>
+				| undefined;
+
+			try {
+				githubPolicy = buildVercelSandboxGitHubNetworkPolicy({
+					githubToken: loadRhapsodyGitHubEnv().GITHUB_TOKEN,
+				});
+			} catch {
+				githubPolicy = undefined;
+			}
+
+			try {
+				const runnerCodexConfig = await loadRunnerCodexConfig();
+				dependencyPolicy = buildVercelSandboxDependencyNetworkPolicy(
+					expandSandboxNetworkPolicyForPreset(
+						runnerCodexConfig.config?.sandbox?.networkPolicy,
+					),
+				);
+			} catch {
+				dependencyPolicy = undefined;
+			}
+
+			if (githubPolicy && dependencyPolicy) {
+				networkPolicy = mergeNetworkPolicies(githubPolicy, dependencyPolicy);
+			} else {
+				networkPolicy = githubPolicy ?? dependencyPolicy;
+			}
 		} catch {
 			networkPolicy = undefined;
 		}

@@ -125,5 +125,6 @@ function createEmptyGraph(workItemId: string): WorkItemGraph {
 		decisions: [],
 		artifacts: [],
 		links: [],
+		sandboxSessions: [],
 	};
 }

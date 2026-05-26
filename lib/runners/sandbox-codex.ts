@@ -1,7 +1,11 @@
-import path from "node:path";
 import { readFile } from "node:fs/promises";
-import { buildCodexExecCommand } from "@/lib/codex/cli";
+import path from "node:path";
+import {
+	buildAttemptBranchName,
+	parseWorkItemIssueNumber,
+} from "@/lib/attempt-branch";
 import { buildCodexChatGPTDummyAuthFile } from "@/lib/codex/auth";
+import { buildCodexExecCommand } from "@/lib/codex/cli";
 import { loadMediatorCredentialState } from "@/lib/codex/credentials";
 import {
 	loadRhapsodyCodexBaseSnapshotEnv,
@@ -10,7 +14,6 @@ import {
 	loadRhapsodyMediatorEnv,
 	loadRhapsodyProtectionBypassEnv,
 } from "@/lib/config";
-import { loadRunnerCodexConfig } from "@/lib/runner-codex-config";
 import {
 	buildInstructionContext,
 	InstructionTemplateError,
@@ -18,25 +21,35 @@ import {
 	renderRepositoryInstructions,
 } from "@/lib/instructions";
 import {
-	createVercelSandbox,
+	expandSandboxNetworkPolicyForPreset,
+	loadRunnerCodexConfig,
+} from "@/lib/runner-codex-config";
+import {
 	buildVercelSandboxCodexNetworkPolicy,
+	buildVercelSandboxDependencyNetworkPolicy,
 	buildVercelSandboxGitHubNetworkPolicy,
-	mergeNetworkPolicies,
+	createVercelSandbox,
 	getVercelSandboxId,
+	mergeNetworkPolicies,
+	type RhapsodyVercelSandbox,
 	runVercelSandboxCommand,
 	startVercelSandboxCommand,
 	stopVercelSandbox,
 	writeVercelSandboxFiles,
-	type RhapsodyVercelSandbox,
 } from "@/lib/sandbox/vercel";
 import { isRecord } from "@/lib/server/json";
-import { createEvent, getRunDetail, markAttemptStarted } from "@/lib/state";
 import {
-	buildAttemptBranchName,
-	parseWorkItemIssueNumber,
-} from "@/lib/attempt-branch";
+	createEvent,
+	getRunDetail,
+	markAttemptStarted,
+	recordSandboxCommandFinishedEvent,
+	recordSandboxCommandStartedEvent,
+	recordSandboxLifecycleEvent,
+	stopSandboxWithLifecycleEvents,
+	type SandboxLifecycleEventContext,
+} from "@/lib/state";
 import { buildAttemptHookToken } from "@/lib/workflows/attempt-hook";
-import { type RunnerRouteContext } from "./types";
+import type { RunnerRouteContext } from "./types";
 
 const SANDBOX_WORKDIR = "/vercel/sandbox";
 const CODEX_HOME_PATH = "/vercel/sandbox/.codex";
@@ -54,10 +67,6 @@ const WRAPPER_SOURCE_PATH = path.join(
 );
 const REPOSITORY_PATH = "/vercel/sandbox/repository";
 const PROMPT_PREVIEW_LENGTH = 500;
-const OUTPUT_PREVIEW_LENGTH = 1000;
-const CODEX_TIMEOUT_MS = 10 * 60 * 1000;
-const SANDBOX_SETUP_BUFFER_MS = 5 * 60 * 1000;
-const SANDBOX_TIMEOUT_MS = CODEX_TIMEOUT_MS + SANDBOX_SETUP_BUFFER_MS;
 const NETWORK_PROBE_URL =
 	"https://chatgpt.com/backend-api/codex/models?client_version=0.130.0";
 const NETWORK_PROBE_STDOUT_PREVIEW_LENGTH = 240;
@@ -91,6 +100,7 @@ export async function runSandboxCodexRunner(
 
 	try {
 		const config = loadRhapsodyConfig();
+		const runnerConfig = config.runner;
 		const runnerCodexConfig = await loadRunnerCodexConfig();
 		const codexConfigOverrides = {
 			model_provider: "openai-http",
@@ -116,6 +126,7 @@ export async function runSandboxCodexRunner(
 				? runnerCodexConfig.loadedFromPath
 				: null,
 		};
+		const builderWorkerRunId = parsedBody.value.builderWorkerRunId ?? null;
 		const targetSandboxMode = "workspace-write";
 		const instructions = await loadRepositoryInstructions();
 		const prompt = renderRepositoryInstructions({
@@ -165,7 +176,7 @@ export async function runSandboxCodexRunner(
 			ephemeral: true,
 			dangerouslyBypassApprovalsAndSandbox: true,
 			configOverrides: codexConfigOverrides,
-			timeoutMs: CODEX_TIMEOUT_MS,
+			timeoutMs: runnerConfig.timeoutMs,
 		});
 		const mediatorEnv = loadRhapsodyMediatorEnv();
 		const protectionBypassEnv = loadRhapsodyProtectionBypassEnv();
@@ -189,8 +200,13 @@ export async function runSandboxCodexRunner(
 			mediatorCredentialState?.accountId ?? DUMMY_CHATGPT_ACCOUNT_ID,
 		);
 		sandbox = await createVercelSandbox({
-			timeout: SANDBOX_TIMEOUT_MS,
+			timeout: runnerConfig.sandboxTimeoutMs,
 			networkPolicy: mergeNetworkPolicies(
+				buildVercelSandboxDependencyNetworkPolicy(
+					expandSandboxNetworkPolicyForPreset(
+						runnerCodexConfig.config?.sandbox?.networkPolicy,
+					),
+				),
 				buildVercelSandboxCodexNetworkPolicy({
 					callbackUrl,
 					mediatorSecret: mediatorEnv.MEDIATOR_SECRET,
@@ -212,6 +228,22 @@ export async function runSandboxCodexRunner(
 						},
 					}
 				: {}),
+		});
+		const sandboxEventContext: SandboxLifecycleEventContext = {
+			sandboxId: getVercelSandboxId(sandbox),
+			purpose: "builder_execution",
+			workerKind: "builder",
+			workItemId: detail.run.workItemId,
+			runId,
+			attemptId,
+			workerRunId: builderWorkerRunId,
+			sourceSnapshotId,
+			timeoutMs: runnerConfig.sandboxTimeoutMs,
+		};
+		await recordSandboxLifecycleEvent({
+			client,
+			type: "sandbox.created",
+			context: sandboxEventContext,
 		});
 		const wrapperSource = await readFile(WRAPPER_SOURCE_PATH, "utf8");
 
@@ -301,7 +333,9 @@ export async function runSandboxCodexRunner(
 		}
 
 		const sourcePreparationSummary = await prepareSourceInSandbox({
+			client,
 			sandbox,
+			sandboxEventContext,
 			repositoryUrl: expectedRepositoryUrl,
 			branchName,
 		});
@@ -316,9 +350,15 @@ export async function runSandboxCodexRunner(
 				branchName,
 				codexMode: CODEX_MODE,
 				commands: {
-					clone: summarizeCommand(sourcePreparationSummary.cloneCommand),
+					clone: summarizeCommand(
+						sourcePreparationSummary.cloneCommand,
+						runnerConfig.outputPreviewLength,
+					),
 					checkout: sourcePreparationSummary.checkoutCommand
-						? summarizeCommand(sourcePreparationSummary.checkoutCommand)
+						? summarizeCommand(
+								sourcePreparationSummary.checkoutCommand,
+								runnerConfig.outputPreviewLength,
+							)
 						: null,
 				},
 				success: sourcePreparationSummary.success,
@@ -336,7 +376,12 @@ export async function runSandboxCodexRunner(
 			);
 		}
 
-		const networkProbeSummary = await runNetworkPolicyProbe(sandbox);
+		const networkProbeSummary = await runNetworkPolicyProbe(
+			client,
+			sandbox,
+			sandboxEventContext,
+			runnerConfig.outputPreviewLength,
+		);
 		await createEvent(client, {
 			runId,
 			attemptId,
@@ -384,11 +429,24 @@ export async function runSandboxCodexRunner(
 				RHAPSODY_PROMPT_PATH: PROMPT_PATH,
 				RHAPSODY_METADATA_PATH: METADATA_PATH,
 				RHAPSODY_PR_SPEC_PATH: PR_SPEC_PATH,
-				RHAPSODY_OUTPUT_PREVIEW_LENGTH: String(OUTPUT_PREVIEW_LENGTH),
-				RHAPSODY_CODEX_TIMEOUT_MS: String(CODEX_TIMEOUT_MS),
+				RHAPSODY_OUTPUT_PREVIEW_LENGTH: String(
+					runnerConfig.outputPreviewLength,
+				),
+				RHAPSODY_PROGRESS_INTERVAL_MS: String(runnerConfig.progressIntervalMs),
+				RHAPSODY_PROGRESS_PREVIEW_LENGTH: String(
+					runnerConfig.progressPreviewLength,
+				),
+				RHAPSODY_CODEX_TIMEOUT_MS: String(runnerConfig.timeoutMs),
 			},
 		});
 		shouldStopSandbox = false;
+		await recordSandboxCommandStartedEvent({
+			client,
+			context: sandboxEventContext,
+			commandName: "wrapper",
+			timeoutMs: runnerConfig.timeoutMs,
+			summary: command,
+		});
 
 		await createEvent(client, {
 			runId,
@@ -403,6 +461,14 @@ export async function runSandboxCodexRunner(
 				startedAt: command.startedAt,
 				hookToken,
 				callbackUrl,
+			},
+		});
+		await recordSandboxLifecycleEvent({
+			client,
+			type: "sandbox.retained",
+			context: sandboxEventContext,
+			data: {
+				reason: "waiting_for_callback",
 			},
 		});
 
@@ -445,7 +511,23 @@ export async function runSandboxCodexRunner(
 		);
 	} finally {
 		if (sandbox && shouldStopSandbox) {
-			await stopVercelSandbox(sandbox);
+			const activeSandbox = sandbox;
+			await stopSandboxWithLifecycleEvents({
+				client,
+				context: {
+					sandboxId: getVercelSandboxId(activeSandbox),
+					purpose: "builder_execution",
+					workerKind: "builder",
+					workItemId: detail.run.workItemId,
+					runId,
+					attemptId,
+					workerRunId: parsedBody.ok
+						? (parsedBody.value.builderWorkerRunId ?? null)
+						: null,
+				},
+				reason: "builder_launch_cleanup",
+				stop: () => stopVercelSandbox(activeSandbox),
+			});
 		}
 	}
 }
@@ -457,6 +539,7 @@ async function readOptionalRequest(request: Request): Promise<
 				callbackBaseUrl?: string;
 				hookToken?: string;
 				useSnapshot?: boolean;
+				builderWorkerRunId?: string;
 			};
 	  }
 	| { ok: false; error: string }
@@ -518,6 +601,7 @@ function parseSandboxCodexRequestOptions(value: Record<string, unknown>):
 				callbackBaseUrl?: string;
 				hookToken?: string;
 				useSnapshot?: boolean;
+				builderWorkerRunId?: string;
 			};
 	  }
 	| { ok: false; error: string } {
@@ -525,6 +609,7 @@ function parseSandboxCodexRequestOptions(value: Record<string, unknown>):
 		callbackBaseUrl?: string;
 		hookToken?: string;
 		useSnapshot?: boolean;
+		builderWorkerRunId?: string;
 	} = {};
 
 	if (value.callbackBaseUrl !== undefined) {
@@ -553,6 +638,20 @@ function parseSandboxCodexRequestOptions(value: Record<string, unknown>):
 		result.useSnapshot = value.useSnapshot;
 	}
 
+	if (value.builderWorkerRunId !== undefined) {
+		if (
+			typeof value.builderWorkerRunId !== "string" ||
+			!value.builderWorkerRunId.trim()
+		) {
+			return {
+				ok: false,
+				error: "builderWorkerRunId must be a non-empty string when provided.",
+			};
+		}
+
+		result.builderWorkerRunId = value.builderWorkerRunId;
+	}
+
 	if (value.mode !== undefined) {
 		return {
 			ok: false,
@@ -570,17 +669,21 @@ function buildExecutionPrompt(params: {
 	targetBranchName: string;
 	sandboxMode: "read-only" | "workspace-write";
 }) {
-	const modeInstructions = `\n\nYou are running in write mode for this Rhapsody run.\n- Working repository: ${params.targetRepositoryUrl}\n- Assigned branch: ${params.targetBranchName}\n- Do not push to any branch other than the assigned branch.\n- Make focused changes only for the selected work item.\n- If git commit needs an identity, set local repository config only: user.name \"Rhapsody Codex\" and user.email \"rhapsody-codex@localhost\".\n- When changes are needed, you must create a commit and run: git push origin HEAD:${params.targetBranchName}\n- After pushing, verify the remote branch exists with: git ls-remote --heads origin ${params.targetBranchName}\n- After creating the commit and push, write a PR handoff file at ${PR_SPEC_PATH} containing JSON with this exact shape:\n  { \"title\": \"<string>\", \"body\": \"<string>\" }\n  both fields must be non-empty.\n- Do not call GitHub APIs or create PRs directly.\n`;
+	const modeInstructions = `\n\nYou are running in write mode for this Rhapsody run.\n- Working repository: ${params.targetRepositoryUrl}\n- Assigned branch: ${params.targetBranchName}\n- Do not push to any branch other than the assigned branch.\n- Make focused changes only for the selected work item.\n- If git commit needs an identity, set local repository config only: user.name "Rhapsody Codex" and user.email "rhapsody-codex@localhost".\n- When changes are needed, you must create a commit and run: git push origin HEAD:${params.targetBranchName}\n- After pushing, verify the remote branch exists with: git ls-remote --heads origin ${params.targetBranchName}\n- After creating the commit and push, write a PR handoff file at ${PR_SPEC_PATH} containing JSON with this exact shape:\n  { "title": "<string>", "body": "<string>" }\n  both fields must be non-empty.\n- Do not call GitHub APIs or create PRs directly.\n`;
 
 	return `${params.prompt}${modeInstructions}\n- Current sandbox mode: ${params.sandboxMode}.`;
 }
 
 async function prepareSourceInSandbox({
+	client,
 	sandbox,
+	sandboxEventContext,
 	repositoryUrl,
 	branchName,
 }: {
+	client: RunnerRouteContext["client"];
 	sandbox: RhapsodyVercelSandbox;
+	sandboxEventContext: SandboxLifecycleEventContext;
 	repositoryUrl: string;
 	branchName: string;
 }): Promise<SourcePreparationSummary> {
@@ -594,6 +697,18 @@ async function prepareSourceInSandbox({
 		cmd: "git",
 		args: ["clone", "--depth", "1", repositoryUrl, REPOSITORY_PATH],
 		cwd: SANDBOX_WORKDIR,
+	});
+	await recordSandboxCommandStartedEvent({
+		client,
+		context: sandboxEventContext,
+		commandName: "source_clone",
+		summary: cloneCommand,
+	});
+	await recordSandboxCommandFinishedEvent({
+		client,
+		context: sandboxEventContext,
+		commandName: "source_clone",
+		summary: cloneCommand,
 	});
 
 	if (cloneCommand.exitCode !== 0) {
@@ -609,6 +724,18 @@ async function prepareSourceInSandbox({
 		args: ["-C", REPOSITORY_PATH, "checkout", "-B", branchName],
 		cwd: SANDBOX_WORKDIR,
 	});
+	await recordSandboxCommandStartedEvent({
+		client,
+		context: sandboxEventContext,
+		commandName: "source_checkout",
+		summary: checkoutCommand,
+	});
+	await recordSandboxCommandFinishedEvent({
+		client,
+		context: sandboxEventContext,
+		commandName: "source_checkout",
+		summary: checkoutCommand,
+	});
 
 	return {
 		success: checkoutCommand.exitCode === 0,
@@ -619,6 +746,7 @@ async function prepareSourceInSandbox({
 
 function summarizeCommand(
 	command: Awaited<ReturnType<typeof runVercelSandboxCommand>>,
+	outputPreviewLength: number,
 ) {
 	return {
 		commandId: command.commandId,
@@ -626,17 +754,34 @@ function summarizeCommand(
 		startedAt: command.startedAt,
 		exitCode: command.exitCode,
 		stdoutLength: command.stdout.length,
-		stdoutPreview: command.stdout.slice(0, OUTPUT_PREVIEW_LENGTH),
+		stdoutPreview: command.stdout.slice(0, outputPreviewLength),
 		stderrLength: command.stderr.length,
-		stderrPreview: command.stderr.slice(0, OUTPUT_PREVIEW_LENGTH),
+		stderrPreview: command.stderr.slice(0, outputPreviewLength),
 	};
 }
 
-async function runNetworkPolicyProbe(sandbox: RhapsodyVercelSandbox) {
+async function runNetworkPolicyProbe(
+	client: RunnerRouteContext["client"],
+	sandbox: RhapsodyVercelSandbox,
+	sandboxEventContext: SandboxLifecycleEventContext,
+	outputPreviewLength: number,
+) {
 	const command = await runVercelSandboxCommand(sandbox, {
 		cmd: "node",
 		args: ["-e", buildNetworkProbeScript()],
 		cwd: SANDBOX_WORKDIR,
+	});
+	await recordSandboxCommandStartedEvent({
+		client,
+		context: sandboxEventContext,
+		commandName: "network_probe",
+		summary: command,
+	});
+	await recordSandboxCommandFinishedEvent({
+		client,
+		context: sandboxEventContext,
+		commandName: "network_probe",
+		summary: command,
 	});
 
 	const probeOutput = parseProbeOutput(command.stdout);
@@ -658,8 +803,8 @@ async function runNetworkPolicyProbe(sandbox: RhapsodyVercelSandbox) {
 		bodyPreview,
 		stdoutLength: command.stdout.length,
 		stderrLength: command.stderr.length,
-		stdoutPreview: command.stdout.slice(0, OUTPUT_PREVIEW_LENGTH),
-		stderrPreview: command.stderr.slice(0, OUTPUT_PREVIEW_LENGTH),
+		stdoutPreview: command.stdout.slice(0, outputPreviewLength),
+		stderrPreview: command.stderr.slice(0, outputPreviewLength),
 		responseLooksLikeProxy: responseSourceHint,
 	};
 }
