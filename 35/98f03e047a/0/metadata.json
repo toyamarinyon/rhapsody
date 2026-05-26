@@ -1,0 +1,46 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "3598f03e047a",
+  "session_id": "019e631a-ab15-7f53-ad22-b52d9758a63e",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T08:44:11.586758Z",
+  "branch": "rhapsody/issue-97-1",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "lib/scheduler/tick.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "16d7de8dcd8a",
+  "token_usage": {
+    "input_tokens": 265767,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 4124288,
+    "output_tokens": 10434,
+    "api_call_count": 59
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T08:44:11.568631Z",
+    "agent_lines": 1,
+    "agent_removed": 4,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1,
+    "total_lines_changed": 5,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

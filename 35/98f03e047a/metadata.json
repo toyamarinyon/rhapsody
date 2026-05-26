@@ -1,0 +1,25 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "3598f03e047a",
+  "strategy": "manual-commit",
+  "branch": "rhapsody/issue-97-1",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "lib/scheduler/tick.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/35/98f03e047a/0/metadata.json",
+      "transcript": "/35/98f03e047a/0/full.jsonl",
+      "content_hash": "/35/98f03e047a/0/content_hash.txt",
+      "prompt": "/35/98f03e047a/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 265767,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 4124288,
+    "output_tokens": 10434,
+    "api_call_count": 59
+  }
+}
