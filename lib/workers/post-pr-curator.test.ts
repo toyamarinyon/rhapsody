@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,6 +12,7 @@ import {
 } from "@/lib/state";
 import {
 	runPostPrCurator,
+	runHumanReviewMonitoring,
 	findPullRequestArtifactFromArtifacts,
 } from "@/lib/workers/post-pr-curator";
 
@@ -287,6 +288,119 @@ test("runPostPrCurator creates decision and evaluates link with parsed metadata"
 			number: 314,
 			url: null,
 		});
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("runHumanReviewMonitoring records blocked Human Review evidence without regressing status", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItemId = "github_issue:toyamarinyon/rhapsody#314";
+	const postPrWorkerRun = await createWorkerRun(client, {
+		id: "wrn_post_pr_monitor",
+		workItemId,
+		kind: "post_pr_curator",
+		status: "completed",
+	});
+	await createDecision(client, {
+		id: "dec_post_pr_monitor",
+		workItemId,
+		workerRunId: postPrWorkerRun.id,
+		phase: "post_pr",
+		outcome: "human_review",
+		now: 1,
+		evidence: {
+			pullRequestNumber: 314,
+			baseSha: "base-old",
+			headSha: "head-old",
+			checkClassification: "checks_success",
+		},
+	});
+	const existingDecisions = (await listWorkItemGraph(client, workItemId)).decisions;
+	const createIssueComment = vi.fn().mockResolvedValue({
+		id: 10,
+		htmlUrl: "https://github.com/toyamarinyon/rhapsody/pull/314#issuecomment-10",
+	});
+
+	try {
+		const result = await runHumanReviewMonitoring(client, {
+			workItem: buildProjectItem(314),
+			workItemId,
+			owner: "toyamarinyon",
+			repository: "rhapsody",
+			pullRequestArtifact: {
+				number: 314,
+				url: "https://github.com/toyamarinyon/rhapsody/pull/314",
+			},
+			existingDecisions,
+			postRunPolicy: {
+				auto_merge_eligible: [],
+				auto_merge_success_status: "Done",
+				human_review_status: "Human Review",
+				human_review_monitoring: {
+					enabled: true,
+					auto_integrate_base_before_human_activity: true,
+					auto_integrate_base_after_human_activity: false,
+					comment_on_conflict: true,
+				},
+			},
+			getPullRequest: async () => ({
+				reused: true,
+				number: 314,
+				htmlUrl: "https://github.com/toyamarinyon/rhapsody/pull/314",
+				headRef: "feature",
+				baseRef: "main",
+				headSha: "head-new",
+				baseSha: "base-new",
+				title: "Review me",
+			}),
+			getPullRequestCheckSummary: async () => ({
+				classification: "ci_failed",
+				headSha: "head-new",
+				status: "failure",
+				checkRuns: [],
+			}),
+			comparePullRequestBranches: async () => ({
+				base: "main",
+				head: "feature",
+				status: "behind",
+				aheadBy: 0,
+				behindBy: 1,
+				mergeBaseCommitSha: "merge-base",
+			}),
+			fetchIssueComments: async () => [
+				{
+					id: 1,
+					body: "Looks good to me",
+					htmlUrl: "https://github.com/toyamarinyon/rhapsody/pull/314#issuecomment-1",
+					createdAt: "2026-05-26T00:00:00Z",
+					updatedAt: "2026-05-26T00:00:00Z",
+					authorLogin: "octocat",
+				},
+			],
+			createIssueComment,
+		});
+
+		expect(result.classification).toBe("review_blocked");
+		expect(createIssueComment).toHaveBeenCalledTimes(1);
+		const graph = await listWorkItemGraph(client, workItemId);
+		const blockedDecision = graph.decisions.find(
+			(decision) =>
+				decision.phase === "post_pr" && decision.outcome === "review_blocked",
+		);
+		expect(blockedDecision?.evidence).toEqual(
+			expect.objectContaining({
+				priorDecisionId: "dec_post_pr_monitor",
+				baseSha: "base-new",
+				headSha: "head-new",
+				observedHumanActivity: expect.objectContaining({
+					hasHumanActivity: true,
+				}),
+			}),
+		);
+		expect(graph.links.some((link) => link.relation === "evaluates")).toBe(true);
 	} finally {
 		client.close();
 		database.cleanup();

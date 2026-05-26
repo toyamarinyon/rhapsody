@@ -6,10 +6,18 @@ import {
 	type PostRunDecisionConfig,
 } from "./post-run-decision";
 
+const defaultHumanReviewMonitoringPolicy = {
+	enabled: true,
+	auto_integrate_base_before_human_activity: true,
+	auto_integrate_base_after_human_activity: false,
+	comment_on_conflict: true,
+};
+
 const baseDecisionConfig: PostRunDecisionConfig = {
 	post_run: {
 		auto_merge_success_status: "Done",
 		human_review_status: "Human Review",
+		human_review_monitoring: defaultHumanReviewMonitoringPolicy,
 		auto_merge_eligible: [
 			{
 				paths: ["docs/**", "!docs/adr/**"],
@@ -60,6 +68,7 @@ test("does not require every positive include pattern to match", () => {
 			post_run: {
 				auto_merge_success_status: "Done",
 				human_review_status: "Human Review",
+				human_review_monitoring: defaultHumanReviewMonitoringPolicy,
 				auto_merge_eligible: [
 					{
 						paths: ["docs/**", "src/**"],
@@ -104,5 +113,40 @@ paths = ["docs/**"]
 	expect(statusConfig).toEqual({
 		autoMergeSuccessStatus: "Done",
 		humanReviewStatus: "Human Review",
+	});
+});
+
+test("defaults human review monitoring policy values when omitted", () => {
+	const parsed = parsePostRunDecisionConfig(`
+[post_run]
+
+[[post_run.auto_merge_eligible]]
+paths = ["docs/**"]
+`);
+
+	expect(parsed.post_run.human_review_monitoring).toEqual({
+		enabled: true,
+		auto_integrate_base_before_human_activity: true,
+		auto_integrate_base_after_human_activity: false,
+		comment_on_conflict: true,
+	});
+});
+
+test("parses human review monitoring policy overrides", () => {
+	const parsed = parsePostRunDecisionConfig(`
+[post_run]
+
+[post_run.human_review_monitoring]
+enabled = false
+auto_integrate_base_before_human_activity = false
+auto_integrate_base_after_human_activity = true
+comment_on_conflict = false
+`);
+
+	expect(parsed.post_run.human_review_monitoring).toEqual({
+		enabled: false,
+		auto_integrate_base_before_human_activity: false,
+		auto_integrate_base_after_human_activity: true,
+		comment_on_conflict: false,
 	});
 });

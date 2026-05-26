@@ -7,11 +7,19 @@ export type PostRunDecisionPolicy = {
 	auto_merge_eligible: PostRunAutoMergeRule[];
 	auto_merge_success_status: string;
 	human_review_status: string;
+	human_review_monitoring: PostRunHumanReviewMonitoringPolicy;
 };
 
 export type PostRunAutoMergeRule = {
 	paths: string[];
 	description?: string;
+};
+
+export type PostRunHumanReviewMonitoringPolicy = {
+	enabled: boolean;
+	auto_integrate_base_before_human_activity: boolean;
+	auto_integrate_base_after_human_activity: boolean;
+	comment_on_conflict: boolean;
 };
 
 export type PostRunDecisionConfig = {
@@ -71,6 +79,14 @@ const DEFAULT_POST_RUN_DECISION_STATUS = {
 	"auto_merge_success_status" | "human_review_status"
 >;
 
+const DEFAULT_HUMAN_REVIEW_MONITORING_POLICY: PostRunHumanReviewMonitoringPolicy =
+	{
+		enabled: true,
+		auto_integrate_base_before_human_activity: true,
+		auto_integrate_base_after_human_activity: false,
+		comment_on_conflict: true,
+	};
+
 export async function loadPostRunDecisionConfig(
 	projectRoot = process.cwd(),
 ): Promise<PostRunPolicyLoadResult> {
@@ -96,6 +112,9 @@ export async function loadPostRunDecisionConfig(
 					post_run: {
 						auto_merge_eligible: [],
 						...DEFAULT_POST_RUN_DECISION_STATUS,
+						human_review_monitoring: {
+							...DEFAULT_HUMAN_REVIEW_MONITORING_POLICY,
+						},
 					},
 				},
 				loadedFromPath: configPath,
@@ -117,11 +136,15 @@ export function parsePostRunDecisionConfig(
 		post_run: {
 			auto_merge_eligible: [],
 			...DEFAULT_POST_RUN_DECISION_STATUS,
+			human_review_monitoring: {
+				...DEFAULT_HUMAN_REVIEW_MONITORING_POLICY,
+			},
 		},
 	};
 
 	let inPostRunSection = false;
 	let inAutoMergeRuleSection = false;
+	let inHumanReviewMonitoringSection = false;
 
 	for (const rawLine of lines) {
 		const trimmed = stripComment(rawLine).trim();
@@ -133,12 +156,21 @@ export function parsePostRunDecisionConfig(
 		if (trimmed === "[post_run]") {
 			inPostRunSection = true;
 			inAutoMergeRuleSection = false;
+			inHumanReviewMonitoringSection = false;
+			continue;
+		}
+
+		if (trimmed === "[post_run.human_review_monitoring]") {
+			inPostRunSection = true;
+			inAutoMergeRuleSection = false;
+			inHumanReviewMonitoringSection = true;
 			continue;
 		}
 
 		if (trimmed === "[[post_run.auto_merge_eligible]]") {
 			inPostMergeAutoMergeEligibleSection(inPostRunSection);
 			inAutoMergeRuleSection = true;
+			inHumanReviewMonitoringSection = false;
 			config.post_run.auto_merge_eligible.push({
 				paths: [],
 			});
@@ -147,6 +179,7 @@ export function parsePostRunDecisionConfig(
 
 		if (trimmed.startsWith("[[") || trimmed.startsWith("[")) {
 			inAutoMergeRuleSection = false;
+			inHumanReviewMonitoringSection = false;
 			continue;
 		}
 
@@ -158,6 +191,31 @@ export function parsePostRunDecisionConfig(
 
 		if (!assignResult.ok) {
 			throw new PostRunPolicyError([assignResult.error]);
+		}
+
+		if (inHumanReviewMonitoringSection) {
+			switch (assignResult.key) {
+				case "enabled":
+					config.post_run.human_review_monitoring.enabled =
+						parseTomlBoolean(assignResult.value);
+					continue;
+				case "auto_integrate_base_before_human_activity":
+					config.post_run.human_review_monitoring.auto_integrate_base_before_human_activity =
+						parseTomlBoolean(assignResult.value);
+					continue;
+				case "auto_integrate_base_after_human_activity":
+					config.post_run.human_review_monitoring.auto_integrate_base_after_human_activity =
+						parseTomlBoolean(assignResult.value);
+					continue;
+				case "comment_on_conflict":
+					config.post_run.human_review_monitoring.comment_on_conflict =
+						parseTomlBoolean(assignResult.value);
+					continue;
+				default:
+					throw new PostRunPolicyError([
+						`Unknown field '${assignResult.key}' in [post_run.human_review_monitoring].`,
+					]);
+			}
 		}
 
 		if (!inAutoMergeRuleSection) {
@@ -263,6 +321,16 @@ function parseTomlString(value: string): string {
 	}
 }
 
+function parseTomlBoolean(value: string): boolean {
+	if (value === "true") {
+		return true;
+	}
+	if (value === "false") {
+		return false;
+	}
+	throw new PostRunPolicyError([`Expected a boolean, got ${value}.`]);
+}
+
 function parseStringArray(input: string): string[] {
 	const match = /^\[(.*)\]$/.exec(input);
 
@@ -354,6 +422,32 @@ function validatePostRunDecisionConfig(config: PostRunDecisionConfig) {
 		issues.push("post_run.human_review_status must be a non-empty string.");
 	}
 
+	const monitoring = config.post_run.human_review_monitoring;
+	if (!monitoring || typeof monitoring !== "object") {
+		issues.push("post_run.human_review_monitoring must be an object.");
+	} else {
+		requireBoolean(
+			issues,
+			"post_run.human_review_monitoring.enabled",
+			monitoring.enabled,
+		);
+		requireBoolean(
+			issues,
+			"post_run.human_review_monitoring.auto_integrate_base_before_human_activity",
+			monitoring.auto_integrate_base_before_human_activity,
+		);
+		requireBoolean(
+			issues,
+			"post_run.human_review_monitoring.auto_integrate_base_after_human_activity",
+			monitoring.auto_integrate_base_after_human_activity,
+		);
+		requireBoolean(
+			issues,
+			"post_run.human_review_monitoring.comment_on_conflict",
+			monitoring.comment_on_conflict,
+		);
+	}
+
 	for (const [index, rule] of config.post_run.auto_merge_eligible.entries()) {
 		if (!Array.isArray(rule.paths) || rule.paths.length === 0) {
 			issues.push(
@@ -385,6 +479,12 @@ export function getPostRunStatusConfig(
 		autoMergeSuccessStatus: config.post_run.auto_merge_success_status,
 		humanReviewStatus: config.post_run.human_review_status,
 	};
+}
+
+function requireBoolean(issues: string[], field: string, value: boolean) {
+	if (typeof value !== "boolean") {
+		issues.push(`${field} must be a boolean.`);
+	}
 }
 
 export function evaluatePostRunDecision(
