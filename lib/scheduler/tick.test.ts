@@ -53,6 +53,34 @@ const baseConfig = normalizeProjectConfig({
 	},
 });
 
+const defaultHumanReviewMonitoringPolicy = {
+	enabled: true,
+	auto_integrate_base_before_human_activity: true,
+	auto_integrate_base_after_human_activity: false,
+	comment_on_conflict: true,
+};
+
+function buildPostRunPolicyLoadResult(input?: {
+	auto_merge_eligible?: { paths: string[] }[];
+	auto_merge_success_status?: string;
+	human_review_status?: string;
+}) {
+	return {
+		config: {
+			post_run: {
+				auto_merge_eligible: input?.auto_merge_eligible ?? [],
+				auto_merge_success_status: input?.auto_merge_success_status ?? "Done",
+				human_review_status: input?.human_review_status ?? "Human Review",
+				human_review_monitoring: {
+					...defaultHumanReviewMonitoringPolicy,
+				},
+			},
+		},
+		loadedFromPath: ".rhapsody/config.toml",
+		errors: [],
+	};
+}
+
 test("scheduler records intake and builder graph for buildable Todo items", async () => {
 	const database = await createTestDatabase();
 	const client = database.client;
@@ -649,6 +677,118 @@ test("scheduler moves unknown pull request checks to Human Review with a recorde
 	}
 });
 
+test("scheduler monitors linked Human Review items without restarting builder work", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const item = buildProjectItem({
+		issueNumber: 150,
+		projectStatus: "Human Review",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#150";
+	const postPrWorkerRun = await createWorkerRun(client, {
+		workItemId,
+		kind: "post_pr_curator",
+		status: "completed",
+	});
+	await createArtifact(client, {
+		workItemId,
+		workerRunId: postPrWorkerRun.id,
+		kind: "pull_request",
+		externalId: "150",
+		externalUrl: "https://github.com/toyamarinyon/rhapsody/pull/150",
+	});
+	await createDecision(client, {
+		workItemId,
+		workerRunId: postPrWorkerRun.id,
+		phase: "post_pr",
+		outcome: "human_review",
+		evidence: {
+			pullRequestNumber: 150,
+			sourceDecisionId: "dec_previous_post_pr",
+			checkClassification: "checks_success",
+			baseSha: "base-old",
+			headSha: "head-old",
+		},
+	});
+	const updateProjectIssueStatus = vi.fn();
+	const getPullRequestCheckSummary = vi.fn().mockResolvedValue({
+		classification: "checks_success",
+		headSha: "head-new",
+		status: "success",
+		checkRuns: [],
+	});
+	const runIntegrationRepairPlanner = vi.fn().mockResolvedValue({
+		workerRunId: "integration-planner-run",
+		decisionId: "integration-planner-decision",
+		outcome: "integration_repair_needed",
+		skippedFreshDuplicate: false,
+		integrationExecutionKey: "150:head-new:base-new",
+		headSha: "head-new",
+		baseSha: "base-new",
+		branchComparison: {
+			base: "main",
+			head: "feature",
+			status: "behind",
+			aheadBy: 0,
+			behindBy: 1,
+			mergeBaseCommitSha: "merge-base",
+		},
+	});
+	const runIntegrationRepairExecutor = vi.fn().mockResolvedValue({
+		executed: true,
+		outcome: "integration_repair_applied",
+	});
+
+	try {
+		const result = await runSchedulerTick(client, {
+			config: baseConfig,
+			fetchProjectIssueWorkItems: async () => [item],
+			loadPostRunDecisionConfig: async () => buildPostRunPolicyLoadResult(),
+			updateProjectIssueStatus,
+			fetchIssueComments: async () => [],
+			getPullRequest: async () => ({
+				reused: true,
+				number: 150,
+				htmlUrl: "https://github.com/toyamarinyon/rhapsody/pull/150",
+				headRef: "feature",
+				baseRef: "main",
+				headSha: "head-new",
+				baseSha: "base-new",
+				title: "Human review item",
+			}),
+			getPullRequestCheckSummary,
+			comparePullRequestBranches: async () => ({
+				base: "main",
+				head: "feature",
+				status: "behind",
+				aheadBy: 0,
+				behindBy: 1,
+				mergeBaseCommitSha: "merge-base",
+			}),
+			runIntegrationRepairPlanner,
+			runIntegrationRepairExecutor,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(getPullRequestCheckSummary).toHaveBeenCalledTimes(1);
+		expect(runIntegrationRepairPlanner).toHaveBeenCalledTimes(1);
+		expect(runIntegrationRepairExecutor).toHaveBeenCalledTimes(1);
+		expect(updateProjectIssueStatus).not.toHaveBeenCalled();
+		const graph = await listWorkItemGraph(client, workItemId);
+		expect(
+			graph.decisions.some(
+				(decision) =>
+					decision.phase === "post_pr" &&
+					decision.outcome === "human_review_stale",
+			),
+		).toBe(true);
+		expect(graph.workerRuns.some((run) => run.kind === "builder")).toBe(false);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
 test("scheduler auto-merges eligible pull requests after checks succeed", async () => {
 	const database = await createTestDatabase();
 	const client = database.client;
@@ -690,17 +830,10 @@ test("scheduler auto-merges eligible pull requests after checks succeed", async 
 			updateProjectIssueStatus,
 			mergePullRequest,
 			getPullRequestChangedFiles: async () => ["docs/guide.md"],
-			loadPostRunDecisionConfig: async () => ({
-				config: {
-					post_run: {
-						auto_merge_eligible: [{ paths: ["docs/**"] }],
-						auto_merge_success_status: "Done",
-						human_review_status: "Human Review",
-					},
-				},
-				loadedFromPath: ".rhapsody/config.toml",
-				errors: [],
-			}),
+			loadPostRunDecisionConfig: async () =>
+				buildPostRunPolicyLoadResult({
+					auto_merge_eligible: [{ paths: ["docs/**"] }],
+				}),
 			getPullRequestCheckSummary: async () => ({
 				classification: "checks_success",
 				headSha: "sha-success",
@@ -824,17 +957,10 @@ test("scheduler recovers Project status update after merge already completed on 
 			mergePullRequest,
 			getPullRequest,
 			getPullRequestChangedFiles: async () => ["docs/guide.md"],
-			loadPostRunDecisionConfig: async () => ({
-				config: {
-					post_run: {
-						auto_merge_eligible: [{ paths: ["docs/**"] }],
-						auto_merge_success_status: "Done",
-						human_review_status: "Human Review",
-					},
-				},
-				loadedFromPath: ".rhapsody/config.toml",
-				errors: [],
-			}),
+			loadPostRunDecisionConfig: async () =>
+				buildPostRunPolicyLoadResult({
+					auto_merge_eligible: [{ paths: ["docs/**"] }],
+				}),
 			getPullRequestCheckSummary,
 		});
 		expect(firstResult.ok).toBe(true);
@@ -855,17 +981,10 @@ test("scheduler recovers Project status update after merge already completed on 
 			mergePullRequest,
 			getPullRequest,
 			getPullRequestChangedFiles: async () => ["docs/guide.md"],
-			loadPostRunDecisionConfig: async () => ({
-				config: {
-					post_run: {
-						auto_merge_eligible: [{ paths: ["docs/**"] }],
-						auto_merge_success_status: "Done",
-						human_review_status: "Human Review",
-					},
-				},
-				loadedFromPath: ".rhapsody/config.toml",
-				errors: [],
-			}),
+			loadPostRunDecisionConfig: async () =>
+				buildPostRunPolicyLoadResult({
+					auto_merge_eligible: [{ paths: ["docs/**"] }],
+				}),
 			getPullRequestCheckSummary,
 		});
 
@@ -937,17 +1056,10 @@ test("scheduler does not mark Done when auto-merge fails and pull request is not
 			mergePullRequest,
 			getPullRequest,
 			getPullRequestChangedFiles: async () => ["docs/guide.md"],
-			loadPostRunDecisionConfig: async () => ({
-				config: {
-					post_run: {
-						auto_merge_eligible: [{ paths: ["docs/**"] }],
-						auto_merge_success_status: "Done",
-						human_review_status: "Human Review",
-					},
-				},
-				loadedFromPath: ".rhapsody/config.toml",
-				errors: [],
-			}),
+			loadPostRunDecisionConfig: async () =>
+				buildPostRunPolicyLoadResult({
+					auto_merge_eligible: [{ paths: ["docs/**"] }],
+				}),
 			getPullRequestCheckSummary: async () => ({
 				classification: "checks_success",
 				headSha: "sha-success",
@@ -1017,17 +1129,10 @@ test("scheduler moves successful pull requests with unmatched paths to Human Rev
 			updateProjectIssueStatus,
 			mergePullRequest,
 			getPullRequestChangedFiles: async () => ["src/index.ts"],
-			loadPostRunDecisionConfig: async () => ({
-				config: {
-					post_run: {
-						auto_merge_eligible: [{ paths: ["docs/**"] }],
-						auto_merge_success_status: "Done",
-						human_review_status: "Human Review",
-					},
-				},
-				loadedFromPath: ".rhapsody/config.toml",
-				errors: [],
-			}),
+			loadPostRunDecisionConfig: async () =>
+				buildPostRunPolicyLoadResult({
+					auto_merge_eligible: [{ paths: ["docs/**"] }],
+				}),
 			getPullRequestCheckSummary: async () => ({
 				classification: "checks_success",
 				headSha: "sha-human-review",

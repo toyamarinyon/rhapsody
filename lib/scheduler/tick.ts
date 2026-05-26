@@ -4,6 +4,7 @@ import type {
 	getPullRequestCheckSummary,
 	PullRequestCheckSummary,
 } from "@/lib/github/checks";
+import type * as GitHubIssues from "@/lib/github/issues";
 import {
 	fetchProjectIssueWorkItems,
 	type GitHubProjectIssueWorkItem,
@@ -39,6 +40,7 @@ import {
 } from "@/lib/workers/intake-curator";
 import {
 	findPullRequestArtifactFromArtifacts,
+	runHumanReviewMonitoring,
 	runPostPrCurator,
 } from "@/lib/workers/post-pr-curator";
 import {
@@ -75,6 +77,9 @@ type SchedulerTickSkippedIssue = {
 	reason: string;
 	existingRunId?: string | null;
 };
+
+type FetchIssueComments = typeof GitHubIssues.fetchIssueComments;
+type CreateReviewComment = typeof GitHubIssues.createIssueComment;
 
 export type SchedulerTickResponse = {
 	scanned: number;
@@ -121,6 +126,8 @@ export type SchedulerTickDependencies = {
 	runRepairerExecutor?: typeof runRepairerExecutor;
 	runIntegrationRepairPlanner?: typeof runIntegrationRepairPlanner;
 	runIntegrationRepairExecutor?: typeof runIntegrationRepairExecutor;
+	fetchIssueComments?: FetchIssueComments;
+	createReviewComment?: CreateReviewComment;
 	runIntakeCurator?: typeof runIntakeCuratorNode;
 };
 
@@ -165,8 +172,20 @@ export async function runSchedulerTick(
 			};
 		}
 
+		const policyLoadResult = await loadSchedulerPostRunPolicy(
+			dependencies.loadPostRunDecisionConfig,
+		);
+		const humanReviewStatus = getPostRunStatusConfig(
+			policyLoadResult.config,
+		).humanReviewStatus;
 		const schedulerStatuses = Array.from(
-			new Set([...ACTIVE_STATUSES, ...config.tracker.activeStatuses]),
+			new Set([
+				...ACTIVE_STATUSES,
+				...config.tracker.activeStatuses,
+				...(policyLoadResult.config.post_run.human_review_monitoring.enabled
+					? [humanReviewStatus]
+					: []),
+			]),
 		);
 		const eligibleItems = projectItems.filter((item) =>
 			schedulerStatuses.includes(item.projectStatus ?? ""),
@@ -180,6 +199,7 @@ export async function runSchedulerTick(
 			const projectStatus = item.projectStatus ?? "";
 			const isTodo = projectStatus === "Todo";
 			const isInProgress = projectStatus === "In Progress";
+			const isHumanReview = projectStatus === humanReviewStatus;
 
 			if (isInProgress) {
 				const postPrHandled = await runPostPrCuratorForInProgress(
@@ -213,6 +233,51 @@ export async function runSchedulerTick(
 					});
 				}
 
+				continue;
+			}
+
+			if (isHumanReview) {
+				const postPrHandled = await runPostPrCuratorForHumanReview(
+					client,
+					config,
+					{
+						getPullRequest: dependencies.getPullRequest,
+						getPullRequestCheckSummary: dependencies.getPullRequestCheckSummary,
+						getPullRequestChangedFiles: dependencies.getPullRequestChangedFiles,
+						mergePullRequest: dependencies.mergePullRequest,
+						comparePullRequestBranches: dependencies.comparePullRequestBranches,
+						loadPostRunDecisionConfig: dependencies.loadPostRunDecisionConfig,
+						runRepairerPlanner: dependencies.runRepairerPlanner,
+						runRepairerExecutor: dependencies.runRepairerExecutor,
+						runIntegrationRepairPlanner:
+							dependencies.runIntegrationRepairPlanner,
+						runIntegrationRepairExecutor:
+							dependencies.runIntegrationRepairExecutor,
+						fetchIssueComments: dependencies.fetchIssueComments,
+						createReviewComment: dependencies.createReviewComment,
+						updateProjectIssueStatus: updateIssueStatus,
+					},
+					item,
+					workItemId,
+					policyLoadResult.config.post_run,
+				);
+
+				if (!postPrHandled.handled) {
+					skippedIssues.push({
+						workItemId,
+						issueNumber: item.issueNumber,
+						reason: postPrHandled.skipReason,
+					});
+				} else if (
+					postPrHandled.monitoringClassification === "human_review_stale" ||
+					postPrHandled.monitoringClassification === "review_blocked"
+				) {
+					skippedIssues.push({
+						workItemId,
+						issueNumber: item.issueNumber,
+						reason: postPrHandled.monitoringClassification,
+					});
+				}
 				continue;
 			}
 
@@ -542,6 +607,8 @@ type SchedulerPostPrDependencies = {
 	runRepairerExecutor?: typeof runRepairerExecutor;
 	runIntegrationRepairPlanner?: typeof runIntegrationRepairPlanner;
 	runIntegrationRepairExecutor?: typeof runIntegrationRepairExecutor;
+	fetchIssueComments?: FetchIssueComments;
+	createReviewComment?: CreateReviewComment;
 	updateProjectIssueStatus: typeof updateProjectIssueStatus;
 };
 
@@ -636,6 +703,75 @@ async function runPostPrCuratorForInProgress(
 		return {
 			handled: false,
 			skipReason: "post_pr_graph_error",
+		};
+	}
+}
+
+async function runPostPrCuratorForHumanReview(
+	client: Client,
+	config: ReturnType<typeof loadRhapsodyConfig>,
+	dependencies: SchedulerPostPrDependencies,
+	item: GitHubProjectIssueWorkItem,
+	workItemId: string,
+	postRunPolicy: Awaited<
+		ReturnType<typeof loadSchedulerPostRunPolicy>
+	>["config"]["post_run"],
+) {
+	try {
+		const graph = await listWorkItemGraph(client, workItemId);
+		const pullRequestArtifact = findPullRequestArtifactFromArtifacts(
+			graph.artifacts,
+		);
+
+		if (!pullRequestArtifact) {
+			return {
+				handled: false,
+				skipReason: "missing_pr_artifact",
+				monitoringClassification: null,
+			};
+		}
+
+		const monitoringResult = await runHumanReviewMonitoring(client, {
+			workItem: item,
+			workItemId,
+			owner: config.repository.owner,
+			repository: config.repository.name,
+			pullRequestArtifact,
+			existingDecisions: graph.decisions,
+			postRunPolicy,
+			getPullRequest: dependencies.getPullRequest,
+			getPullRequestCheckSummary: dependencies.getPullRequestCheckSummary,
+			comparePullRequestBranches: dependencies.comparePullRequestBranches,
+			runIntegrationRepairPlanner: dependencies.runIntegrationRepairPlanner,
+			runIntegrationRepairExecutor: dependencies.runIntegrationRepairExecutor,
+			fetchIssueComments: dependencies.fetchIssueComments,
+			createIssueComment: dependencies.createReviewComment,
+		});
+
+		return {
+			handled: true,
+			skipReason: "",
+			monitoringClassification: monitoringResult.classification,
+		};
+	} catch (error) {
+		await createEvent(client, {
+			level: "warn",
+			type: "scheduler.human_review_monitoring_failed",
+			runId: null,
+			attemptId: null,
+			message:
+				"Scheduler could not monitor the linked Human Review pull request.",
+			data: {
+				workItemId,
+				issueNumber: item.issueNumber,
+				error: serializeError(error),
+			},
+		});
+
+		return {
+			handled: false,
+			skipReason: "human_review_monitoring_error",
+			monitoringClassification: null,
 		};
 	}
 }
@@ -1925,6 +2061,12 @@ async function loadSchedulerPostRunPolicy(
 					auto_merge_eligible: [],
 					auto_merge_success_status: "Done",
 					human_review_status: "Human Review",
+					human_review_monitoring: {
+						enabled: true,
+						auto_integrate_base_before_human_activity: true,
+						auto_integrate_base_after_human_activity: false,
+						comment_on_conflict: true,
+					},
 				},
 			},
 			loadedFromPath: ".rhapsody/config.toml",

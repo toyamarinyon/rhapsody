@@ -14,6 +14,8 @@ export type PullRequestSummary = {
 	state?: string;
 	merged?: boolean;
 	sha?: string | null;
+	mergeable?: boolean | null;
+	mergeableState?: string | null;
 };
 
 export type PullRequestMergeResult = {
@@ -211,6 +213,8 @@ export async function getPullRequest(
 		state: payload.state,
 		merged: payload.merged ?? false,
 		sha: payload.merge_commit_sha ?? payload.head.sha ?? null,
+		mergeable: payload.mergeable ?? null,
+		mergeableState: payload.mergeable_state ?? null,
 	};
 }
 
