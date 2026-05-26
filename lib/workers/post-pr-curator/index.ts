@@ -284,6 +284,7 @@ export async function runHumanReviewMonitoring(
 	const finalAssessment = applyIntegrationOutcomeToAssessment(
 		assessment,
 		integrationResult,
+		input.postRunPolicy.human_review_monitoring.comment_on_conflict,
 	);
 
 	const workerRun = await createWorkerRun(client, {
@@ -503,6 +504,27 @@ function assessHumanReviewFreshness(input: {
 	) {
 		signals.push("checks_invalidated");
 	}
+	if (
+		typeof priorSnapshot.mergeable === "boolean" &&
+		priorSnapshot.mergeable !== (input.pullRequest.mergeable ?? null)
+	) {
+		signals.push("mergeability_changed");
+	}
+	if (
+		priorSnapshot.mergeableState &&
+		priorSnapshot.mergeableState !== (input.pullRequest.mergeableState ?? null)
+	) {
+		signals.push("mergeability_changed");
+	}
+
+	const allowBaseIntegration = input.observedHumanActivity.hasHumanActivity
+		? input.policy.auto_integrate_base_after_human_activity
+		: input.policy.auto_integrate_base_before_human_activity;
+	const shouldCommentOnConflict = input.policy.comment_on_conflict;
+	const hasConflictSignal =
+		input.pullRequest.mergeable === false ||
+		input.pullRequest.mergeableState === "dirty" ||
+		input.pullRequest.mergeableState === "blocked";
 
 	if (signals.length === 0) {
 		return {
@@ -518,14 +540,6 @@ function assessHumanReviewFreshness(input: {
 			nextAction: null,
 		};
 	}
-
-	const allowBaseIntegration = input.observedHumanActivity.hasHumanActivity
-		? input.policy.auto_integrate_base_after_human_activity
-		: input.policy.auto_integrate_base_before_human_activity;
-	const hasConflictSignal =
-		input.pullRequest.mergeable === false ||
-		input.pullRequest.mergeableState === "dirty" ||
-		input.pullRequest.mergeableState === "blocked";
 	if (branchIsBehind && !allowBaseIntegration) {
 		return {
 			stale: true,
@@ -538,10 +552,12 @@ function assessHumanReviewFreshness(input: {
 				: "base_integration_disabled",
 			signals,
 			shouldAttemptBaseIntegration: false,
-			shouldComment: true,
-			commentBody: input.observedHumanActivity.hasHumanActivity
-				? "Rhapsody detected new human review activity after the base branch moved, so it left this PR in Human Review instead of automatically updating the branch. Please update the branch or resolve conflicts manually, then continue review."
-				: "Rhapsody detected that this PR is behind its base branch, but automatic base integration is disabled by policy. Please update the branch or resolve conflicts manually, then continue review.",
+			shouldComment: shouldCommentOnConflict,
+			commentBody: shouldCommentOnConflict
+				? input.observedHumanActivity.hasHumanActivity
+					? "Rhapsody detected new human review activity after the base branch moved, so it left this PR in Human Review instead of automatically updating the branch. Please update the branch or resolve conflicts manually, then continue review."
+					: "Rhapsody detected that this PR is behind its base branch, but automatic base integration is disabled by policy. Please update the branch or resolve conflicts manually, then continue review."
+				: null,
 			nextAction:
 				"Keep the Project item in Human Review and ask the reviewer to update the branch manually.",
 		};
@@ -556,9 +572,10 @@ function assessHumanReviewFreshness(input: {
 			reasonCode: "mergeability_conflict",
 			signals: [...signals, "mergeability_conflict"],
 			shouldAttemptBaseIntegration: false,
-			shouldComment: true,
-			commentBody:
-				"Rhapsody detected that this PR is no longer cleanly mergeable. The Project item remains in Human Review. Please resolve the merge conflict or update the branch manually, then continue review.",
+			shouldComment: shouldCommentOnConflict,
+			commentBody: shouldCommentOnConflict
+				? "Rhapsody detected that this PR is no longer cleanly mergeable. The Project item remains in Human Review. Please resolve the merge conflict or update the branch manually, then continue review."
+				: null,
 			nextAction:
 				"Keep the Project item in Human Review and ask the reviewer to resolve the mergeability conflict manually.",
 		};
@@ -583,6 +600,7 @@ function assessHumanReviewFreshness(input: {
 function applyIntegrationOutcomeToAssessment(
 	assessment: HumanReviewMonitoringAssessment,
 	integrationResult: IntegrationRepairExecutorResult | null,
+	commentOnConflict: boolean,
 ): HumanReviewMonitoringAssessment {
 	if (!integrationResult) {
 		return assessment;
@@ -623,9 +641,10 @@ function applyIntegrationOutcomeToAssessment(
 				integrationResult.reason ??
 				"Rhapsody could not safely integrate the latest base branch before human review.",
 			reasonCode: "base_integration_conflict",
-			shouldComment: true,
-			commentBody:
-				"Rhapsody tried a non-rewriting base integration before human review, but it could not complete safely. The Project item remains in Human Review. Please update the branch or resolve the conflict manually, then continue review.",
+			shouldComment: commentOnConflict,
+			commentBody: commentOnConflict
+				? "Rhapsody tried a non-rewriting base integration before human review, but it could not complete safely. The Project item remains in Human Review. Please update the branch or resolve the conflict manually, then continue review."
+				: null,
 			nextAction:
 				"Keep the Project item in Human Review and ask the reviewer to update the branch or resolve conflicts manually.",
 		};
@@ -645,6 +664,8 @@ function extractPriorHumanReviewSnapshot(decision: Decision, decisions: Decision
 	const sourceEvidence = asRecord(sourceDecision?.evidence);
 	const sourceChecks = asRecord(sourceEvidence?.checks);
 	const directCheckSummary = asRecord(evidence?.checkSummary);
+	const directMergeability = asRecord(evidence?.mergeability);
+	const sourceMergeability = asRecord(sourceEvidence?.mergeability);
 
 	return {
 		baseSha:
@@ -665,6 +686,18 @@ function extractPriorHumanReviewSnapshot(decision: Decision, decisions: Decision
 					: typeof sourceChecks?.classification === "string"
 						? sourceChecks.classification
 						: null,
+		mergeable:
+			typeof directMergeability?.mergeable === "boolean"
+				? directMergeability.mergeable
+				: typeof sourceMergeability?.mergeable === "boolean"
+					? sourceMergeability.mergeable
+					: null,
+		mergeableState:
+			typeof directMergeability?.mergeableState === "string"
+				? directMergeability.mergeableState
+				: typeof sourceMergeability?.mergeableState === "string"
+					? sourceMergeability.mergeableState
+					: null,
 	};
 }
 

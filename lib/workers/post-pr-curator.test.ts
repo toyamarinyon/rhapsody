@@ -407,6 +407,197 @@ test("runHumanReviewMonitoring records blocked Human Review evidence without reg
 	}
 });
 
+test("runHumanReviewMonitoring respects comment_on_conflict when review becomes blocked", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItemId = "github_issue:toyamarinyon/rhapsody#315";
+	const postPrWorkerRun = await createWorkerRun(client, {
+		id: "wrn_post_pr_no_comment",
+		workItemId,
+		kind: "post_pr_curator",
+		status: "completed",
+	});
+	await createDecision(client, {
+		id: "dec_post_pr_no_comment",
+		workItemId,
+		workerRunId: postPrWorkerRun.id,
+		phase: "post_pr",
+		outcome: "human_review",
+		now: 1,
+		evidence: {
+			pullRequestNumber: 315,
+			baseSha: "base-old",
+			headSha: "head-old",
+			checkClassification: "checks_success",
+		},
+	});
+	const existingDecisions = (await listWorkItemGraph(client, workItemId)).decisions;
+	const createIssueComment = vi.fn();
+
+	try {
+		const result = await runHumanReviewMonitoring(client, {
+			workItem: buildProjectItem(315),
+			workItemId,
+			owner: "toyamarinyon",
+			repository: "rhapsody",
+			pullRequestArtifact: {
+				number: 315,
+				url: "https://github.com/toyamarinyon/rhapsody/pull/315",
+			},
+			existingDecisions,
+			postRunPolicy: {
+				auto_merge_eligible: [],
+				auto_merge_success_status: "Done",
+				human_review_status: "Human Review",
+				human_review_monitoring: {
+					enabled: true,
+					auto_integrate_base_before_human_activity: false,
+					auto_integrate_base_after_human_activity: false,
+					comment_on_conflict: false,
+				},
+			},
+			getPullRequest: async () => ({
+				reused: true,
+				number: 315,
+				htmlUrl: "https://github.com/toyamarinyon/rhapsody/pull/315",
+				headRef: "feature",
+				baseRef: "main",
+				headSha: "head-old",
+				baseSha: "base-new",
+				title: "Review me",
+			}),
+			getPullRequestCheckSummary: async () => ({
+				classification: "checks_success",
+				headSha: "head-old",
+				status: "success",
+				checkRuns: [],
+			}),
+			comparePullRequestBranches: async () => ({
+				base: "main",
+				head: "feature",
+				status: "behind",
+				aheadBy: 0,
+				behindBy: 1,
+				mergeBaseCommitSha: "merge-base",
+			}),
+			fetchIssueComments: async () => [],
+			createIssueComment,
+		});
+
+		expect(result.classification).toBe("review_blocked");
+		expect(createIssueComment).not.toHaveBeenCalled();
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("runHumanReviewMonitoring treats mergeability regressions as blocked stale review", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItemId = "github_issue:toyamarinyon/rhapsody#316";
+	const postPrWorkerRun = await createWorkerRun(client, {
+		id: "wrn_post_pr_mergeability",
+		workItemId,
+		kind: "post_pr_curator",
+		status: "completed",
+	});
+	await createDecision(client, {
+		id: "dec_post_pr_mergeability",
+		workItemId,
+		workerRunId: postPrWorkerRun.id,
+		phase: "post_pr",
+		outcome: "human_review",
+		now: 1,
+		evidence: {
+			pullRequestNumber: 316,
+			baseSha: "base-stable",
+			headSha: "head-stable",
+			checkClassification: "checks_success",
+			mergeability: {
+				mergeable: true,
+				mergeableState: "clean",
+			},
+		},
+	});
+	const existingDecisions = (await listWorkItemGraph(client, workItemId)).decisions;
+
+	try {
+		const result = await runHumanReviewMonitoring(client, {
+			workItem: buildProjectItem(316),
+			workItemId,
+			owner: "toyamarinyon",
+			repository: "rhapsody",
+			pullRequestArtifact: {
+				number: 316,
+				url: "https://github.com/toyamarinyon/rhapsody/pull/316",
+			},
+			existingDecisions,
+			postRunPolicy: {
+				auto_merge_eligible: [],
+				auto_merge_success_status: "Done",
+				human_review_status: "Human Review",
+				human_review_monitoring: {
+					enabled: true,
+					auto_integrate_base_before_human_activity: true,
+					auto_integrate_base_after_human_activity: false,
+					comment_on_conflict: true,
+				},
+			},
+			getPullRequest: async () => ({
+				reused: true,
+				number: 316,
+				htmlUrl: "https://github.com/toyamarinyon/rhapsody/pull/316",
+				headRef: "feature",
+				baseRef: "main",
+				headSha: "head-stable",
+				baseSha: "base-stable",
+				title: "Review me",
+				mergeable: false,
+				mergeableState: "dirty",
+			}),
+			getPullRequestCheckSummary: async () => ({
+				classification: "checks_success",
+				headSha: "head-stable",
+				status: "success",
+				checkRuns: [],
+			}),
+			comparePullRequestBranches: async () => ({
+				base: "main",
+				head: "feature",
+				status: "identical",
+				aheadBy: 0,
+				behindBy: 0,
+				mergeBaseCommitSha: "merge-base",
+			}),
+			fetchIssueComments: async () => [],
+			createIssueComment: vi.fn().mockResolvedValue({
+				id: 11,
+				htmlUrl: "https://github.com/toyamarinyon/rhapsody/pull/316#issuecomment-11",
+			}),
+		});
+
+		expect(result.classification).toBe("review_blocked");
+		const graph = await listWorkItemGraph(client, workItemId);
+		const blockedDecision = graph.decisions.find(
+			(decision) =>
+				decision.phase === "post_pr" && decision.outcome === "review_blocked",
+		);
+		expect(blockedDecision?.evidence).toEqual(
+			expect.objectContaining({
+				reasonCode: "mergeability_conflict",
+				staleSignals: expect.arrayContaining([
+					"mergeability_changed",
+					"mergeability_conflict",
+				]),
+			}),
+		);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
 function buildProjectItem(issueNumber: number) {
 	return {
 		issueNumber,
