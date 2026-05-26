@@ -753,9 +753,11 @@ configuration to disable or narrow that behavior. If integration is unsafe, conf
 review activity has already begun, Rhapsody SHOULD leave the Project item in `Human Review`, record
 a stale or blocked decision, and comment with the next required human action instead of silently
 moving the item back to `In Progress`.
-For the current MVP action set, `auto_merge_candidate` causes trusted Rhapsody code to merge the
-pull request and move the Project item to `post_run.auto_merge_success_status`, while `human_review`
-moves the Project item to `post_run.human_review_status`.
+For the current MVP action set, `auto_merge_candidate` causes trusted Rhapsody code to reconcile
+the pull request merge state and move the Project item to `post_run.auto_merge_success_status`,
+while `human_review` moves the Project item to `post_run.human_review_status`. Later scheduler
+ticks must treat an already-merged pull request as compatible with the success path so Project
+status updates can be retried after partial failures.
 
 ## 10. Observability API
 
