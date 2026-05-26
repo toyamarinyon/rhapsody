@@ -4,10 +4,7 @@ import type {
 	getPullRequestCheckSummary,
 	PullRequestCheckSummary,
 } from "@/lib/github/checks";
-import type {
-	createIssueComment,
-	fetchIssueComments,
-} from "@/lib/github/issues";
+import type * as GitHubIssues from "@/lib/github/issues";
 import {
 	fetchProjectIssueWorkItems,
 	type GitHubProjectIssueWorkItem,
@@ -79,6 +76,9 @@ type SchedulerTickSkippedIssue = {
 	existingRunId?: string | null;
 };
 
+type FetchIssueComments = typeof GitHubIssues.fetchIssueComments;
+type CreateIssueComment = typeof GitHubIssues.createIssueComment;
+
 export type SchedulerTickResponse = {
 	scanned: number;
 	eligible: number;
@@ -123,8 +123,8 @@ export type SchedulerTickDependencies = {
 	runRepairerExecutor?: typeof runRepairerExecutor;
 	runIntegrationRepairPlanner?: typeof runIntegrationRepairPlanner;
 	runIntegrationRepairExecutor?: typeof runIntegrationRepairExecutor;
-	fetchIssueComments?: typeof fetchIssueComments;
-	createIssueComment?: typeof createIssueComment;
+	fetchIssueComments?: FetchIssueComments;
+	createIssueComment?: CreateIssueComment;
 	runIntakeCurator?: typeof runIntakeCuratorNode;
 };
 
@@ -602,8 +602,8 @@ type SchedulerPostPrDependencies = {
 	runRepairerExecutor?: typeof runRepairerExecutor;
 	runIntegrationRepairPlanner?: typeof runIntegrationRepairPlanner;
 	runIntegrationRepairExecutor?: typeof runIntegrationRepairExecutor;
-	fetchIssueComments?: typeof fetchIssueComments;
-	createIssueComment?: typeof createIssueComment;
+	fetchIssueComments?: FetchIssueComments;
+	createIssueComment?: CreateIssueComment;
 	updateProjectIssueStatus: typeof updateProjectIssueStatus;
 };
 
