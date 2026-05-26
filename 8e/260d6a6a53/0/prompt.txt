@@ -1,11 +1,3 @@
-[toyamarinyon/rhapsody#120](https://github.com/toyamarinyon/rhapsody/pull/120) のエラー調べて欲しい。
-
----
-
-[@builder](subagent://builder) に依頼して、修正してpushしてください。あなたはアウトプットを確認して十分な水準か評価して、フィードバックをしてください。
-
----
-
 PR https://github.com/toyamarinyon/rhapsody/pull/120 の CI エラーを修正して push してください。
 
 作業場所:
