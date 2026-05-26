@@ -1,0 +1,48 @@
+PR https://github.com/toyamarinyon/rhapsody/pull/120 の CI エラーを修正して push してください。
+
+作業場所:
+- repo: /Users/toyamarinyon/Documents/rhapsody
+- PR branch: rhapsody/issue-119-1
+
+背景:
+- 失敗している check: CI / Static checks / Type check
+- エラー: lib/workers/post-pr-curator/index.ts(243,3): Type '"human_review_fresh" | "human_review_stale" | "review_blocked"' is not assignable to type '"human_review_stale" | "review_blocked"'.
+- 原因: `if (!assessment.stale) return ...` の後でも TypeScript が `assessment.outcome` を stale/block に narrow できていない。
+
+依頼:
+1. PR branch `rhapsody/issue-119-1` を checkout する。
+2. `lib/workers/post-pr-curator/index.ts` の型を安全に修正する。推奨は `HumanReviewMonitoringAssessment` を discriminated union にして、`stale: false` の場合は `outcome: "human_review_fresh"`、`stale: true` の場合は `outcome: "human_review_stale" | "review_blocked"` になるようにすること。最小で読みやすい修正にしてください。
+3. `pnpm typecheck` を実行し、できれば関連テストも軽く実行する。
+4. commit して origin の同じ branch に push する。
+5. 最終報告には変更ファイル、実行したコマンド、push した commit hash を書いてください。
+
+注意:
+- あなたはコードベースに一人ではありません。既存の未コミット変更や他者の変更を revert しないでください。
+- 関係ない refactor はしないでください。
+- secrets や env は表示しないでください。
+
+---
+
+追加で CI がまだ失敗しています。続けて修正して push してください。
+
+最新 head: 79d8ab3f29f4d4234a3a138da9b226c605da04ee
+CI run: https://github.com/toyamarinyon/rhapsody/actions/runs/26435832581/job/77818368554
+
+新しい CI エラー:
+- lib/scheduler/tick.ts(8,2): Duplicate identifier 'createIssueComment'.
+- lib/scheduler/tick.ts(16,10): Duplicate identifier 'createIssueComment'.
+- lib/scheduler/tick.ts(121,2): Duplicate identifier 'createIssueComment'.
+- lib/scheduler/tick.ts(130,2): Duplicate identifier 'createIssueComment'.
+- lib/scheduler/tick.ts(602,2): Duplicate identifier 'createIssueComment'.
+- lib/scheduler/tick.ts(611,2): Duplicate identifier 'createIssueComment'.
+- lib/scheduler/tick.ts(1457,61): 'createIssueComment' cannot be used as a value because it was imported using 'import type'.
+
+ローカルでは `pnpm typecheck` が通るように見えるかもしれませんが、CI では上記で落ちています。`lib/scheduler/tick.ts` の `createIssueComment` 型参照を、CI の TS でも衝突しない形にしてください。例えば direct `import type { createIssueComment, fetchIssueComments }` を避け、型 alias / namespace type import などで `typeof` 参照する形がよさそうです。
+
+依頼:
+1. `lib/scheduler/tick.ts` を最小修正。
+2. `pnpm typecheck` と `pnpm lint` を実行。
+3. commit して `rhapsody/issue-119-1` に push。
+4. 最終報告に変更ファイル、実行コマンド、commit hash を書いてください。
+
+既存変更は revert しないでください。
