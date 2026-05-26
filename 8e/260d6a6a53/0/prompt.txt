@@ -1,0 +1,30 @@
+[toyamarinyon/rhapsody#120](https://github.com/toyamarinyon/rhapsody/pull/120) のエラー調べて欲しい。
+
+---
+
+[@builder](subagent://builder) に依頼して、修正してpushしてください。あなたはアウトプットを確認して十分な水準か評価して、フィードバックをしてください。
+
+---
+
+PR https://github.com/toyamarinyon/rhapsody/pull/120 の CI エラーを修正して push してください。
+
+作業場所:
+- repo: /Users/toyamarinyon/Documents/rhapsody
+- PR branch: rhapsody/issue-119-1
+
+背景:
+- 失敗している check: CI / Static checks / Type check
+- エラー: lib/workers/post-pr-curator/index.ts(243,3): Type '"human_review_fresh" | "human_review_stale" | "review_blocked"' is not assignable to type '"human_review_stale" | "review_blocked"'.
+- 原因: `if (!assessment.stale) return ...` の後でも TypeScript が `assessment.outcome` を stale/block に narrow できていない。
+
+依頼:
+1. PR branch `rhapsody/issue-119-1` を checkout する。
+2. `lib/workers/post-pr-curator/index.ts` の型を安全に修正する。推奨は `HumanReviewMonitoringAssessment` を discriminated union にして、`stale: false` の場合は `outcome: "human_review_fresh"`、`stale: true` の場合は `outcome: "human_review_stale" | "review_blocked"` になるようにすること。最小で読みやすい修正にしてください。
+3. `pnpm typecheck` を実行し、できれば関連テストも軽く実行する。
+4. commit して origin の同じ branch に push する。
+5. 最終報告には変更ファイル、実行したコマンド、push した commit hash を書いてください。
+
+注意:
+- あなたはコードベースに一人ではありません。既存の未コミット変更や他者の変更を revert しないでください。
+- 関係ない refactor はしないでください。
+- secrets や env は表示しないでください。
