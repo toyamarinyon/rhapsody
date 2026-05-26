@@ -109,6 +109,7 @@ type WrapperOutput = {
 	artifact?: WrapperOutputArtifact;
 	conflictingFiles?: string[];
 	remainingConflictingFiles?: string[];
+	unexpectedChangedFiles?: string[];
 	codex?: {
 		exitCode: number | null;
 		timedOut: boolean;
@@ -372,6 +373,7 @@ export async function runIntegrationRepairExecutor(
 	let commandError: string | null = null;
 	let conflictingFiles: string[] = [];
 	let remainingConflictingFiles: string[] = [];
+	let unexpectedChangedFiles: string[] = [];
 	let codexSummary: WrapperOutput["codex"] | null = null;
 
 	try {
@@ -511,6 +513,7 @@ export async function runIntegrationRepairExecutor(
 			commandError = wrapperOutput.error ?? null;
 			conflictingFiles = wrapperOutput.conflictingFiles ?? [];
 			remainingConflictingFiles = wrapperOutput.remainingConflictingFiles ?? [];
+			unexpectedChangedFiles = wrapperOutput.unexpectedChangedFiles ?? [];
 			codexSummary = wrapperOutput.codex ?? null;
 		}
 	} catch (error) {
@@ -547,6 +550,7 @@ export async function runIntegrationRepairExecutor(
 			error: commandError,
 			conflictingFiles,
 			remainingConflictingFiles,
+			unexpectedChangedFiles,
 			codex: codexSummary,
 		},
 	});
@@ -760,6 +764,7 @@ function parseWrapperOutput(
 			: undefined,
 		conflictingFiles: toStringArray(payload.conflictingFiles),
 		remainingConflictingFiles: toStringArray(payload.remainingConflictingFiles),
+		unexpectedChangedFiles: toStringArray(payload.unexpectedChangedFiles),
 		codex: asCodexSummary(payload.codex),
 	};
 }
