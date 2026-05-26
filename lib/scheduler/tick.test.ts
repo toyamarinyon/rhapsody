@@ -498,6 +498,11 @@ test("scheduler moves non-repairable failed checks to Human Review", async () =>
 		optionId: "option",
 		status: "Human Review",
 	});
+	const createIssueComment = vi.fn().mockResolvedValue({
+		id: 141,
+		htmlUrl:
+			"https://github.com/toyamarinyon/rhapsody/issues/141#issuecomment-141",
+	});
 	const runRepairerExecutor = vi.fn();
 
 	try {
@@ -505,6 +510,7 @@ test("scheduler moves non-repairable failed checks to Human Review", async () =>
 			config: baseConfig,
 			fetchProjectIssueWorkItems: async () => [item],
 			updateProjectIssueStatus,
+			createIssueComment,
 			runRepairerExecutor,
 			runRepairerPlanner: vi.fn().mockResolvedValue({
 				workerRunId: "repair-planner-blocked",
@@ -543,6 +549,10 @@ test("scheduler moves non-repairable failed checks to Human Review", async () =>
 				issueNumber: 141,
 				status: "Human Review",
 			}),
+		);
+		expect(createIssueComment).toHaveBeenCalledTimes(1);
+		expect(createIssueComment.mock.calls[0]?.[0].body).toContain(
+			"Repair classification: not_deterministically_fixable",
 		);
 
 		const graph = await listWorkItemGraph(client, workItemId);
@@ -1147,6 +1157,149 @@ test("scheduler runs post-PR curator and repairer planner for failed format chec
 				}),
 			}),
 		);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("scheduler posts a deduped mediated comment for repair_blocked post-PR checks", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const item = buildProjectItem({
+		issueNumber: 115,
+		projectStatus: "In Progress",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#115";
+	const pullRequestNumber = 215;
+	const builderRun = await createWorkerRun(client, {
+		workItemId,
+		kind: "builder",
+		status: "completed",
+	});
+	await createArtifact(client, {
+		workItemId,
+		workerRunId: builderRun.id,
+		kind: "pull_request",
+		externalId: `${pullRequestNumber}`,
+		externalUrl: `https://github.com/toyamarinyon/rhapsody/pull/${pullRequestNumber}`,
+	});
+
+	const checkSummary: PullRequestCheckSummary = {
+		classification: "ci_failed",
+		headSha: "sha-blocked",
+		status: "failure",
+		checkRuns: [
+			{
+				name: "Format check",
+				status: "completed",
+				conclusion: "failure",
+				detailsUrl: "https://github.com/toyamarinyon/rhapsody/actions/runs/115",
+				actions: {
+					workflowRunId: 115,
+					workflowName: "Format",
+					jobId: 115,
+					workflowPath: ".github/workflows/format.yml",
+					jobName: "format",
+					failedStepNames: ["Run prettier"],
+				},
+			},
+		],
+	};
+	const repairExecutionKey = buildRepairExecutionKey({
+		pullRequestNumber,
+		headSha: checkSummary.headSha,
+		failureFingerprint: buildFailureFingerprint(checkSummary),
+	});
+	const updateProjectIssueStatus = vi.fn().mockResolvedValue({
+		projectId: "project",
+		itemId: "item",
+		fieldId: "field",
+		optionId: "option",
+		status: "Human Review",
+	});
+	const createIssueComment = vi.fn().mockResolvedValue({
+		id: 115,
+		htmlUrl:
+			"https://github.com/toyamarinyon/rhapsody/issues/215#issuecomment-115",
+	});
+	const runRepairerPlannerSpy = vi.fn().mockResolvedValue({
+		workerRunId: "repair_planner_worker_run",
+		decisionId: "repair_planner_decision",
+		outcome: "repair_blocked",
+		classification: "not_deterministically_fixable",
+		attemptCount: 0,
+		attemptCounts: { headSha: 0, pullRequest: 0, fingerprint: 0 },
+		maxAttempts: { headSha: 2, pullRequest: 6, fingerprint: 2 },
+		repairExecutionKey,
+		failureFingerprint: buildFailureFingerprint(checkSummary),
+	});
+
+	try {
+		const firstResult = await runSchedulerTick(client, {
+			config: baseConfig,
+			fetchProjectIssueWorkItems: async () => [item],
+			updateProjectIssueStatus,
+			createIssueComment,
+			runRepairerPlanner: runRepairerPlannerSpy,
+			getPullRequestCheckSummary: async () => checkSummary,
+		});
+
+		expect(firstResult.ok).toBe(true);
+		expect(createIssueComment).toHaveBeenCalledTimes(1);
+		expect(createIssueComment).toHaveBeenCalledWith(
+			expect.objectContaining({
+				owner: "toyamarinyon",
+				repository: "rhapsody",
+				issueNumber: pullRequestNumber,
+				body: expect.stringContaining(
+					`Rhapsody evaluated auto-healing for PR #${pullRequestNumber} but did not start an automated repair.`,
+				),
+			}),
+		);
+		expect(createIssueComment.mock.calls[0]?.[0].body).toContain(
+			"Reason: The failure did not match a repair path that Rhapsody can fix safely and deterministically.",
+		);
+		expect(createIssueComment.mock.calls[0]?.[0].body).toContain(
+			"Triggered by: Format check / format / Run prettier",
+		);
+		expect(createIssueComment.mock.calls[0]?.[0].body).toContain(
+			"Repair classification: not_deterministically_fixable",
+		);
+		expect(createIssueComment.mock.calls[0]?.[0].body).toContain(
+			"Failure fingerprint:",
+		);
+
+		const secondResult = await runSchedulerTick(client, {
+			config: baseConfig,
+			fetchProjectIssueWorkItems: async () => [item],
+			updateProjectIssueStatus,
+			createIssueComment,
+			runRepairerPlanner: runRepairerPlannerSpy,
+			getPullRequestCheckSummary: async () => checkSummary,
+		});
+
+		expect(secondResult.ok).toBe(true);
+		expect(createIssueComment).toHaveBeenCalledTimes(1);
+
+		const graph = await listWorkItemGraph(client, workItemId);
+		expect(
+			graph.artifacts.filter(
+				(artifact) => artifact.kind === "repair_blocked_comment",
+			),
+		).toHaveLength(1);
+		expect(
+			graph.artifacts.find(
+				(artifact) => artifact.kind === "repair_blocked_comment",
+			)?.metadata,
+		).toEqual(
+			expect.objectContaining({
+				pullRequestNumber,
+				repairClassification: "not_deterministically_fixable",
+				repairExecutionKey,
+			}),
+		);
+		expect(updateProjectIssueStatus).toHaveBeenCalled();
 	} finally {
 		client.close();
 		database.cleanup();

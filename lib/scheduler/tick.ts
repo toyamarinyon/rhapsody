@@ -9,6 +9,7 @@ import {
 	type GitHubProjectIssueWorkItem,
 	updateProjectIssueStatus,
 } from "@/lib/github/project-items";
+import { createIssueComment } from "@/lib/github/issues";
 import {
 	getPullRequestChangedFiles,
 	getPullRequest,
@@ -21,6 +22,7 @@ import {
 	loadPostRunDecisionConfig,
 } from "@/lib/post-run-decision";
 import {
+	createArtifact,
 	createClaimedManualRun,
 	createDecision,
 	createEvent,
@@ -111,6 +113,7 @@ export type SchedulerTickDependencies = {
 	getPullRequestCheckSummary?: typeof getPullRequestCheckSummary;
 	getPullRequestChangedFiles?: typeof getPullRequestChangedFiles;
 	getPullRequest?: typeof getPullRequest;
+	createIssueComment?: typeof createIssueComment;
 	mergePullRequest?: typeof mergePullRequest;
 	comparePullRequestBranches?: typeof comparePullRequestBranches;
 	loadPostRunDecisionConfig?: typeof loadPostRunDecisionConfig;
@@ -195,6 +198,7 @@ export async function runSchedulerTick(
 							dependencies.runIntegrationRepairPlanner,
 						runIntegrationRepairExecutor:
 							dependencies.runIntegrationRepairExecutor,
+						createIssueComment: dependencies.createIssueComment,
 						updateProjectIssueStatus: updateIssueStatus,
 					},
 					item,
@@ -530,6 +534,7 @@ type SchedulerPostPrDependencies = {
 	getPullRequest?: typeof getPullRequest;
 	getPullRequestCheckSummary?: typeof getPullRequestCheckSummary;
 	getPullRequestChangedFiles?: typeof getPullRequestChangedFiles;
+	createIssueComment?: typeof createIssueComment;
 	mergePullRequest?: typeof mergePullRequest;
 	comparePullRequestBranches?: typeof comparePullRequestBranches;
 	loadPostRunDecisionConfig?: typeof loadPostRunDecisionConfig;
@@ -995,6 +1000,8 @@ async function handleFailedPostPrChecks(input: {
 			outcome: "repair_blocked",
 		});
 		if (blockedDecision) {
+			const blockedCommentMetadata =
+				getRepairBlockedCommentMetadataFromDecision(blockedDecision);
 			await moveRepairBlockedItemToHumanReview({
 				client: input.client,
 				config: input.config,
@@ -1005,10 +1012,10 @@ async function handleFailedPostPrChecks(input: {
 				postPrWorkerRunId: input.postPrWorkerRunId,
 				pullRequestNumber: input.pullRequestArtifact.number,
 				pullRequestArtifact: input.pullRequestArtifact,
-				reason:
-					blockedDecision.nextAction ??
-					"Repair was blocked for this failed check set.",
+				graphArtifacts: input.graph.artifacts,
+				reason: buildRepairBlockedReason(blockedCommentMetadata),
 				repairDecisionId: blockedDecision.id,
+				repairClassification: blockedCommentMetadata.classification,
 				checkSummary: input.checkSummary,
 			});
 			return;
@@ -1048,9 +1055,14 @@ async function handleFailedPostPrChecks(input: {
 						postPrWorkerRunId: input.postPrWorkerRunId,
 						pullRequestNumber: input.pullRequestArtifact.number,
 						pullRequestArtifact: input.pullRequestArtifact,
-						reason:
-							"Repair budget was exhausted or the failure was no longer safely repairable.",
+						graphArtifacts: input.graph.artifacts,
+						reason: buildRepairBlockedReason({
+							classification: plan.classification,
+							attemptCounts: plan.attemptCounts,
+							maxAttempts: plan.maxAttempts,
+						}),
 						repairDecisionId: plan.decisionId,
+						repairClassification: plan.classification,
 						checkSummary: input.checkSummary,
 					});
 					return;
@@ -1111,9 +1123,14 @@ async function handleFailedPostPrChecks(input: {
 		postPrWorkerRunId: input.postPrWorkerRunId,
 		pullRequestNumber: input.pullRequestArtifact.number,
 		pullRequestArtifact: input.pullRequestArtifact,
-		reason:
-			"Repair was blocked because the failed checks were not safely format-fixable or the repair budget was exhausted.",
+		graphArtifacts: input.graph.artifacts,
+		reason: buildRepairBlockedReason({
+			classification: plan.classification,
+			attemptCounts: plan.attemptCounts,
+			maxAttempts: plan.maxAttempts,
+		}),
 		repairDecisionId: plan.decisionId,
+		repairClassification: plan.classification,
 		checkSummary: input.checkSummary,
 	});
 }
@@ -1184,10 +1201,46 @@ async function moveRepairBlockedItemToHumanReview(input: {
 	postPrWorkerRunId: string | null;
 	pullRequestNumber: number;
 	pullRequestArtifact: { id: string; number: number; url: string | null };
+	graphArtifacts: WorkItemGraph["artifacts"];
 	reason: string;
 	repairDecisionId: string;
+	repairClassification: string | null;
 	checkSummary: PullRequestCheckSummary;
 }) {
+	const failureFingerprint = buildFailureFingerprint(input.checkSummary);
+	const repairExecutionKey = buildRepairExecutionKey({
+		pullRequestNumber: input.pullRequestNumber,
+		headSha: input.checkSummary.headSha,
+		failureFingerprint,
+	});
+	const existingBlockedComment = findRepairBlockedCommentArtifact(
+		input.graphArtifacts,
+		{
+			failureFingerprint,
+			pullRequestNumber: input.pullRequestNumber,
+			repairExecutionKey,
+		},
+	);
+	if (!existingBlockedComment) {
+		try {
+			await postRepairBlockedComment({
+				client: input.client,
+				dependencies: input.dependencies,
+				item: input.item,
+				workItemId: input.workItemId,
+				postPrWorkerRunId: input.postPrWorkerRunId,
+				pullRequestArtifact: input.pullRequestArtifact,
+				repairDecisionId: input.repairDecisionId,
+				repairExecutionKey,
+				repairClassification: input.repairClassification,
+				checkSummary: input.checkSummary,
+				reason: input.reason,
+			});
+		} catch {
+			// Commenting is best-effort; status and resolution recording still proceed.
+		}
+	}
+
 	const policyLoadResult = await loadSchedulerPostRunPolicy(
 		input.dependencies.loadPostRunDecisionConfig,
 	);
@@ -1245,6 +1298,212 @@ async function moveRepairBlockedItemToHumanReview(input: {
 			loadedFromPath: policyLoadResult.loadedFromPath,
 		},
 	});
+}
+
+async function postRepairBlockedComment(input: {
+	client: Client;
+	dependencies: SchedulerPostPrDependencies;
+	item: GitHubProjectIssueWorkItem;
+	workItemId: string;
+	postPrWorkerRunId: string | null;
+	pullRequestArtifact: { id: string; number: number; url: string | null };
+	repairDecisionId: string;
+	repairExecutionKey: string;
+	repairClassification: string | null;
+	checkSummary: PullRequestCheckSummary;
+	reason: string;
+}) {
+	const commentBody = buildRepairBlockedCommentBody({
+		pullRequestNumber: input.pullRequestArtifact.number,
+		repairClassification: input.repairClassification,
+		checkSummary: input.checkSummary,
+		reason: input.reason,
+	});
+	const commenter = input.dependencies.createIssueComment ?? createIssueComment;
+	const comment = await commenter({
+		owner: input.item.repository.owner,
+		repository: input.item.repository.name,
+		issueNumber: input.pullRequestArtifact.number,
+		body: commentBody,
+	});
+	const artifactId = await createArtifact(input.client, {
+		workItemId: input.workItemId,
+		workerRunId: input.postPrWorkerRunId,
+		kind: "repair_blocked_comment",
+		externalId: String(comment.id),
+		externalUrl: comment.htmlUrl,
+		snapshot: {
+			pullRequestNumber: input.pullRequestArtifact.number,
+			repairDecisionId: input.repairDecisionId,
+		},
+		metadata: {
+			repairDecisionId: input.repairDecisionId,
+			repairExecutionKey: input.repairExecutionKey,
+			repairClassification: input.repairClassification,
+			failureFingerprint: buildFailureFingerprint(input.checkSummary),
+			pullRequestNumber: input.pullRequestArtifact.number,
+		},
+	});
+
+	if (input.postPrWorkerRunId) {
+		await createLink(input.client, {
+			workItemId: input.workItemId,
+			fromNodeType: "worker_run",
+			fromNodeId: input.postPrWorkerRunId,
+			toNodeType: "artifact",
+			toNodeId: artifactId,
+			relation: "posts",
+			metadata: {
+				origin: "scheduler",
+				kind: "repair_blocked_comment",
+			},
+		});
+	}
+}
+
+function findRepairBlockedCommentArtifact(
+	artifacts: WorkItemGraph["artifacts"],
+	input: {
+		failureFingerprint: string;
+		pullRequestNumber: number;
+		repairExecutionKey: string;
+	},
+) {
+	return artifacts.find((artifact) => {
+		if (artifact.kind !== "repair_blocked_comment") {
+			return false;
+		}
+		const metadata = asObject(artifact.metadata);
+		return (
+			metadata?.repairExecutionKey === input.repairExecutionKey ||
+			(metadata?.failureFingerprint === input.failureFingerprint &&
+				metadata?.pullRequestNumber === input.pullRequestNumber)
+		);
+	});
+}
+
+function buildRepairBlockedCommentBody(input: {
+	pullRequestNumber: number;
+	repairClassification: string | null;
+	checkSummary: PullRequestCheckSummary;
+	reason: string;
+}) {
+	const failedCheck = input.checkSummary.checkRuns.find(
+		(checkRun) =>
+			checkRun.conclusion === "failure" ||
+			checkRun.conclusion === "error" ||
+			checkRun.conclusion === "cancelled" ||
+			checkRun.conclusion === "timed_out" ||
+			checkRun.conclusion === "action_required",
+	);
+	const failedCheckSummary = failedCheck
+		? [
+				failedCheck.name,
+				failedCheck.actions?.jobName ?? null,
+				(failedCheck.actions?.failedStepNames ?? []).join(", ") || null,
+			]
+				.filter((value): value is string => Boolean(value && value.trim()))
+				.join(" / ")
+		: "unknown failing check";
+	const lines = [
+		`Rhapsody evaluated auto-healing for PR #${input.pullRequestNumber} but did not start an automated repair.`,
+		`Reason: ${input.reason}`,
+		`Triggered by: ${failedCheckSummary}`,
+		`Repair classification: ${input.repairClassification ?? "unknown"}`,
+		`Failure fingerprint: ${buildFailureFingerprint(input.checkSummary)}`,
+		`Next step: please review the failed check, fix the issue manually if needed, and re-run the PR checks.`,
+	];
+
+	if (failedCheck?.detailsUrl) {
+		lines.splice(3, 0, `Check details: ${failedCheck.detailsUrl}`);
+	}
+
+	return lines.join("\n");
+}
+
+function buildRepairBlockedReason(input: {
+	classification: string | null;
+	attemptCounts?: {
+		headSha: number;
+		pullRequest: number;
+		fingerprint: number;
+	} | null;
+	maxAttempts?: {
+		headSha: number;
+		pullRequest: number;
+		fingerprint: number;
+	} | null;
+}) {
+	if (input.classification === "not_deterministically_fixable") {
+		return "The failure did not match a repair path that Rhapsody can fix safely and deterministically.";
+	}
+
+	if (
+		input.attemptCounts &&
+		input.maxAttempts &&
+		input.attemptCounts.fingerprint >= input.maxAttempts.fingerprint
+	) {
+		return "Rhapsody already exhausted the repair budget for this exact failure fingerprint.";
+	}
+
+	if (
+		input.attemptCounts &&
+		input.maxAttempts &&
+		input.attemptCounts.headSha >= input.maxAttempts.headSha
+	) {
+		return "Rhapsody already exhausted the repair budget for this head SHA.";
+	}
+
+	if (
+		input.attemptCounts &&
+		input.maxAttempts &&
+		input.attemptCounts.pullRequest >= input.maxAttempts.pullRequest
+	) {
+		return "Rhapsody already exhausted the repair budget for this pull request.";
+	}
+
+	return "Rhapsody did not find a safe automated repair path for this failed check set.";
+}
+
+function getRepairBlockedCommentMetadataFromDecision(decision: Decision): {
+	classification: string | null;
+	attemptCounts: {
+		headSha: number;
+		pullRequest: number;
+		fingerprint: number;
+	} | null;
+	maxAttempts: {
+		headSha: number;
+		pullRequest: number;
+		fingerprint: number;
+	} | null;
+} {
+	const evidence = asObject(decision.evidence);
+	return {
+		classification:
+			typeof evidence?.classification === "string"
+				? evidence.classification
+				: null,
+		attemptCounts: isRepairAttemptBudgetRecord(evidence?.attemptCounts)
+			? evidence.attemptCounts
+			: null,
+		maxAttempts: isRepairAttemptBudgetRecord(evidence?.maxAttempts)
+			? evidence.maxAttempts
+			: null,
+	};
+}
+
+function isRepairAttemptBudgetRecord(value: unknown): value is {
+	headSha: number;
+	pullRequest: number;
+	fingerprint: number;
+} {
+	const record = asObject(value);
+	return (
+		typeof record?.headSha === "number" &&
+		typeof record?.pullRequest === "number" &&
+		typeof record?.fingerprint === "number"
+	);
 }
 
 async function mergePullRequestAndMarkDone(input: {
