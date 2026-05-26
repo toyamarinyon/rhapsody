@@ -69,8 +69,7 @@ function buildPostRunPolicyLoadResult(input?: {
 		config: {
 			post_run: {
 				auto_merge_eligible: input?.auto_merge_eligible ?? [],
-				auto_merge_success_status:
-					input?.auto_merge_success_status ?? "Done",
+				auto_merge_success_status: input?.auto_merge_success_status ?? "Done",
 				human_review_status: input?.human_review_status ?? "Human Review",
 				human_review_monitoring: {
 					...defaultHumanReviewMonitoringPolicy,
@@ -821,10 +820,10 @@ test("scheduler auto-merges eligible pull requests after checks succeed", async 
 			updateProjectIssueStatus,
 			mergePullRequest,
 			getPullRequestChangedFiles: async () => ["docs/guide.md"],
-				loadPostRunDecisionConfig: async () =>
-					buildPostRunPolicyLoadResult({
-						auto_merge_eligible: [{ paths: ["docs/**"] }],
-					}),
+			loadPostRunDecisionConfig: async () =>
+				buildPostRunPolicyLoadResult({
+					auto_merge_eligible: [{ paths: ["docs/**"] }],
+				}),
 			getPullRequestCheckSummary: async () => ({
 				classification: "checks_success",
 				headSha: "sha-success",
@@ -948,10 +947,10 @@ test("scheduler recovers Project status update after merge already completed on 
 			mergePullRequest,
 			getPullRequest,
 			getPullRequestChangedFiles: async () => ["docs/guide.md"],
-				loadPostRunDecisionConfig: async () =>
-					buildPostRunPolicyLoadResult({
-						auto_merge_eligible: [{ paths: ["docs/**"] }],
-					}),
+			loadPostRunDecisionConfig: async () =>
+				buildPostRunPolicyLoadResult({
+					auto_merge_eligible: [{ paths: ["docs/**"] }],
+				}),
 			getPullRequestCheckSummary,
 		});
 		expect(firstResult.ok).toBe(true);
@@ -972,10 +971,10 @@ test("scheduler recovers Project status update after merge already completed on 
 			mergePullRequest,
 			getPullRequest,
 			getPullRequestChangedFiles: async () => ["docs/guide.md"],
-				loadPostRunDecisionConfig: async () =>
-					buildPostRunPolicyLoadResult({
-						auto_merge_eligible: [{ paths: ["docs/**"] }],
-					}),
+			loadPostRunDecisionConfig: async () =>
+				buildPostRunPolicyLoadResult({
+					auto_merge_eligible: [{ paths: ["docs/**"] }],
+				}),
 			getPullRequestCheckSummary,
 		});
 
@@ -1047,10 +1046,10 @@ test("scheduler does not mark Done when auto-merge fails and pull request is not
 			mergePullRequest,
 			getPullRequest,
 			getPullRequestChangedFiles: async () => ["docs/guide.md"],
-				loadPostRunDecisionConfig: async () =>
-					buildPostRunPolicyLoadResult({
-						auto_merge_eligible: [{ paths: ["docs/**"] }],
-					}),
+			loadPostRunDecisionConfig: async () =>
+				buildPostRunPolicyLoadResult({
+					auto_merge_eligible: [{ paths: ["docs/**"] }],
+				}),
 			getPullRequestCheckSummary: async () => ({
 				classification: "checks_success",
 				headSha: "sha-success",
@@ -1120,10 +1119,10 @@ test("scheduler moves successful pull requests with unmatched paths to Human Rev
 			updateProjectIssueStatus,
 			mergePullRequest,
 			getPullRequestChangedFiles: async () => ["src/index.ts"],
-				loadPostRunDecisionConfig: async () =>
-					buildPostRunPolicyLoadResult({
-						auto_merge_eligible: [{ paths: ["docs/**"] }],
-					}),
+			loadPostRunDecisionConfig: async () =>
+				buildPostRunPolicyLoadResult({
+					auto_merge_eligible: [{ paths: ["docs/**"] }],
+				}),
 			getPullRequestCheckSummary: async () => ({
 				classification: "checks_success",
 				headSha: "sha-human-review",

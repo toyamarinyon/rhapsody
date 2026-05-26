@@ -318,10 +318,12 @@ test("runHumanReviewMonitoring records blocked Human Review evidence without reg
 			checkClassification: "checks_success",
 		},
 	});
-	const existingDecisions = (await listWorkItemGraph(client, workItemId)).decisions;
+	const existingDecisions = (await listWorkItemGraph(client, workItemId))
+		.decisions;
 	const createIssueComment = vi.fn().mockResolvedValue({
 		id: 10,
-		htmlUrl: "https://github.com/toyamarinyon/rhapsody/pull/314#issuecomment-10",
+		htmlUrl:
+			"https://github.com/toyamarinyon/rhapsody/pull/314#issuecomment-10",
 	});
 
 	try {
@@ -374,7 +376,8 @@ test("runHumanReviewMonitoring records blocked Human Review evidence without reg
 				{
 					id: 1,
 					body: "Looks good to me",
-					htmlUrl: "https://github.com/toyamarinyon/rhapsody/pull/314#issuecomment-1",
+					htmlUrl:
+						"https://github.com/toyamarinyon/rhapsody/pull/314#issuecomment-1",
 					createdAt: "2026-05-26T00:00:00Z",
 					updatedAt: "2026-05-26T00:00:00Z",
 					authorLogin: "octocat",
@@ -400,7 +403,9 @@ test("runHumanReviewMonitoring records blocked Human Review evidence without reg
 				}),
 			}),
 		);
-		expect(graph.links.some((link) => link.relation === "evaluates")).toBe(true);
+		expect(graph.links.some((link) => link.relation === "evaluates")).toBe(
+			true,
+		);
 	} finally {
 		client.close();
 		database.cleanup();
@@ -431,7 +436,8 @@ test("runHumanReviewMonitoring respects comment_on_conflict when review becomes 
 			checkClassification: "checks_success",
 		},
 	});
-	const existingDecisions = (await listWorkItemGraph(client, workItemId)).decisions;
+	const existingDecisions = (await listWorkItemGraph(client, workItemId))
+		.decisions;
 	const createIssueComment = vi.fn();
 
 	try {
@@ -520,7 +526,8 @@ test("runHumanReviewMonitoring treats mergeability regressions as blocked stale 
 			},
 		},
 	});
-	const existingDecisions = (await listWorkItemGraph(client, workItemId)).decisions;
+	const existingDecisions = (await listWorkItemGraph(client, workItemId))
+		.decisions;
 
 	try {
 		const result = await runHumanReviewMonitoring(client, {
@@ -573,7 +580,8 @@ test("runHumanReviewMonitoring treats mergeability regressions as blocked stale 
 			fetchIssueComments: async () => [],
 			createIssueComment: vi.fn().mockResolvedValue({
 				id: 11,
-				htmlUrl: "https://github.com/toyamarinyon/rhapsody/pull/316#issuecomment-11",
+				htmlUrl:
+					"https://github.com/toyamarinyon/rhapsody/pull/316#issuecomment-11",
 			}),
 		});
 

@@ -36,7 +36,10 @@ export type PostPrCuratorResult = {
 export type HumanReviewMonitoringResult = {
 	decisionId: string | null;
 	workerRunId: string | null;
-	classification: "human_review_fresh" | "human_review_stale" | "review_blocked";
+	classification:
+		| "human_review_fresh"
+		| "human_review_stale"
+		| "review_blocked";
 	skippedFreshDuplicate: boolean;
 	checkSummary: PullRequestCheckSummary;
 };
@@ -427,8 +430,9 @@ async function maybeRunIntegrationRepair(
 		return null;
 	}
 
-	return await (input.runIntegrationRepairExecutor ??
-		runIntegrationRepairExecutor)({
+	return await (
+		input.runIntegrationRepairExecutor ?? runIntegrationRepairExecutor
+	)({
 		client,
 		workItem: input.workItem,
 		workItemId: input.workItemId,
@@ -450,7 +454,9 @@ async function maybeCommentOnBlockedReview(input: {
 	repository: string;
 	pullRequestNumber: number;
 }) {
-	if (input.comments.some((comment) => comment.body.includes(input.commentBody))) {
+	if (
+		input.comments.some((comment) => comment.body.includes(input.commentBody))
+	) {
 		return;
 	}
 
@@ -475,7 +481,9 @@ function findLatestHumanReviewDecision(
 		return evidence?.pullRequestNumber === pullRequestNumber;
 	});
 
-	return matches.sort((left, right) => right.createdAt - left.createdAt)[0] ?? null;
+	return (
+		matches.sort((left, right) => right.createdAt - left.createdAt)[0] ?? null
+	);
 }
 
 function assessHumanReviewFreshness(input: {
@@ -598,14 +606,17 @@ function assessHumanReviewFreshness(input: {
 		outcome: "human_review_stale",
 		reason:
 			"Earlier human review evidence no longer matches the current pull request state.",
-		reasonCode: branchIsBehind ? "base_moved" : signals[0] ?? "human_review_stale",
+		reasonCode: branchIsBehind
+			? "base_moved"
+			: (signals[0] ?? "human_review_stale"),
 		signals,
 		shouldAttemptBaseIntegration: branchIsBehind && allowBaseIntegration,
 		shouldComment: false,
 		commentBody: null,
-		nextAction: branchIsBehind && allowBaseIntegration
-			? "Attempt non-rewriting base integration before asking for more human review."
-			: "Keep the Project item in Human Review and surface the stale review state to the reviewer.",
+		nextAction:
+			branchIsBehind && allowBaseIntegration
+				? "Attempt non-rewriting base integration before asking for more human review."
+				: "Keep the Project item in Human Review and surface the stale review state to the reviewer.",
 	};
 }
 
@@ -667,14 +678,20 @@ function applyIntegrationOutcomeToAssessment(
 	return assessment;
 }
 
-function extractPriorHumanReviewSnapshot(decision: Decision, decisions: Decision[]) {
+function extractPriorHumanReviewSnapshot(
+	decision: Decision,
+	decisions: Decision[],
+) {
 	const evidence = asRecord(decision.evidence);
 	const sourceDecisionId =
-		typeof evidence?.sourceDecisionId === "string" ? evidence.sourceDecisionId : null;
+		typeof evidence?.sourceDecisionId === "string"
+			? evidence.sourceDecisionId
+			: null;
 	const sourceDecision =
 		sourceDecisionId === null
 			? null
-			: (decisions.find((candidate) => candidate.id === sourceDecisionId) ?? null);
+			: (decisions.find((candidate) => candidate.id === sourceDecisionId) ??
+				null);
 	const sourceEvidence = asRecord(sourceDecision?.evidence);
 	const sourceChecks = asRecord(sourceEvidence?.checks);
 	const directCheckSummary = asRecord(evidence?.checkSummary);
@@ -682,8 +699,7 @@ function extractPriorHumanReviewSnapshot(decision: Decision, decisions: Decision
 	const sourceMergeability = asRecord(sourceEvidence?.mergeability);
 
 	return {
-		baseSha:
-			typeof evidence?.baseSha === "string" ? evidence.baseSha : null,
+		baseSha: typeof evidence?.baseSha === "string" ? evidence.baseSha : null,
 		headSha:
 			typeof evidence?.headSha === "string"
 				? evidence.headSha
@@ -754,7 +770,9 @@ function findFreshHumanReviewMonitoringDecision(input: {
 		return evidence?.monitoringFingerprint === input.monitoringFingerprint;
 	});
 
-	return matches.sort((left, right) => right.createdAt - left.createdAt)[0] ?? null;
+	return (
+		matches.sort((left, right) => right.createdAt - left.createdAt)[0] ?? null
+	);
 }
 
 function summarizeHumanReviewActivity(

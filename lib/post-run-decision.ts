@@ -196,8 +196,9 @@ export function parsePostRunDecisionConfig(
 		if (inHumanReviewMonitoringSection) {
 			switch (assignResult.key) {
 				case "enabled":
-					config.post_run.human_review_monitoring.enabled =
-						parseTomlBoolean(assignResult.value);
+					config.post_run.human_review_monitoring.enabled = parseTomlBoolean(
+						assignResult.value,
+					);
 					continue;
 				case "auto_integrate_base_before_human_activity":
 					config.post_run.human_review_monitoring.auto_integrate_base_before_human_activity =
