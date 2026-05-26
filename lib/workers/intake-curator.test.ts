@@ -362,6 +362,7 @@ test("runIntakeCurator dedupes by fingerprint and reuses decision", async () => 
 	const workItemId = "github_issue:toyamarinyon/rhapsody#210";
 
 	try {
+		const reaction = vi.fn();
 		const workerRun = await createWorkerRun(client, {
 			id: "wrn_existing",
 			workItemId,
@@ -386,6 +387,7 @@ test("runIntakeCurator dedupes by fingerprint and reuses decision", async () => 
 			dependencies: {
 				fetchBlockedBy: noNativeDependenciesFetcher,
 			},
+			reaction,
 			classify: async () =>
 				buildClassifierResult({
 					decision: "buildable",
@@ -419,6 +421,114 @@ test("runIntakeCurator dedupes by fingerprint and reuses decision", async () => 
 		expect(result.skippedFreshDuplicate).toBe(true);
 		expect(result.workerRunId).toBeNull();
 		expect(result.shouldStartBuilder).toBe(true);
+		expect(reaction).not.toHaveBeenCalled();
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("runIntakeCurator adds an eyes reaction when intake executes", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItem = buildProjectItem({
+		issueNumber: 211,
+		issueTitle: "Reaction on intake",
+		issueBody: "This is a full sentence body for intake validation.",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#211";
+	const reaction = vi.fn(async () => ({ id: 555, content: "eyes" as const }));
+
+	try {
+		const result = await runIntakeCurator(client, workItem, workItemId, {
+			dependencies: {
+				fetchBlockedBy: noNativeDependenciesFetcher,
+			},
+			reaction,
+			classify: async () =>
+				buildClassifierResult({
+					decision: "buildable",
+					summary: "Ready.",
+					implementation_plan: "Use the plan.",
+					comment: "Proceed.",
+				}),
+		});
+
+		expect(result.skippedFreshDuplicate).toBe(false);
+		expect(reaction).toHaveBeenCalledTimes(1);
+		expect(reaction).toHaveBeenCalledWith({
+			owner: "toyamarinyon",
+			repository: "rhapsody",
+			issueNumber: 211,
+			content: "eyes",
+		});
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("runIntakeCurator records a warn event when eyes reaction fails", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const workItem = buildProjectItem({
+		issueNumber: 212,
+		issueTitle: "Reaction failure",
+		issueBody: "This is a full sentence body for intake validation.",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#212";
+	const reaction = vi.fn(async () => {
+		throw Object.assign(new Error("reaction denied"), { status: 403 });
+	});
+
+	try {
+		const result = await runIntakeCurator(client, workItem, workItemId, {
+			dependencies: {
+				fetchBlockedBy: noNativeDependenciesFetcher,
+			},
+			reaction,
+			classify: async () =>
+				buildClassifierResult({
+					decision: "buildable",
+					summary: "Ready.",
+					implementation_plan: "Use the plan.",
+					comment: "Proceed.",
+				}),
+		});
+
+		expect(result.outcome).toBe("buildable");
+		expect(reaction).toHaveBeenCalledTimes(1);
+
+		const events = await client.execute({
+			sql: `
+				SELECT level, type, message, data_json
+				FROM events
+				WHERE type = ?
+				ORDER BY created_at DESC
+				LIMIT 1
+			`,
+			args: ["intake_curator.issue_reaction_failed"],
+		});
+
+		expect(events.rows).toHaveLength(1);
+		const row = events.rows[0] as unknown as {
+			level: string;
+			type: string;
+			message: string | null;
+			data_json: string | null;
+		};
+		expect(row.level).toBe("warn");
+		expect(row.type).toBe("intake_curator.issue_reaction_failed");
+		expect(row.message).toBe("Failed to add eyes reaction to GitHub issue.");
+		expect(JSON.parse(row.data_json ?? "{}")).toMatchObject({
+			workItemId,
+			issueNumber: 212,
+			issueTitle: "Reaction failure",
+			issueOwner: "toyamarinyon",
+			issueRepository: "rhapsody",
+			reaction: "eyes",
+			error: "reaction denied",
+		});
 	} finally {
 		client.close();
 		database.cleanup();

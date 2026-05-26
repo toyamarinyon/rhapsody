@@ -56,6 +56,8 @@ type ListDependenciesBlockedByDependency =
 	ListDependenciesBlockedByResponse["data"][number];
 type CreateIssueCommentFn = Octokit["rest"]["issues"]["createComment"];
 type CreateIssueCommentResponse = Awaited<ReturnType<CreateIssueCommentFn>>;
+type CreateIssueReactionFn = Octokit["rest"]["reactions"]["createForIssue"];
+type CreateIssueReactionResponse = Awaited<ReturnType<CreateIssueReactionFn>>;
 type GetIssueFn = Octokit["rest"]["issues"]["get"];
 type GetIssueResponse = Awaited<ReturnType<GetIssueFn>>;
 type GetIssueLabel = GetIssueResponse["data"]["labels"][number];
@@ -82,6 +84,15 @@ type OctokitIssueCommentsClient = {
 			listComments: (
 				...args: Parameters<ListCommentsFn>
 			) => ReturnType<ListCommentsFn>;
+		};
+	};
+};
+type OctokitIssueReactionsClient = {
+	rest: {
+		reactions: {
+			createForIssue: (
+				...args: Parameters<CreateIssueReactionFn>
+			) => ReturnType<CreateIssueReactionFn>;
 		};
 	};
 };
@@ -113,6 +124,22 @@ export class GitHubIssueCommentError extends Error {
 			`GitHub issue comment failed for ${owner}/${repository}#${issueNumber}: ${messageText}`,
 		);
 		this.name = "GitHubIssueCommentError";
+	}
+}
+
+export class GitHubIssueReactionError extends Error {
+	constructor(
+		readonly status: number,
+		readonly owner: string,
+		readonly repository: string,
+		readonly issueNumber: number,
+		readonly reactionContent: string,
+		readonly messageText: string,
+	) {
+		super(
+			`GitHub issue reaction failed for ${owner}/${repository}#${issueNumber} (${reactionContent}): ${messageText}`,
+		);
+		this.name = "GitHubIssueReactionError";
 	}
 }
 
@@ -205,6 +232,56 @@ export async function createIssueComment(
 	return {
 		id: response.data.id,
 		htmlUrl: response.data.html_url,
+	};
+}
+
+export async function createIssueReaction(
+	input: {
+		owner: string;
+		repository: string;
+		issueNumber: number;
+		content: "eyes";
+	},
+	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
+	options?: {
+		octokit?: OctokitIssueReactionsClient;
+	},
+): Promise<{ id: number; content: string }> {
+	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
+	let response: CreateIssueReactionResponse;
+	try {
+		response = await octokit.rest.reactions.createForIssue({
+			owner: input.owner,
+			repo: input.repository,
+			issue_number: input.issueNumber,
+			content: input.content,
+			headers: {
+				Accept: "application/vnd.github+json",
+				"X-GitHub-Api-Version": "2022-11-28",
+			},
+		});
+	} catch (error) {
+		const typedError = error as Error & { status?: number };
+		const status =
+			typeof typedError?.status === "number" ? typedError.status : 500;
+		const message =
+			typeof typedError?.message === "string"
+				? typedError.message
+				: "GitHub issue reaction request failed.";
+
+		throw new GitHubIssueReactionError(
+			status,
+			input.owner,
+			input.repository,
+			input.issueNumber,
+			input.content,
+			message,
+		);
+	}
+
+	return {
+		id: response.data.id,
+		content: response.data.content,
 	};
 }
 
