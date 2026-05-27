@@ -1,0 +1,51 @@
+[toyamarinyon/rhapsody#131](https://github.com/toyamarinyon/rhapsody/pull/131) Vercelのdeployに失敗しているので調べて欲しい
+
+---
+
+Server Actionにするのが良さそうですね。 [@builder](subagent://builder) に実装してもらいましょう。あなたはアウトプットの品質が十分であるかの確認し、必要であればフィードバックを繰り返してください。
+
+---
+
+We are in /Users/toyamarinyon/Documents/rhapsody. AGENTS.md says this is a Next.js app and to read relevant Next docs under node_modules/next/dist/docs before editing Next code. PR #131 fails Vercel because Next.js rejects both app/login/page.tsx and app/login/route.ts for /login: `Conflicting route and page at /login: route at /login/route and page at /login/page`.
+
+Please implement the fix by moving the login POST behavior into a Server Action instead of a route handler.
+
+Scope/ownership:
+- Own the login auth implementation files only: app/login/page.tsx, app/login/route.ts removal if needed, any new server action module if you judge appropriate, and related tests for login/admin session auth.
+- Do not touch unrelated routes or broad styling.
+- You are not alone in the codebase: do not revert unrelated edits, and adapt to existing code.
+
+Requirements:
+- Preserve existing behavior from app/login/route.ts: read password and next path, sanitize next path, constant-time password check, delay on invalid login, create admin session token, set cookie using buildAdminSessionCookie with secure request detection, redirect 303 on success/invalid as closely as Server Actions allow.
+- Remove the route/page conflict at /login.
+- Prefer a Next.js Server Action called from the login form.
+- Update tests so the behavior remains covered. If route tests no longer apply, replace them with action-level tests or page/action tests that verify success and invalid cases.
+- Run the relevant tests and build/lint if feasible. Report commands and results.
+
+Final response: summarize changed files, behavior preserved, tests run, and any caveats.
+
+---
+
+Review feedback: please refine the patch before I accept it.
+
+Issues found:
+1. `verifyAdminPassword` changed semantics. The original route did a length check before `timingSafeEqual`. Your padded comparison can return true for different-length strings when the only difference is trailing NUL bytes (e.g. submitted `root\0` vs expected `root`). Please keep constant-time-ish behavior without accepting different lengths. One simple approach: if byte lengths differ, still call `timingSafeEqual` on equal-length dummy/padded buffers to reduce timing leakage, then return false.
+2. `app/login/page.tsx` regressed behavior from the PR's login page. The original page checked for an existing valid admin session cookie and redirected to the sanitized `next` path. Please restore that behavior using `cookies()`, `readAdminSessionTokenFromCookieStore`, `verifyAdminSessionToken`, `hasAdminSessionConfig`, etc. Keep it compatible with Next Server Components.
+3. The original login page surfaced configuration errors via `getAdminSessionConfigError()`. Please restore that too if it exists in your helper module, so the login page still tells the operator when auth config is missing.
+4. Add/adjust tests for the above: different-length password with trailing NUL must fail; login page or helper coverage should preserve valid-cookie redirect if practical. If page testing is too awkward, at least keep the helper behavior covered and explain what remains manual.
+
+Please make the changes, rerun relevant tests/build if feasible, and report results.
+
+---
+
+Second review feedback, small but important:
+
+1. `app/login/actions.ts` now calls `loadRhapsodyAuthSecretEnv()`. That can throw when `AUTH_SECRET` is missing, which regresses the original route behavior. The original read `process.env.AUTH_SECRET?.trim() ?? ""`, then treated missing auth config like an invalid/configuration login: delay and redirect. Please avoid throwing here and preserve the graceful config redirect.
+2. The original route used `LOGIN_DELAY_MS = 750`; your action uses `250`. Please preserve the original 750ms delay unless there is a strong reason not to.
+3. Add/update an action test for missing `AUTH_SECRET` or missing `ROOT_PASSWORD` proving it delays, does not set a cookie, and redirects to `/login?error=configuration`.
+
+After this, rerun the targeted login/admin-session tests. If quick, run `pnpm build` too; if another build is still running, say so.
+
+---
+
+ではpushしてください。

@@ -1,0 +1,61 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "9ea6020c381a",
+  "session_id": "019e6827-ed81-7122-a739-0b9584d0db49",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-27T07:06:13.944361Z",
+  "branch": "rhapsody/issue-130-1",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "app/login/route.ts",
+    "app/login/route.test.ts",
+    "lib/server/admin-session.ts",
+    "app/login/actions.ts",
+    "app/login/page.tsx",
+    "app/login/actions.test.ts",
+    "app/login/page.test.ts",
+    "lib/server/admin-session.test.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "cf79e5fb4eda",
+  "token_usage": {
+    "input_tokens": 192025,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 4932608,
+    "output_tokens": 16271,
+    "api_call_count": 64
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-27T07:06:13.921966Z",
+    "agent_lines": 40,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 40,
+    "total_lines_changed": 40,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 649,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "app/login/actions.test.ts": 128,
+        "app/login/actions.ts": 44,
+        "app/login/page.test.ts": 102,
+        "app/login/page.tsx": 97,
+        "lib/server/admin-session.test.ts": 99,
+        "lib/server/admin-session.ts": 179
+      }
+    }
+  ]
+}
