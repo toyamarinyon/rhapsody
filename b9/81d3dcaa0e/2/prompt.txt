@@ -1,0 +1,30 @@
+[https://github.com/toyamarinyon/rhapsody/issues/127](https://github.com/toyamarinyon/rhapsody/issues/127) このRunner調べて、復帰できるところから引き継いで作業進められますか？
+ROOT_PASSWORDは `REDACTED` です。
+
+---
+
+builderまでは進んでいるはず。
+https://rhapsody-xi.vercel.app/dashboard/runs/run_9189b56e8bdc4beba6ca86371b91bd69 ここで確認できるし、このrunを確認したらわかる。
+
+---
+
+subagentでgpt-5.3-codex-sparkを起動して、実装をレビューしてもらってください。修正点があれば [@builder](subagent://builder)  ni
+
+---
+
+subagentでgpt-5.3-codex-sparkを起動して、実装をレビューしてもらってください。修正点があれば [@builder](subagent://builder)  に修正を依頼してください。
+
+---
+
+We are in /Users/toyamarinyon/Documents/rhapsody. Please review the current uncommitted implementation for GitHub issue #127. Context: issue asks to add curator-side pull request handoff identity verification before post-PR checks and Human Review monitoring; verify PR artifact against work item, repo owner/name, default branch, branch prefix, issue linkage; record durable decisions for handoff_verified, handoff_missing, handoff_ambiguous, handoff_invalid, handoff_unknown; invalid handoffs should stop automation and create an idempotent GitHub issue comment; comment failure should not block decision/event recording. Current changed files are lib/github/issue-reference.ts, lib/github/pull-requests.ts, lib/scheduler/tick.ts, lib/scheduler/tick.test.ts, lib/workers/post-pr-curator/index.ts, lib/workers/post-pr-curator.test.ts. Do not edit files. Return code-review findings ordered by severity with file/line references, including missing tests or behavioral regressions. If no fix is needed, say so clearly.
+
+---
+
+Please fix the review findings in /Users/toyamarinyon/Documents/rhapsody. You are not alone in the codebase; do not revert others' edits, and adapt to the current uncommitted changes. Ownership: only edit lib/workers/post-pr-curator/index.ts, lib/workers/post-pr-curator.test.ts, lib/scheduler/tick.ts, and lib/scheduler/tick.test.ts if needed.
+
+Findings to fix:
+1. Handoff verification fresh-decision reuse is not idempotent for handoff_missing and handoff_ambiguous because findFreshHandoffDecision requires selectedArtifact.number and observed.headSha. Repeated scheduler passes should not create new worker_run/decision records for equivalent missing/ambiguous/unknown/invalid results.
+2. runPostPrCuratorForInProgress and runPostPrCuratorForHumanReview currently return handled: true for handoff_ambiguous/handoff_invalid/handoff_unknown. These should be surfaced as skipped/no-progress similarly to missing, while still recording decisions and invalid comments.
+3. Add/adjust focused tests for repeated handoff verification/scheduler passes so added outcomes do not accumulate duplicate decisions, and invalid comment emission is idempotent.
+
+After editing, run the focused tests/typecheck if feasible and report changed files plus verification.

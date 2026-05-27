@@ -1,0 +1,65 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "b981d3dcaa0e",
+  "session_id": "019e697b-e039-7430-9739-1715658f4194",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-27T13:22:47.068012Z",
+  "branch": "codex/issue-127-handoff-verification",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "lib/github/issue-reference.ts",
+    "lib/github/pull-requests.ts",
+    "lib/scheduler/tick.test.ts",
+    "lib/scheduler/tick.ts",
+    "lib/workers/post-pr-curator.test.ts",
+    "lib/workers/post-pr-curator/index.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "6143622dc569",
+  "token_usage": {
+    "input_tokens": 229763,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 14039424,
+    "output_tokens": 23165,
+    "api_call_count": 119
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-27T13:22:47.037721Z",
+    "agent_lines": 880,
+    "agent_removed": 40,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 880,
+    "total_lines_changed": 920,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 624,
+      "agent_lines_removed": 43
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 880,
+      "agent_lines_removed": 40
+    }
+  ]
+}

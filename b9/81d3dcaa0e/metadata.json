@@ -3,10 +3,14 @@
   "checkpoint_id": "b981d3dcaa0e",
   "strategy": "manual-commit",
   "branch": "codex/issue-127-handoff-verification",
-  "checkpoints_count": 2,
+  "checkpoints_count": 4,
   "files_touched": [
+    "lib/github/issue-reference.ts",
     "lib/github/pull-requests.ts",
-    "lib/scheduler/tick.test.ts"
+    "lib/scheduler/tick.test.ts",
+    "lib/scheduler/tick.ts",
+    "lib/workers/post-pr-curator.test.ts",
+    "lib/workers/post-pr-curator/index.ts"
   ],
   "sessions": [
     {
@@ -20,13 +24,19 @@
       "transcript": "/b9/81d3dcaa0e/1/full.jsonl",
       "content_hash": "/b9/81d3dcaa0e/1/content_hash.txt",
       "prompt": "/b9/81d3dcaa0e/1/prompt.txt"
+    },
+    {
+      "metadata": "/b9/81d3dcaa0e/2/metadata.json",
+      "transcript": "/b9/81d3dcaa0e/2/full.jsonl",
+      "content_hash": "/b9/81d3dcaa0e/2/content_hash.txt",
+      "prompt": "/b9/81d3dcaa0e/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 3354896,
+    "input_tokens": 3584659,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 99849344,
-    "output_tokens": 163904,
-    "api_call_count": 796
+    "cache_read_tokens": 113888768,
+    "output_tokens": 187069,
+    "api_call_count": 915
   }
 }
