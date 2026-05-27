@@ -2,9 +2,12 @@ import { expect, test } from "vitest";
 
 import {
 	ADMIN_SESSION_COOKIE_NAME,
+	buildAdminSessionCookieOptions,
 	createAdminSessionToken,
+	isSecureRequest,
 	readAdminSessionToken,
 	sanitizeAdminNextPath,
+	verifyAdminPassword,
 	verifyAdminSessionToken,
 } from "@/lib/server/admin-session";
 
@@ -48,4 +51,30 @@ test("sanitizes login redirect targets to dashboard paths", () => {
 	);
 	expect(sanitizeAdminNextPath("//evil.test/dashboard")).toBe("/dashboard");
 	expect(sanitizeAdminNextPath("/api/v1/state")).toBe("/dashboard");
+});
+
+test("detects secure requests from forwarded proto", () => {
+	expect(isSecureRequest(new Headers({ "x-forwarded-proto": "https" }))).toBe(
+		true,
+	);
+	expect(isSecureRequest(new Headers({ "x-forwarded-proto": "http" }))).toBe(
+		false,
+	);
+});
+
+test("builds cookie options for server actions", () => {
+	expect(buildAdminSessionCookieOptions(true)).toMatchObject({
+		httpOnly: true,
+		path: "/",
+		sameSite: "lax",
+		secure: true,
+		maxAge: 60 * 60 * 24 * 7,
+	});
+});
+
+test("verifies passwords without accepting different-length inputs", () => {
+	expect(verifyAdminPassword("root", "root")).toBe(true);
+	expect(verifyAdminPassword("root", "other")).toBe(false);
+	expect(verifyAdminPassword("", "other")).toBe(false);
+	expect(verifyAdminPassword("root\0", "root")).toBe(false);
 });

@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+
 import { SignJWT, jwtVerify } from "jose";
 import { redirect } from "next/navigation";
 
@@ -66,6 +68,16 @@ export function buildAdminSessionCookie(token: string, secure = true) {
 		...(secure ? ["Secure"] : []),
 		`Max-Age=${ADMIN_SESSION_TTL_SECONDS}`,
 	].join("; ");
+}
+
+export function buildAdminSessionCookieOptions(secure = true) {
+	return {
+		httpOnly: true,
+		path: "/",
+		sameSite: "lax" as const,
+		secure,
+		maxAge: ADMIN_SESSION_TTL_SECONDS,
+	};
 }
 
 export function clearAdminSessionCookie() {
@@ -151,6 +163,38 @@ export function sanitizeAdminNextPath(
 	} catch {
 		return DEFAULT_DASHBOARD_PATH;
 	}
+}
+
+export function isSecureRequest(headers: Headers) {
+	const forwardedProto = headers.get("x-forwarded-proto");
+
+	if (forwardedProto) {
+		return forwardedProto.split(",")[0]?.trim().toLowerCase() === "https";
+	}
+
+	return process.env.VERCEL_ENV === "production";
+}
+
+export function verifyAdminPassword(
+	submittedPassword: string,
+	rootPassword: string,
+) {
+	const submitted = Buffer.from(submittedPassword);
+	const expected = Buffer.from(rootPassword);
+
+	if (submitted.length !== expected.length) {
+		const length = Math.max(submitted.length, expected.length, 1);
+		const paddedSubmitted = Buffer.alloc(length);
+		const paddedExpected = Buffer.alloc(length);
+
+		submitted.copy(paddedSubmitted);
+		expected.copy(paddedExpected);
+		timingSafeEqual(paddedSubmitted, paddedExpected);
+
+		return false;
+	}
+
+	return timingSafeEqual(submitted, expected);
 }
 
 export function buildAdminLoginUrl(nextPath: string) {
