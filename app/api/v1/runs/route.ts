@@ -33,7 +33,7 @@ type GitHubIssueRunRequest = {
 type RunRequest = ManualRunRequest | GitHubIssueRunRequest;
 
 export async function POST(request: Request) {
-	const auth = requireAdminAuth(request);
+	const auth = await requireAdminAuth(request);
 
 	if (!auth.ok) {
 		return auth.response;

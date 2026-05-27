@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import Link from "next/link";
 
 import { loadRhapsodyConfig } from "@/lib/config";
 import { createStateStoreClient } from "@/lib/state";
+import { requireAdminDashboardSession } from "@/lib/server/admin-session";
 import { loadRunDiagnosticsProjection } from "@/lib/server/dashboard";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +27,12 @@ export default async function RunDiagnosticsPage({
 	params: Promise<{ runId: string }>;
 }) {
 	const { runId } = await params;
+
+	await requireAdminDashboardSession({
+		nextPath: `/dashboard/runs/${encodeURIComponent(runId)}`,
+		cookieStore: cookies(),
+	});
+
 	const client = createStateStoreClient();
 	const config = loadRhapsodyConfig();
 	const githubBase = `https://github.com/${config.tracker.owner}/${config.tracker.repository}`;

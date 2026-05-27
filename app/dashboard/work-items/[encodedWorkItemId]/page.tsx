@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { loadRhapsodyConfig } from "@/lib/config";
 import { createStateStoreClient } from "@/lib/state";
+import { requireAdminDashboardSession } from "@/lib/server/admin-session";
 import { loadWorkItemDiagnosticsProjection } from "@/lib/server/dashboard";
 import { parseEncodedWorkItemIdParam } from "@/lib/server/work-item-graph";
 
@@ -28,6 +30,12 @@ export default async function WorkItemDiagnosticsPage({
 	params: Promise<{ encodedWorkItemId: string }>;
 }) {
 	const { encodedWorkItemId } = await params;
+
+	await requireAdminDashboardSession({
+		nextPath: `/dashboard/work-items/${encodeURIComponent(encodedWorkItemId)}`,
+		cookieStore: cookies(),
+	});
+
 	const parsed = parseEncodedWorkItemIdParam(encodedWorkItemId);
 
 	if (!parsed.ok) {

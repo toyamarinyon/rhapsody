@@ -13,7 +13,7 @@ export async function POST(request: Request) {
 }
 
 async function handleHealthCheck(request: Request) {
-	const auth = requireCronOrAdminAuth(request);
+	const auth = await requireCronOrAdminAuth(request);
 
 	if (!auth.ok) {
 		return auth.response;
@@ -26,7 +26,7 @@ async function handleHealthCheck(request: Request) {
 	});
 }
 
-function requireCronOrAdminAuth(request: Request) {
+async function requireCronOrAdminAuth(request: Request) {
 	const cronSecret = loadRhapsodyCronEnv().CRON_SECRET;
 	const authorization = request.headers.get("authorization");
 

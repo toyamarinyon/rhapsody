@@ -1,15 +1,22 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import * as credentials from "@/lib/codex/credentials";
+import { createAdminSessionToken } from "@/lib/server/admin-session";
 import { POST } from "./route";
 
 describe("ChatGPT backend probe route", () => {
 	const originalRootPassword = process.env.ROOT_PASSWORD;
+	const originalAuthSecret = process.env.AUTH_SECRET;
 
 	afterEach(() => {
 		if (originalRootPassword === undefined) {
 			delete process.env.ROOT_PASSWORD;
 		} else {
 			process.env.ROOT_PASSWORD = originalRootPassword;
+		}
+		if (originalAuthSecret === undefined) {
+			delete process.env.AUTH_SECRET;
+		} else {
+			process.env.AUTH_SECRET = originalAuthSecret;
 		}
 		vi.unstubAllGlobals();
 		vi.restoreAllMocks();
@@ -80,5 +87,36 @@ describe("ChatGPT backend probe route", () => {
 
 		expect(response.status).toBe(401);
 		expect(await response.json()).toEqual({ error: "Unauthorized." });
+	});
+
+	test("accepts a signed admin session cookie", async () => {
+		process.env.ROOT_PASSWORD = "root";
+		process.env.AUTH_SECRET = "secret";
+		vi.spyOn(credentials, "loadMediatorCredentialState").mockResolvedValue({
+			accessToken: "access-token-secret",
+			refreshToken: "refresh-token-secret",
+			accountId: "acct_test",
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue(
+				new Response('{"models":["ok"]}', {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				}),
+			),
+		);
+		const token = await createAdminSessionToken({ AUTH_SECRET: "secret" });
+
+		const response = await POST(
+			new Request("https://example.test/probe", {
+				method: "POST",
+				headers: {
+					cookie: `rhapsody_admin_session=${token}`,
+				},
+			}),
+		);
+
+		expect(response.status).toBe(200);
 	});
 });

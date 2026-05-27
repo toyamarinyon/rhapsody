@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import Link from "next/link";
 
 import { loadRhapsodyConfig } from "@/lib/config";
 import { createStateStoreClient } from "@/lib/state";
+import { requireAdminDashboardSession } from "@/lib/server/admin-session";
 import { loadDashboardProjection } from "@/lib/server/dashboard";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +14,11 @@ export const metadata: Metadata = {
 };
 
 export default async function DashboardPage() {
+	await requireAdminDashboardSession({
+		nextPath: "/dashboard",
+		cookieStore: cookies(),
+	});
+
 	const client = createStateStoreClient();
 	const config = loadRhapsodyConfig();
 

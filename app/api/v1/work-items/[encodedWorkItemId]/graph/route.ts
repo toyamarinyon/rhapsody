@@ -8,7 +8,7 @@ export async function GET(
 	request: Request,
 	context: { params: Promise<{ encodedWorkItemId: string }> },
 ) {
-	const auth = requireAdminAuth(request);
+	const auth = await requireAdminAuth(request);
 
 	if (!auth.ok) {
 		return auth.response;
