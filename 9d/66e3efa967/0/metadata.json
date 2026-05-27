@@ -1,0 +1,55 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "9d66e3efa967",
+  "session_id": "019e68b0-1c05-73d2-9530-7580a292a813",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-27T09:28:03.693335Z",
+  "branch": "codex/fix-dashboard-cookies",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "app/dashboard/layout.test.ts",
+    "app/dashboard/layout.tsx",
+    "lib/server/admin-session.test.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "ebf88180a96c",
+  "token_usage": {
+    "input_tokens": 288991,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5438720,
+    "output_tokens": 9911,
+    "api_call_count": 66
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-27T09:28:03.67121Z",
+    "agent_lines": 92,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 92,
+    "total_lines_changed": 92,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 8,
+      "agent_lines_removed": 75
+    }
+  ]
+}
