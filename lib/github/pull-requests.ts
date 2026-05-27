@@ -6,10 +6,15 @@ export type PullRequestSummary = {
 	reused: boolean;
 	number: number;
 	htmlUrl: string;
+	body?: string | null;
 	headRef: string;
 	baseRef: string;
 	headSha?: string | null;
 	baseSha?: string | null;
+	headRepositoryOwner?: string | null;
+	headRepositoryName?: string | null;
+	baseRepositoryOwner?: string | null;
+	baseRepositoryName?: string | null;
 	title: string;
 	state?: "open" | "closed";
 	merged?: boolean;
@@ -207,10 +212,15 @@ export async function getPullRequest(
 		number: payload.number,
 		htmlUrl: payload.html_url,
 		title: payload.title,
+		body: payload.body ?? null,
 		headRef: payload.head.ref,
 		headSha: payload.head.sha ?? null,
 		baseRef: payload.base.ref,
 		baseSha: payload.base.sha ?? null,
+		headRepositoryOwner: payload.head.repo?.owner?.login ?? null,
+		headRepositoryName: payload.head.repo?.name ?? null,
+		baseRepositoryOwner: payload.base.repo?.owner?.login ?? null,
+		baseRepositoryName: payload.base.repo?.name ?? null,
 		state: normalizePullRequestState(payload.state),
 		merged: payload.merged ?? false,
 		mergedAt: payload.merged_at,
@@ -400,10 +410,15 @@ async function findOpenPullRequestForHead({
 	number: number;
 	htmlUrl: string;
 	title: string;
+	body: string | null;
 	headRef: string;
 	headSha: string | null;
 	baseRef: string;
 	baseSha: string | null;
+	headRepositoryOwner: string | null;
+	headRepositoryName: string | null;
+	baseRepositoryOwner: string | null;
+	baseRepositoryName: string | null;
 	state: "open" | "closed";
 	merged: boolean;
 	mergedAt: string | null;
@@ -464,10 +479,15 @@ async function findOpenPullRequestForHead({
 		number: candidate.number,
 		htmlUrl: candidate.html_url,
 		title: candidate.title,
+		body: candidate.body ?? null,
 		headRef: candidate.head.ref,
 		headSha: candidate.head.sha ?? null,
 		baseRef: candidate.base.ref,
 		baseSha: candidate.base.sha ?? null,
+		headRepositoryOwner: candidate.head.repo?.owner?.login ?? null,
+		headRepositoryName: candidate.head.repo?.name ?? null,
+		baseRepositoryOwner: candidate.base.repo?.owner?.login ?? null,
+		baseRepositoryName: candidate.base.repo?.name ?? null,
 		state: normalizePullRequestState(candidate.state),
 		merged: candidate.merged_at !== null,
 		mergedAt: candidate.merged_at,
@@ -489,10 +509,15 @@ async function createPullRequest(args: {
 	number: number;
 	htmlUrl: string;
 	title: string;
+	body: string | null;
 	headRef: string;
 	headSha: string | null;
 	baseRef: string;
 	baseSha: string | null;
+	headRepositoryOwner: string | null;
+	headRepositoryName: string | null;
+	baseRepositoryOwner: string | null;
+	baseRepositoryName: string | null;
 	state: "open" | "closed";
 	merged: boolean;
 	mergedAt: string | null;
@@ -529,10 +554,15 @@ async function createPullRequest(args: {
 		number: created.number,
 		htmlUrl: created.html_url,
 		title: created.title,
+		body: created.body ?? null,
 		headRef: created.head.ref,
 		headSha: created.head.sha ?? null,
 		baseRef: created.base.ref,
 		baseSha: created.base.sha ?? null,
+		headRepositoryOwner: created.head.repo?.owner?.login ?? null,
+		headRepositoryName: created.head.repo?.name ?? null,
+		baseRepositoryOwner: created.base.repo?.owner?.login ?? null,
+		baseRepositoryName: created.base.repo?.name ?? null,
 		state: normalizePullRequestState(created.state),
 		merged: created.merged ?? false,
 		mergedAt: created.merged_at,

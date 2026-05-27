@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createClient, type Client } from "@libsql/client";
+import type { PullRequestSummary } from "@/lib/github/pull-requests";
 
 import {
 	createDecision,
@@ -14,6 +15,7 @@ import {
 	runPostPrCurator,
 	runHumanReviewMonitoring,
 	findPullRequestArtifactFromArtifacts,
+	verifyPullRequestHandoff,
 } from "@/lib/workers/post-pr-curator";
 
 test("runPostPrCurator dedupes by PR number, classification, and head SHA", async () => {
@@ -412,6 +414,203 @@ test("runHumanReviewMonitoring records blocked Human Review evidence without reg
 	}
 });
 
+test("verifyPullRequestHandoff records verified, missing, ambiguous, and invalid outcomes", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+
+	try {
+		const verified = await verifyPullRequestHandoff(client, {
+			workItem: buildProjectItem(127),
+			workItemId: "github_issue:toyamarinyon/rhapsody#127",
+			owner: "toyamarinyon",
+			repository: "rhapsody",
+			defaultBranch: "main",
+			branchPrefix: "rhapsody/",
+			artifacts: [buildPullRequestArtifact("artifact_pr_1", "401")],
+			getPullRequest: async () => buildPullRequest(401),
+		});
+		expect(verified.outcome).toBe("handoff_verified");
+		expect(verified.selectedArtifact?.number).toBe(401);
+
+		const missing = await verifyPullRequestHandoff(client, {
+			workItem: buildProjectItem(128),
+			workItemId: "github_issue:toyamarinyon/rhapsody#128",
+			owner: "toyamarinyon",
+			repository: "rhapsody",
+			defaultBranch: "main",
+			branchPrefix: "rhapsody/",
+			artifacts: [],
+			getPullRequest: async () => buildPullRequest(402),
+		});
+		expect(missing.outcome).toBe("handoff_missing");
+
+		const ambiguous = await verifyPullRequestHandoff(client, {
+			workItem: buildProjectItem(129),
+			workItemId: "github_issue:toyamarinyon/rhapsody#129",
+			owner: "toyamarinyon",
+			repository: "rhapsody",
+			defaultBranch: "main",
+			branchPrefix: "rhapsody/",
+			artifacts: [
+				buildPullRequestArtifact("artifact_pr_2", "402"),
+				buildPullRequestArtifact("artifact_pr_3", "403"),
+			],
+			getPullRequest: async () => buildPullRequest(402),
+		});
+		expect(ambiguous.outcome).toBe("handoff_ambiguous");
+
+		const invalid = await verifyPullRequestHandoff(client, {
+			workItem: buildProjectItem(130),
+			workItemId: "github_issue:toyamarinyon/rhapsody#130",
+			owner: "toyamarinyon",
+			repository: "rhapsody",
+			defaultBranch: "main",
+			branchPrefix: "rhapsody/",
+			artifacts: [buildPullRequestArtifact("artifact_pr_4", "404")],
+			getPullRequest: async () =>
+				buildPullRequest(404, { headRef: "feature/not-rhapsody" }),
+		});
+		expect(invalid.outcome).toBe("handoff_invalid");
+
+		const graph = await listWorkItemGraph(
+			client,
+			"github_issue:toyamarinyon/rhapsody#130",
+		);
+		expect(graph.decisions[0]).toEqual(
+			expect.objectContaining({
+				phase: "post_pr",
+				outcome: "handoff_invalid",
+			}),
+		);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("verifyPullRequestHandoff reuses fresh decisions for repeated non-verified outcomes", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+
+	try {
+		const missingInput = {
+			workItem: buildProjectItem(131),
+			workItemId: "github_issue:toyamarinyon/rhapsody#131",
+			owner: "toyamarinyon",
+			repository: "rhapsody",
+			defaultBranch: "main",
+			branchPrefix: "rhapsody/",
+			artifacts: [],
+			getPullRequest: async () => buildPullRequest(405),
+		};
+
+		const firstMissing = await verifyPullRequestHandoff(client, missingInput);
+		const missingGraph = await listWorkItemGraph(
+			client,
+			missingInput.workItemId,
+		);
+		const secondMissing = await verifyPullRequestHandoff(client, {
+			...missingInput,
+			existingDecisions: missingGraph.decisions,
+		});
+		expect(secondMissing.decisionId).toBe(firstMissing.decisionId);
+		expect(secondMissing.workerRunId).toBe(firstMissing.workerRunId);
+		expect(
+			(await listWorkItemGraph(client, missingInput.workItemId)).decisions,
+		).toHaveLength(1);
+
+		const ambiguousInput = {
+			workItem: buildProjectItem(132),
+			workItemId: "github_issue:toyamarinyon/rhapsody#132",
+			owner: "toyamarinyon",
+			repository: "rhapsody",
+			defaultBranch: "main",
+			branchPrefix: "rhapsody/",
+			artifacts: [
+				buildPullRequestArtifact("artifact_pr_5", "406"),
+				buildPullRequestArtifact("artifact_pr_6", "407"),
+			],
+			getPullRequest: async () => buildPullRequest(406),
+		};
+
+		const firstAmbiguous = await verifyPullRequestHandoff(
+			client,
+			ambiguousInput,
+		);
+		const ambiguousGraph = await listWorkItemGraph(
+			client,
+			ambiguousInput.workItemId,
+		);
+		const secondAmbiguous = await verifyPullRequestHandoff(client, {
+			...ambiguousInput,
+			existingDecisions: ambiguousGraph.decisions,
+		});
+		expect(secondAmbiguous.decisionId).toBe(firstAmbiguous.decisionId);
+		expect(secondAmbiguous.workerRunId).toBe(firstAmbiguous.workerRunId);
+		expect(
+			(await listWorkItemGraph(client, ambiguousInput.workItemId)).decisions,
+		).toHaveLength(1);
+
+		const unknownInput = {
+			workItem: buildProjectItem(133),
+			workItemId: "github_issue:toyamarinyon/rhapsody#133",
+			owner: "toyamarinyon",
+			repository: "rhapsody",
+			defaultBranch: "main",
+			branchPrefix: "rhapsody/",
+			artifacts: [buildPullRequestArtifact("artifact_pr_7", "408")],
+			getPullRequest: async () => {
+				throw new Error("lookup failed");
+			},
+		};
+
+		const firstUnknown = await verifyPullRequestHandoff(client, unknownInput);
+		const unknownGraph = await listWorkItemGraph(
+			client,
+			unknownInput.workItemId,
+		);
+		const secondUnknown = await verifyPullRequestHandoff(client, {
+			...unknownInput,
+			existingDecisions: unknownGraph.decisions,
+		});
+		expect(secondUnknown.decisionId).toBe(firstUnknown.decisionId);
+		expect(secondUnknown.workerRunId).toBe(firstUnknown.workerRunId);
+		expect(
+			(await listWorkItemGraph(client, unknownInput.workItemId)).decisions,
+		).toHaveLength(1);
+
+		const invalidInput = {
+			workItem: buildProjectItem(134),
+			workItemId: "github_issue:toyamarinyon/rhapsody#134",
+			owner: "toyamarinyon",
+			repository: "rhapsody",
+			defaultBranch: "main",
+			branchPrefix: "rhapsody/",
+			artifacts: [buildPullRequestArtifact("artifact_pr_8", "409")],
+			getPullRequest: async () =>
+				buildPullRequest(409, { headRef: "feature/not-rhapsody" }),
+		};
+
+		const firstInvalid = await verifyPullRequestHandoff(client, invalidInput);
+		const invalidGraph = await listWorkItemGraph(
+			client,
+			invalidInput.workItemId,
+		);
+		const secondInvalid = await verifyPullRequestHandoff(client, {
+			...invalidInput,
+			existingDecisions: invalidGraph.decisions,
+		});
+		expect(secondInvalid.decisionId).toBe(firstInvalid.decisionId);
+		expect(secondInvalid.workerRunId).toBe(firstInvalid.workerRunId);
+		expect(
+			(await listWorkItemGraph(client, invalidInput.workItemId)).decisions,
+		).toHaveLength(1);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
 test("runHumanReviewMonitoring respects comment_on_conflict when review becomes blocked", async () => {
 	const database = await createTestDatabase();
 	const client = database.client;
@@ -620,6 +819,46 @@ function buildProjectItem(issueNumber: number) {
 			owner: "toyamarinyon",
 			name: "rhapsody",
 		},
+	};
+}
+
+function buildPullRequestArtifact(id: string, externalId: string) {
+	return {
+		id,
+		workItemId: "unused",
+		workerRunId: "wrn_builder",
+		kind: "pull_request",
+		externalId,
+		externalUrl: `https://github.com/toyamarinyon/rhapsody/pull/${externalId}`,
+		snapshot: {},
+		metadata: {},
+		createdAt: 1,
+		updatedAt: 1,
+	};
+}
+
+function buildPullRequest(
+	number: number,
+	overrides: Partial<PullRequestSummary> = {},
+): PullRequestSummary {
+	return {
+		reused: true,
+		number,
+		htmlUrl: `https://github.com/toyamarinyon/rhapsody/pull/${number}`,
+		title: `Fixes #${number === 404 ? 130 : 127}`,
+		body: `Resolves #${number === 404 ? 130 : 127}`,
+		headRef: `rhapsody/issue-${number === 404 ? 130 : 127}-1`,
+		headSha: `head-${number}`,
+		baseRef: "main",
+		baseSha: "base",
+		headRepositoryOwner: "toyamarinyon",
+		headRepositoryName: "rhapsody",
+		baseRepositoryOwner: "toyamarinyon",
+		baseRepositoryName: "rhapsody",
+		state: "open" as const,
+		merged: false,
+		mergedAt: null,
+		...overrides,
 	};
 }
 

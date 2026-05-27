@@ -10,7 +10,7 @@ import {
 	type GitHubProjectIssueWorkItem,
 	updateProjectIssueStatus,
 } from "@/lib/github/project-items";
-import { createIssueComment } from "@/lib/github/issues";
+import { createIssueComment, fetchIssueComments } from "@/lib/github/issues";
 import {
 	getPullRequest,
 	getPullRequestChangedFiles,
@@ -39,9 +39,10 @@ import {
 	runIntakeCurator as runIntakeCuratorNode,
 } from "@/lib/workers/intake-curator";
 import {
-	findPullRequestArtifactFromArtifacts,
 	runHumanReviewMonitoring,
 	runPostPrCurator,
+	verifyPullRequestHandoff,
+	type HandoffVerificationResult,
 } from "@/lib/workers/post-pr-curator";
 import {
 	buildFailureFingerprint,
@@ -218,6 +219,7 @@ export async function runSchedulerTick(
 							dependencies.runIntegrationRepairPlanner,
 						runIntegrationRepairExecutor:
 							dependencies.runIntegrationRepairExecutor,
+						fetchIssueComments: dependencies.fetchIssueComments,
 						createIssueComment: dependencies.createIssueComment,
 						updateProjectIssueStatus: updateIssueStatus,
 					},
@@ -254,6 +256,7 @@ export async function runSchedulerTick(
 						runIntegrationRepairExecutor:
 							dependencies.runIntegrationRepairExecutor,
 						fetchIssueComments: dependencies.fetchIssueComments,
+						createIssueComment: dependencies.createIssueComment,
 						createReviewComment: dependencies.createReviewComment,
 						updateProjectIssueStatus: updateIssueStatus,
 					},
@@ -621,14 +624,36 @@ async function runPostPrCuratorForInProgress(
 ) {
 	try {
 		const graph = await listWorkItemGraph(client, workItemId);
-		const pullRequestArtifact = findPullRequestArtifactFromArtifacts(
-			graph.artifacts,
-		);
+		const handoffVerification = await verifyPullRequestHandoff(client, {
+			workItem: item,
+			workItemId,
+			owner: config.repository.owner,
+			repository: config.repository.name,
+			defaultBranch: config.repository.defaultBranch,
+			branchPrefix: config.repository.branchPrefix,
+			artifacts: graph.artifacts,
+			existingDecisions: graph.decisions,
+			getPullRequest: dependencies.getPullRequest,
+		});
+		await commentOnInvalidHandoff({
+			client,
+			config,
+			dependencies,
+			item,
+			handoffVerification,
+		});
+		const pullRequestArtifact = handoffVerification.selectedArtifact;
 
-		if (!pullRequestArtifact) {
+		if (
+			handoffVerification.outcome !== "handoff_verified" ||
+			!pullRequestArtifact
+		) {
 			return {
 				handled: false,
-				skipReason: "missing_pr_artifact",
+				skipReason:
+					handoffVerification.outcome === "handoff_missing"
+						? "missing_pr_artifact"
+						: handoffVerification.outcome,
 			};
 		}
 
@@ -719,14 +744,36 @@ async function runPostPrCuratorForHumanReview(
 ) {
 	try {
 		const graph = await listWorkItemGraph(client, workItemId);
-		const pullRequestArtifact = findPullRequestArtifactFromArtifacts(
-			graph.artifacts,
-		);
+		const handoffVerification = await verifyPullRequestHandoff(client, {
+			workItem: item,
+			workItemId,
+			owner: config.repository.owner,
+			repository: config.repository.name,
+			defaultBranch: config.repository.defaultBranch,
+			branchPrefix: config.repository.branchPrefix,
+			artifacts: graph.artifacts,
+			existingDecisions: graph.decisions,
+			getPullRequest: dependencies.getPullRequest,
+		});
+		await commentOnInvalidHandoff({
+			client,
+			config,
+			dependencies,
+			item,
+			handoffVerification,
+		});
+		const pullRequestArtifact = handoffVerification.selectedArtifact;
 
-		if (!pullRequestArtifact) {
+		if (
+			handoffVerification.outcome !== "handoff_verified" ||
+			!pullRequestArtifact
+		) {
 			return {
 				handled: false,
-				skipReason: "missing_pr_artifact",
+				skipReason:
+					handoffVerification.outcome === "handoff_missing"
+						? "missing_pr_artifact"
+						: handoffVerification.outcome,
 				monitoringClassification: null,
 			};
 		}
@@ -773,6 +820,69 @@ async function runPostPrCuratorForHumanReview(
 			skipReason: "human_review_monitoring_error",
 			monitoringClassification: null,
 		};
+	}
+}
+
+async function commentOnInvalidHandoff(input: {
+	client: Client;
+	config: ReturnType<typeof loadRhapsodyConfig>;
+	dependencies: SchedulerPostPrDependencies;
+	item: GitHubProjectIssueWorkItem;
+	handoffVerification: HandoffVerificationResult;
+}) {
+	if (input.handoffVerification.outcome !== "handoff_invalid") {
+		return;
+	}
+
+	const selected = input.handoffVerification.selectedArtifact;
+	const pullRequest = selected?.pullRequest;
+	const marker = `<!-- rhapsody:handoff-invalid:${selected?.number ?? "unknown"}:${pullRequest?.headSha ?? "unknown"} -->`;
+	const body = [
+		marker,
+		"Rhapsody could not accept the pull request handoff for this item.",
+		"",
+		`Reason: ${input.handoffVerification.reason}`,
+		"",
+		"Observed:",
+		`- Pull request: ${selected ? `#${selected.number}` : "unknown"}`,
+		`- Base branch: ${pullRequest?.baseRef ?? "unknown"}`,
+		`- Head branch: ${pullRequest?.headRef ?? "unknown"}`,
+		`- Expected base branch: ${input.config.repository.defaultBranch}`,
+		`- Expected branch prefix: ${input.config.repository.branchPrefix}`,
+		"",
+		"Rhapsody will not run post-PR checks, repair, auto-merge, or move this item forward automatically until this handoff is corrected or reviewed by a human.",
+	].join("\n");
+
+	try {
+		const comments = await (
+			input.dependencies.fetchIssueComments ?? fetchIssueComments
+		)({
+			owner: input.config.repository.owner,
+			repository: input.config.repository.name,
+			issueNumber: input.item.issueNumber,
+		});
+		if (comments.some((comment) => comment.body.includes(marker))) {
+			return;
+		}
+		await (input.dependencies.createIssueComment ?? createIssueComment)({
+			owner: input.config.repository.owner,
+			repository: input.config.repository.name,
+			issueNumber: input.item.issueNumber,
+			body,
+		});
+	} catch (error) {
+		await createEvent(input.client, {
+			runId: null,
+			attemptId: null,
+			level: "warn",
+			type: "scheduler.invalid_handoff_comment_failed",
+			message: "Scheduler could not create an invalid handoff issue comment.",
+			data: {
+				issueNumber: input.item.issueNumber,
+				pullRequestNumber: selected?.number ?? null,
+				error: serializeError(error),
+			},
+		});
 	}
 }
 

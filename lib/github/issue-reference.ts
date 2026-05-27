@@ -25,6 +25,14 @@ export function appendIssueReference(
 	return `${body.trimEnd()}\n\n${reference}`;
 }
 
+export function containsIssueReference(
+	body: string | null | undefined,
+	issueNumber: number,
+	repository?: RepositoryReference,
+) {
+	return buildIssueLinkPattern(issueNumber, repository).test(body ?? "");
+}
+
 function buildIssueLinkPattern(
 	issueNumber: number,
 	repository?: RepositoryReference,

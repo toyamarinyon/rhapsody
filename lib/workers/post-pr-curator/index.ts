@@ -3,14 +3,17 @@ import {
 	createDecision,
 	createLink,
 	createWorkerRun,
+	type Artifact,
 	type Decision,
 } from "@/lib/state";
 import { getPullRequestCheckSummary } from "@/lib/github/checks";
 import type { PullRequestCheckSummary } from "@/lib/github/checks";
 import { createIssueComment, fetchIssueComments } from "@/lib/github/issues";
+import { containsIssueReference } from "@/lib/github/issue-reference";
 import {
 	comparePullRequestBranches,
 	getPullRequest,
+	type PullRequestSummary,
 	type PullRequestBranchComparison,
 } from "@/lib/github/pull-requests";
 import type { GitHubProjectIssueWorkItem } from "@/lib/github/project-items";
@@ -44,6 +47,29 @@ export type HumanReviewMonitoringResult = {
 	checkSummary: PullRequestCheckSummary;
 };
 
+export type HandoffVerificationOutcome =
+	| "handoff_verified"
+	| "handoff_missing"
+	| "handoff_ambiguous"
+	| "handoff_invalid"
+	| "handoff_unknown";
+
+export type VerifiedPullRequestArtifact = {
+	id: string;
+	number: number;
+	url: string | null;
+	pullRequest: PullRequestSummary | null;
+};
+
+export type HandoffVerificationResult = {
+	decisionId: string;
+	workerRunId: string;
+	outcome: HandoffVerificationOutcome;
+	reason: string;
+	selectedArtifact: VerifiedPullRequestArtifact | null;
+	evidence: Record<string, unknown>;
+};
+
 type ObservedHumanReviewActivity = {
 	hasHumanActivity: boolean;
 	commentCount: number;
@@ -73,6 +99,130 @@ type HumanReviewMonitoringAssessment =
 			commentBody: string | null;
 			nextAction: string | null;
 	  };
+
+export async function verifyPullRequestHandoff(
+	client: Client,
+	input: {
+		workItem: GitHubProjectIssueWorkItem;
+		workItemId: string;
+		owner: string;
+		repository: string;
+		defaultBranch: string;
+		branchPrefix: string;
+		artifacts: Artifact[];
+		existingDecisions?: Decision[];
+		getPullRequest?: typeof getPullRequest;
+	},
+): Promise<HandoffVerificationResult> {
+	const candidates = findPullRequestArtifactsFromArtifacts(input.artifacts);
+	const expectedBranchPrefix = normalizeBranchPrefix(input.branchPrefix);
+	const baseEvidence = {
+		issueNumber: input.workItem.issueNumber,
+		artifactCount: candidates.length,
+		artifactIds: candidates.map((candidate) => candidate.id),
+		expected: {
+			owner: input.owner,
+			repository: input.repository,
+			baseBranch: input.defaultBranch,
+			branchPrefix: expectedBranchPrefix,
+		},
+	};
+
+	if (candidates.length === 0) {
+		return recordHandoffVerification(client, input, {
+			outcome: "handoff_missing",
+			reason:
+				"No usable pull request artifact was recorded for this work item.",
+			selectedArtifact: null,
+			evidence: baseEvidence,
+		});
+	}
+
+	if (candidates.length > 1) {
+		return recordHandoffVerification(client, input, {
+			outcome: "handoff_ambiguous",
+			reason:
+				"Multiple pull request artifacts were recorded, so Rhapsody could not safely choose one.",
+			selectedArtifact: null,
+			evidence: baseEvidence,
+		});
+	}
+
+	const selectedArtifact = candidates[0];
+	let pullRequest: PullRequestSummary;
+	try {
+		pullRequest = await (input.getPullRequest ?? getPullRequest)({
+			owner: input.owner,
+			repository: input.repository,
+			pullRequestNumber: selectedArtifact.number,
+		});
+	} catch (error) {
+		return recordHandoffVerification(client, input, {
+			outcome: "handoff_unknown",
+			reason: "GitHub pull request lookup failed while verifying the handoff.",
+			selectedArtifact: { ...selectedArtifact, pullRequest: null },
+			evidence: {
+				...baseEvidence,
+				selectedArtifact,
+				error: serializeVerificationError(error),
+			},
+		});
+	}
+
+	const observed = {
+		pullRequestNumber: pullRequest.number,
+		pullRequestUrl: pullRequest.htmlUrl,
+		baseBranch: pullRequest.baseRef,
+		headBranch: pullRequest.headRef,
+		headSha: pullRequest.headSha ?? null,
+		baseRepositoryOwner: pullRequest.baseRepositoryOwner ?? null,
+		baseRepositoryName: pullRequest.baseRepositoryName ?? null,
+		headRepositoryOwner: pullRequest.headRepositoryOwner ?? null,
+		headRepositoryName: pullRequest.headRepositoryName ?? null,
+		hasIssueReference:
+			pullRequest.body === undefined
+				? null
+				: containsIssueReference(
+						`${pullRequest.title}\n\n${pullRequest.body ?? ""}`,
+						input.workItem.issueNumber,
+						{ owner: input.owner, name: input.repository },
+					),
+	};
+	const invalidReason = getInvalidHandoffReason({
+		owner: input.owner,
+		repository: input.repository,
+		defaultBranch: input.defaultBranch,
+		branchPrefix: expectedBranchPrefix,
+		canValidatePolicyFields: pullRequest.body !== undefined,
+		observed,
+	});
+	const selected = { ...selectedArtifact, pullRequest };
+
+	if (invalidReason) {
+		return recordHandoffVerification(client, input, {
+			outcome: "handoff_invalid",
+			reason: invalidReason,
+			selectedArtifact: selected,
+			evidence: {
+				...baseEvidence,
+				selectedArtifact,
+				observed,
+			},
+		});
+	}
+
+	return recordHandoffVerification(client, input, {
+		outcome: "handoff_verified",
+		reason:
+			"The pull request handoff matches the current work item and repository boundaries.",
+		selectedArtifact: selected,
+		evidence: {
+			...baseEvidence,
+			selectedArtifact,
+			observed,
+		},
+	});
+}
 
 export async function runPostPrCurator(
 	client: Client,
@@ -839,25 +989,210 @@ export function findPullRequestArtifactFromArtifacts(
 		createdAt: number;
 	}[],
 ): { id: string; number: number; url: string | null } | null {
-	const candidate = artifacts.find(
-		(candidateArtifact) =>
-			candidateArtifact.kind === "pull_request" && candidateArtifact.externalId,
+	return findPullRequestArtifactsFromArtifacts(artifacts)[0] ?? null;
+}
+
+function findPullRequestArtifactsFromArtifacts(
+	artifacts: {
+		id: string;
+		kind: string;
+		externalId: string | null;
+		externalUrl: string | null;
+		createdAt: number;
+	}[],
+): { id: string; number: number; url: string | null }[] {
+	return artifacts
+		.filter(
+			(candidateArtifact) =>
+				candidateArtifact.kind === "pull_request" &&
+				candidateArtifact.externalId,
+		)
+		.map((candidate) => {
+			const number = Number.parseInt(candidate.externalId ?? "", 10);
+			if (!Number.isFinite(number) || number <= 0) {
+				return null;
+			}
+
+			return {
+				id: candidate.id,
+				number,
+				url: candidate.externalUrl,
+			};
+		})
+		.filter((candidate) => candidate !== null);
+}
+
+async function recordHandoffVerification(
+	client: Client,
+	input: {
+		workItem: GitHubProjectIssueWorkItem;
+		workItemId: string;
+		owner: string;
+		repository: string;
+		existingDecisions?: Decision[];
+	},
+	result: Omit<HandoffVerificationResult, "decisionId" | "workerRunId">,
+): Promise<HandoffVerificationResult> {
+	const freshDecision = findFreshHandoffDecision(
+		input.existingDecisions ?? [],
+		result.outcome,
+		result.selectedArtifact?.pullRequest?.headSha ?? null,
+		result.evidence,
 	);
-
-	if (!candidate || !candidate.externalId) {
-		return null;
+	if (freshDecision) {
+		return {
+			...result,
+			decisionId: freshDecision.id,
+			workerRunId: freshDecision.workerRunId,
+		};
 	}
 
-	const number = Number.parseInt(candidate.externalId, 10);
-	if (!Number.isFinite(number) || number <= 0) {
-		return null;
-	}
+	const workerRun = await createWorkerRun(client, {
+		workItemId: input.workItemId,
+		kind: "post_pr_curator",
+		status: "completed",
+		metadata: {
+			issueNumber: input.workItem.issueNumber,
+			handoffOutcome: result.outcome,
+		},
+	});
+	const decisionId = await createDecision(client, {
+		workItemId: input.workItemId,
+		workerRunId: workerRun.id,
+		phase: "post_pr",
+		outcome: result.outcome,
+		deterministic: true,
+		nextWorkerKind: null,
+		nextAction:
+			result.outcome === "handoff_verified"
+				? "Continue post-PR curation for the verified pull request."
+				: "Stop post-PR automation until the handoff is corrected or can be verified.",
+		evidence: {
+			reason: result.reason,
+			...result.evidence,
+		},
+	});
+
+	await createLink(client, {
+		workItemId: input.workItemId,
+		fromNodeType: "worker_run",
+		fromNodeId: workerRun.id,
+		toNodeType: "decision",
+		toNodeId: decisionId,
+		relation: "evaluates",
+		metadata: {
+			handoffOutcome: result.outcome,
+		},
+	});
 
 	return {
-		id: candidate.id,
-		number,
-		url: candidate.externalUrl,
+		...result,
+		decisionId,
+		workerRunId: workerRun.id,
 	};
+}
+
+function findFreshHandoffDecision(
+	decisions: Decision[],
+	outcome: HandoffVerificationOutcome,
+	headSha: string | null,
+	evidence: Record<string, unknown>,
+): Decision | null {
+	const selected = asRecord(evidence.selectedArtifact);
+	return (
+		decisions.find((decision) => {
+			if (decision.phase !== "post_pr" || decision.outcome !== outcome) {
+				return false;
+			}
+			const decisionEvidence = asRecord(decision.evidence);
+			const observed = asRecord(decisionEvidence?.observed);
+			const decisionSelected = asRecord(decisionEvidence?.selectedArtifact);
+			if (outcome === "handoff_missing") {
+				return (
+					decisionEvidence?.artifactCount === 0 &&
+					asStringArray(decisionEvidence?.artifactIds).length === 0
+				);
+			}
+			if (outcome === "handoff_ambiguous") {
+				return arraysEqual(
+					asStringArray(decisionEvidence?.artifactIds),
+					asStringArray(evidence.artifactIds),
+				);
+			}
+			if (outcome === "handoff_unknown") {
+				return decisionSelected?.number === selected?.number;
+			}
+			return (
+				decisionSelected?.number === selected?.number &&
+				(observed?.headSha ?? null) === headSha
+			);
+		}) ?? null
+	);
+}
+
+function getInvalidHandoffReason(input: {
+	owner: string;
+	repository: string;
+	defaultBranch: string;
+	branchPrefix: string;
+	canValidatePolicyFields: boolean;
+	observed: {
+		baseBranch: string;
+		headBranch: string;
+		baseRepositoryOwner: string | null;
+		baseRepositoryName: string | null;
+		hasIssueReference: boolean | null;
+	};
+}): string | null {
+	if (
+		input.observed.baseRepositoryOwner &&
+		input.observed.baseRepositoryOwner !== input.owner
+	) {
+		return "The pull request base repository owner does not match the configured repository.";
+	}
+	if (
+		input.observed.baseRepositoryName &&
+		input.observed.baseRepositoryName !== input.repository
+	) {
+		return "The pull request base repository name does not match the configured repository.";
+	}
+	if (input.observed.baseBranch !== input.defaultBranch) {
+		return "The pull request base branch does not match the configured default branch.";
+	}
+	if (!input.canValidatePolicyFields) {
+		return null;
+	}
+	if (!input.observed.headBranch.startsWith(`${input.branchPrefix}/`)) {
+		return "The pull request head branch does not use the configured Rhapsody branch prefix.";
+	}
+	if (input.observed.hasIssueReference === false) {
+		return "The pull request body or title does not reference the originating issue.";
+	}
+	return null;
+}
+
+function normalizeBranchPrefix(branchPrefix: string): string {
+	return branchPrefix.trim().replace(/\/+$/u, "") || "rhapsody";
+}
+
+function serializeVerificationError(error: unknown) {
+	return error instanceof Error
+		? { name: error.name, message: error.message }
+		: { name: "UnknownError", message: String(error) };
+}
+
+function asStringArray(value: unknown): string[] {
+	return Array.isArray(value)
+		? value.filter((item): item is string => typeof item === "string")
+		: [];
+}
+
+function arraysEqual(left: string[], right: string[]): boolean {
+	if (left.length !== right.length) {
+		return false;
+	}
+
+	return left.every((value, index) => value === right[index]);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
