@@ -1,1 +1,1 @@
-Vercel の logでjnw7l-1779872803859-9aa290fabec2  でエラー出てる
+pull request作って、ci, deploy通ったらmergeしておいてください。
