@@ -1,0 +1,10 @@
+builderはVercel SandboxでCodex CLIを実行していますが、可能性として、CodexのCloudを使うことは可能でしょうか？
+
+---
+
+Vercel Sandboxの利用料が結構高くて、これをCodex Cloudに置き換えられるとコスパいいだろうなと思っています。
+
+---
+
+あーそうかも。build前の実装判断でもcodex使っていて、そこはこれまで通りにしたいし、これからcuratorでも使うと思うのでそこはvercel sandbox + codexが良いです。
+今一番時間かかっているのがBuilderなので、builderをcodex-cloudにしたい。
