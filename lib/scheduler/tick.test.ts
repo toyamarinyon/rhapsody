@@ -7,6 +7,7 @@ import { normalizeProjectConfig } from "@/lib/config";
 import type { PullRequestCheckSummary } from "@/lib/github/checks";
 import type { GitHubProjectIssueWorkItem } from "@/lib/github/project-items";
 import { GitHubPullRequestError } from "@/lib/github/pull-requests";
+import type { PullRequestSummary } from "@/lib/github/pull-requests";
 import {
 	createArtifact,
 	createClaimedManualRun,
@@ -24,7 +25,14 @@ import {
 	buildRepairExecutionKey,
 	runRepairerPlanner,
 } from "@/lib/workers/repairer";
-import { runSchedulerTick } from "./tick";
+import { runSchedulerTick as runSchedulerTickImpl } from "./tick";
+
+const runSchedulerTick: typeof runSchedulerTickImpl = (client, dependencies) =>
+	runSchedulerTickImpl(client, {
+		getPullRequest: async ({ pullRequestNumber }) =>
+			buildPullRequestSummary({ number: pullRequestNumber }),
+		...dependencies,
+	});
 
 const baseConfig = normalizeProjectConfig({
 	tracker: {
@@ -425,9 +433,119 @@ test("scheduler skips In Progress items with missing PR artifact", async () => {
 			client,
 			"github_issue:toyamarinyon/rhapsody#104",
 		);
-		expect(graph.decisions).toHaveLength(0);
-		expect(graph.workerRuns).toHaveLength(0);
-		expect(graph.links).toHaveLength(0);
+		expect(graph.decisions).toEqual([
+			expect.objectContaining({
+				phase: "post_pr",
+				outcome: "handoff_missing",
+			}),
+		]);
+		expect(graph.workerRuns).toHaveLength(1);
+		expect(graph.links).toHaveLength(1);
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("scheduler reuses invalid handoff decisions and comments across repeated passes", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+	const item = buildProjectItem({
+		issueNumber: 105,
+		projectStatus: "In Progress",
+	});
+	const workItemId = "github_issue:toyamarinyon/rhapsody#105";
+	const builderRun = await createWorkerRun(client, {
+		workItemId,
+		kind: "builder",
+		status: "completed",
+	});
+	await createArtifact(client, {
+		workItemId,
+		workerRunId: builderRun.id,
+		kind: "pull_request",
+		externalId: "305",
+		externalUrl: "https://github.com/toyamarinyon/rhapsody/pull/305",
+	});
+	const comments: {
+		id: number;
+		body: string;
+		htmlUrl: string;
+		createdAt: string;
+		updatedAt: string;
+		authorLogin: string;
+	}[] = [];
+	const createIssueComment = vi.fn().mockImplementation(async (comment) => {
+		comments.push({
+			id: comment.issueNumber,
+			body: comment.body,
+			htmlUrl: `${comment.owner}/${comment.repository}#issuecomment-${comment.issueNumber}`,
+			createdAt: "2026-05-27T00:00:00Z",
+			updatedAt: "2026-05-27T00:00:00Z",
+			authorLogin: "rhapsody[bot]",
+		});
+		return {
+			id: comment.issueNumber,
+			htmlUrl: `${comment.owner}/${comment.repository}#issuecomment-${comment.issueNumber}`,
+		};
+	});
+
+	try {
+		const firstResult = await runSchedulerTick(client, {
+			config: baseConfig,
+			fetchProjectIssueWorkItems: async () => [item],
+			createIssueComment,
+			fetchIssueComments: async () => comments,
+			getPullRequest: async () => ({
+				...buildPullRequestSummary({ number: 305, state: "open" }),
+				headRef: "feature/not-rhapsody",
+				body: "Fixes #105",
+			}),
+			getPullRequestCheckSummary: async () => ({
+				classification: "checks_success",
+				headSha: "head-305",
+				status: "success",
+				checkRuns: [],
+			}),
+		});
+
+		expect(firstResult.ok).toBe(true);
+
+		const secondResult = await runSchedulerTick(client, {
+			config: baseConfig,
+			fetchProjectIssueWorkItems: async () => [item],
+			createIssueComment,
+			fetchIssueComments: async () => comments,
+			getPullRequest: async () => ({
+				...buildPullRequestSummary({ number: 305, state: "open" }),
+				headRef: "feature/not-rhapsody",
+				body: "Fixes #105",
+			}),
+			getPullRequestCheckSummary: async () => ({
+				classification: "checks_success",
+				headSha: "head-305",
+				status: "success",
+				checkRuns: [],
+			}),
+		});
+
+		expect(secondResult.ok).toBe(true);
+		expect(createIssueComment).toHaveBeenCalledTimes(1);
+		expect(comments).toHaveLength(1);
+
+		const graph = await listWorkItemGraph(client, workItemId);
+		expect(
+			graph.decisions.filter(
+				(decision) =>
+					decision.phase === "post_pr" &&
+					decision.outcome === "handoff_invalid",
+			),
+		).toHaveLength(1);
+		expect(
+			graph.artifacts.filter(
+				(artifact) => artifact.kind === "repair_blocked_comment",
+			),
+		).toHaveLength(0);
 	} finally {
 		client.close();
 		database.cleanup();
@@ -992,7 +1110,7 @@ test("scheduler recovers Project status update after merge already completed on 
 		expect(secondResult.ok).toBe(true);
 		expect(mergePullRequest).not.toHaveBeenCalled();
 		expect(getPullRequestCheckSummary).toHaveBeenCalledTimes(2);
-		expect(getPullRequest).toHaveBeenCalledTimes(2);
+		expect(getPullRequest).toHaveBeenCalledTimes(4);
 		const secondGraph = await listWorkItemGraph(client, workItemId);
 		expect(
 			secondGraph.decisions.some(
@@ -1078,7 +1196,7 @@ test("scheduler does not mark Done when auto-merge fails and pull request is not
 
 		expect(result.ok).toBe(true);
 		expect(mergePullRequest).toHaveBeenCalledTimes(1);
-		expect(getPullRequest).toHaveBeenCalledTimes(2);
+		expect(getPullRequest).toHaveBeenCalledTimes(3);
 		expect(updateProjectIssueStatus).not.toHaveBeenCalled();
 
 		const graph = await listWorkItemGraph(client, workItemId);
@@ -1212,6 +1330,7 @@ test("scheduler retries Done status after a prior merge succeeded", async () => 
 	const getPullRequest = vi
 		.fn()
 		.mockResolvedValueOnce(buildPullRequestSummary({ number: 143 }))
+		.mockResolvedValueOnce(buildPullRequestSummary({ number: 143 }))
 		.mockResolvedValueOnce(
 			buildPullRequestSummary({
 				number: 143,
@@ -1281,18 +1400,11 @@ test("scheduler retries Done status after a prior merge succeeded", async () => 
 
 		expect(firstResult.ok).toBe(true);
 		expect(secondResult.ok).toBe(true);
-		expect(getPullRequest).toHaveBeenCalledTimes(2);
+		expect(getPullRequest).toHaveBeenCalledTimes(4);
 		expect(mergePullRequest).toHaveBeenCalledTimes(1);
-		expect(updateProjectIssueStatus).toHaveBeenCalledTimes(2);
+		expect(updateProjectIssueStatus).toHaveBeenCalledTimes(1);
 		expect(updateProjectIssueStatus).toHaveBeenNthCalledWith(
 			1,
-			expect.objectContaining({
-				issueNumber: 143,
-				status: "Done",
-			}),
-		);
-		expect(updateProjectIssueStatus).toHaveBeenNthCalledWith(
-			2,
 			expect.objectContaining({
 				issueNumber: 143,
 				status: "Done",
@@ -2805,14 +2917,20 @@ function buildPullRequestSummary(input: {
 	state?: "open" | "closed";
 	merged?: boolean;
 	mergedAt?: string | null;
-}) {
+}): PullRequestSummary {
 	return {
 		reused: true,
 		number: input.number,
 		htmlUrl: `https://github.com/toyamarinyon/rhapsody/pull/${input.number}`,
 		headRef: `rhapsody/issue-${input.number}`,
+		headSha: `head-${input.number}`,
 		baseRef: "main",
+		baseSha: "base",
 		title: `PR ${input.number}`,
+		headRepositoryOwner: "toyamarinyon",
+		headRepositoryName: "rhapsody",
+		baseRepositoryOwner: "toyamarinyon",
+		baseRepositoryName: "rhapsody",
 		state: input.state ?? "open",
 		merged: input.merged ?? false,
 		mergedAt: input.mergedAt ?? null,
