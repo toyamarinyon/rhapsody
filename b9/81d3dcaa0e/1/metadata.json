@@ -1,0 +1,38 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "b981d3dcaa0e",
+  "session_id": "019e631a-ab15-7f53-ad22-b52d9758a63e",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-27T13:22:46.43322Z",
+  "branch": "codex/issue-127-handoff-verification",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "lib/github/pull-requests.ts",
+    "lib/scheduler/tick.test.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "16d7de8dcd8a",
+  "token_usage": {
+    "input_tokens": 270342,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5043072,
+    "output_tokens": 11283,
+    "api_call_count": 69
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-27T13:22:46.41781Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 856,
+    "human_modified": 16,
+    "human_removed": 0,
+    "total_committed": 856,
+    "total_lines_changed": 896,
+    "agent_percentage": 0,
+    "metric_version": 2
+  }
+}
