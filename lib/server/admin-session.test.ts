@@ -24,7 +24,12 @@ test("creates and verifies an admin session token", async () => {
 test("rejects tampered admin session tokens", async () => {
 	const env = { AUTH_SECRET: "test-secret", ROOT_PASSWORD: "root" };
 	const token = await createAdminSessionToken(env);
-	const tampered = `${token.slice(0, -1)}x`;
+	const parts = token.split(".");
+	const signature = parts.at(-1) ?? "";
+	const tamperedSignature = signature.startsWith("a")
+		? `b${signature.slice(1)}`
+		: `a${signature.slice(1)}`;
+	const tampered = [...parts.slice(0, -1), tamperedSignature].join(".");
 
 	expect(await verifyAdminSessionToken(tampered, env)).toBeNull();
 });
