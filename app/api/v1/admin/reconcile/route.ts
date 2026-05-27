@@ -13,7 +13,7 @@ export async function GET(request: Request) {
 }
 
 async function handleReconcile(request: Request) {
-	const auth = requireCronOrAdminAuth(request);
+	const auth = await requireCronOrAdminAuth(request);
 
 	if (!auth.ok) {
 		return auth.response;
@@ -45,7 +45,7 @@ async function handleReconcile(request: Request) {
 	return Response.json(result);
 }
 
-function requireCronOrAdminAuth(request: Request) {
+async function requireCronOrAdminAuth(request: Request) {
 	const cronSecret = loadRhapsodyCronEnv().CRON_SECRET;
 	const authorization = request.headers.get("authorization");
 

@@ -218,6 +218,18 @@ export function loadRhapsodyAuthSecretEnv(
 	return loadRequiredEnv(env, REQUIRED_AUTH_SECRET_ENV_KEYS);
 }
 
+export function loadRhapsodyRootPasswordEnv(
+	env = process.env,
+): Pick<RhapsodyServerEnv, "ROOT_PASSWORD"> {
+	return loadRequiredEnv(env, ["ROOT_PASSWORD"] as const);
+}
+
+export function loadRhapsodyAdminAuthEnv(
+	env = process.env,
+): RhapsodyAuthSecretEnv & Pick<RhapsodyServerEnv, "ROOT_PASSWORD"> {
+	return loadRequiredEnv(env, ["ROOT_PASSWORD", "AUTH_SECRET"] as const);
+}
+
 export function loadRhapsodyCronEnv(env = process.env): RhapsodyCronEnv {
 	return loadOptionalEnv(env, ["CRON_SECRET"] as const);
 }

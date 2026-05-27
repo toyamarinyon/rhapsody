@@ -4,7 +4,7 @@ import { createStateStoreClient, getStateSummary } from "@/lib/state";
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-	const auth = requireAdminAuth(request);
+	const auth = await requireAdminAuth(request);
 
 	if (!auth.ok) {
 		return auth.response;

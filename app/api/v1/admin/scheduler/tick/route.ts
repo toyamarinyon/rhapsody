@@ -7,7 +7,7 @@ import { schedulerWorkflow } from "@/workflows/scheduler";
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-	const auth = requireCronOrAdminAuth(request);
+	const auth = await requireCronOrAdminAuth(request);
 
 	if (!auth.ok) {
 		return auth.response;
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-	const auth = requireCronOrAdminAuth(request);
+	const auth = await requireCronOrAdminAuth(request);
 
 	if (!auth.ok) {
 		return auth.response;
@@ -58,7 +58,7 @@ async function startSchedulerTickWorkflow() {
 	});
 }
 
-function requireCronOrAdminAuth(request: Request) {
+async function requireCronOrAdminAuth(request: Request) {
 	const cronSecret = loadRhapsodyCronEnv().CRON_SECRET;
 	const authorization = request.headers.get("authorization");
 

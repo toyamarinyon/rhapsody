@@ -14,7 +14,7 @@ export async function GET(
 	request: Request,
 	context: { params: Promise<{ runId: string; attemptId: string }> },
 ) {
-	const auth = requireAdminAuth(request);
+	const auth = await requireAdminAuth(request);
 
 	if (!auth.ok) {
 		return auth.response;

@@ -8,7 +8,7 @@ const DEFAULT_BACKEND_PROBE_URL =
 	"https://chatgpt.com/backend-api/codex/models?client_version=0.130.0";
 
 export async function POST(request: Request) {
-	const auth = requireAdminAuth(request);
+	const auth = await requireAdminAuth(request);
 
 	if (!auth.ok) {
 		return auth.response;
