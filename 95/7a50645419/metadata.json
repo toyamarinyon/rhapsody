@@ -1,0 +1,31 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "957a50645419",
+  "strategy": "manual-commit",
+  "branch": "codex/issue-status-comment",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "lib/github/issue-status-comment.ts",
+    "lib/github/issues.test.ts",
+    "lib/github/issues.ts",
+    "lib/server/dashboard.ts",
+    "lib/workers/intake-curator.test.ts",
+    "lib/workers/intake-curator/index.ts",
+    "workflows/runner.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/95/7a50645419/0/metadata.json",
+      "transcript": "/95/7a50645419/0/full.jsonl",
+      "content_hash": "/95/7a50645419/0/content_hash.txt",
+      "prompt": "/95/7a50645419/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 247131,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6972288,
+    "output_tokens": 18052,
+    "api_call_count": 77
+  }
+}

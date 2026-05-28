@@ -1,0 +1,60 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "957a50645419",
+  "session_id": "019e6cda-fc72-79d0-8141-25d705bcefaf",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-28T06:32:04.439504Z",
+  "branch": "codex/issue-status-comment",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "lib/github/issue-status-comment.ts",
+    "lib/github/issues.test.ts",
+    "lib/github/issues.ts",
+    "lib/server/dashboard.ts",
+    "lib/workers/intake-curator.test.ts",
+    "lib/workers/intake-curator/index.ts",
+    "workflows/runner.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "b2b18c31df57",
+  "token_usage": {
+    "input_tokens": 247131,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6972288,
+    "output_tokens": 18052,
+    "api_call_count": 77
+  },
+  "session_metrics": {
+    "turn_count": 3
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 857,
+      "user_lines_removed": 48,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "lib/github/issue-status-comment.test.ts": 250,
+        "lib/github/issue-status-comment.ts": 374,
+        "lib/github/issues.test.ts": 64,
+        "lib/github/issues.ts": 62,
+        "lib/server/dashboard.ts": 1,
+        "lib/workers/intake-curator.test.ts": 32,
+        "lib/workers/intake-curator/index.ts": 74
+      },
+      "user_removed_per_file": {
+        "lib/workers/intake-curator.test.ts": 24,
+        "lib/workers/intake-curator/index.ts": 24
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 963,
+      "agent_lines_removed": 51
+    }
+  ]
+}
