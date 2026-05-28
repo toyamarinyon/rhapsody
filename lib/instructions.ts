@@ -43,13 +43,9 @@ export async function loadRepositoryInstructions(
 	const instructionPath = path.join(repositoryRoot, RHAPSODY_INSTRUCTION_PATH);
 	const template = (await readFile(instructionPath, "utf8")).trim();
 
-	if (hasYamlFrontMatter(template)) {
-		throw new InstructionTemplateError(
-			"YAML front matter is not supported in Rhapsody instructions.",
-		);
-	}
-
-	return { template, instructionPath: RHAPSODY_INSTRUCTION_PATH };
+	return validateRepositoryInstructionsTemplate(template, {
+		instructionPath: RHAPSODY_INSTRUCTION_PATH,
+	});
 }
 
 export function renderRepositoryInstructions(input: {
@@ -99,6 +95,24 @@ export function renderStrictTemplate(
 			return stringifyTemplateValue(value);
 		},
 	);
+}
+
+export function validateRepositoryInstructionsTemplate(
+	template: string,
+	input: {
+		instructionPath: string;
+	},
+): LoadedInstructions {
+	if (hasYamlFrontMatter(template)) {
+		throw new InstructionTemplateError(
+			"YAML front matter is not supported in Rhapsody instructions.",
+		);
+	}
+
+	return {
+		template,
+		instructionPath: input.instructionPath,
+	};
 }
 
 export function buildInstructionContext(input: {
