@@ -1,0 +1,24 @@
+pull request作ってmergeして、deployできたらテスト用のissue作って動作確認してください。
+
+---
+
+[https://github.com/toyamarinyon/rhapsody/issues/135#issuecomment-4561405178](https://github.com/toyamarinyon/rhapsody/issues/135#issuecomment-4561405178) これ、実装に進む時は不要です。確認事項がある時だけ、出すようにできますかね？
+
+できる場合はmainをpullして、ブランチ作って [@builder](subagent://builder) に実装してもらってください。
+
+---
+
+In /Users/toyamarinyon/Documents/rhapsody on branch codex/intake-comment-only-when-needed, implement this focused behavior change. You are not alone in the codebase; do not revert others' changes.
+
+Goal: The separate intake classification issue comment should NOT be posted when the intake decision is buildable and Rhapsody proceeds to implementation. The managed issue status comment remains. Only post the intake/comment body when there is something the human needs to see, e.g. ask_human, blocked, skip, or other non-buildable / attention-needed outcomes.
+
+Context: User pointed to issuecomment-4561405178, the old buildable intake classification comment, and said it is unnecessary when proceeding to implementation. Current code likely posts postIntakeComment whenever finalClassification.comment is non-empty and fingerprint is new.
+
+Tasks:
+- Update lib/workers/intake-curator/index.ts so postIntakeComment is skipped for buildable decisions.
+- Preserve dedupe behavior for comments that are still posted.
+- Keep status comment behavior unchanged.
+- Update tests in lib/workers/intake-curator.test.ts: ensure buildable intake does not post intake_comment artifact/comment, and non-buildable cases still post when appropriate.
+- Run focused tests and typecheck if feasible.
+
+Return changed files and commands run.
