@@ -1,0 +1,40 @@
+では実装しましょう。 [@builder](subagent://builder) に実装を依頼してください。あなたはゴールの達成のためにアウトプットを評価し十分な水準に達するまでフィードバックを繰り返してください。
+
+---
+
+Implement the Rhapsody instructions-location fix. Goal: sandbox-codex runner should read `.rhapsody/INSTRUCTIONS.md` from the cloned target repository inside Vercel Sandbox, not from the Rhapsody app checkout/process.cwd().
+
+Context:
+- Repo: /Users/toyamarinyon/Documents/rhapsody
+- Current loader: `lib/instructions.ts` has `loadRepositoryInstructions(repositoryRoot = process.cwd())`.
+- Current sandbox runner calls `loadRepositoryInstructions()` too early in `lib/runners/sandbox-codex.ts`, before `prepareSourceInSandbox()` clones the target repo into `/vercel/sandbox/repository`.
+- Desired MVP flow: create sandbox -> prepare/clone source -> run a sandbox command to read `/vercel/sandbox/repository/.rhapsody/INSTRUCTIONS.md` -> return template content to server -> render using existing `renderRepositoryInstructions()` and `buildInstructionContext()` -> write prompt/metadata to sandbox -> run wrapper/codex.
+
+Requirements:
+- Edit files directly in your forked workspace.
+- Do not revert unrelated changes; you are not alone in this codebase.
+- Keep changes scoped, preferably to `lib/runners/sandbox-codex.ts` and tests if needed.
+- Preserve existing fake/local runners unless you determine a small shared helper is useful.
+- Ensure missing instructions produce a clear error/event/response before Codex execution.
+- Update tests or add focused tests if there is an existing relevant test file for sandbox-codex.
+- Run the most relevant tests/checks you can.
+
+Final response: summarize exact changes, tests run, and any unresolved risks.
+
+---
+
+Good first pass, but please revise before we accept it.
+
+Blocking issue: in the current diff, `markAttemptStarted` still happens before `loadRepositoryInstructionsFromSandbox()`. If the target repo is missing `.rhapsody/INSTRUCTIONS.md`, the runner returns 422 after the attempt has already been marked started. The sandbox is stopped by finally, but the attempt/run state can be left started/running without a terminal callback. That is worse than the previous behavior.
+
+Please fix this so instruction read/validation failures happen before marking the attempt started, or otherwise ensure the attempt is made terminal/released correctly. Prefer moving `markAttemptStarted` until after source preparation and instruction template validation succeed, if that works cleanly.
+
+Also add/adjust tests:
+- missing instructions should not call `markAttemptStarted` and should not start the wrapper.
+- success path should prove instructions are read after clone/checkout and before `buildCodexExecCommand`/`writeVercelSandboxFiles`/`startVercelSandboxCommand`.
+
+Minor cleanup:
+- Avoid hardcoding `".rhapsody/INSTRUCTIONS.md"` in `loadRepositoryInstructionsFromSandbox`; use `RHAPSODY_INSTRUCTION_PATH` consistently.
+- The current single test name says it reads instructions before Codex starts, but only covers missing file. Please make test names match behavior.
+
+Run the focused test again and report.
