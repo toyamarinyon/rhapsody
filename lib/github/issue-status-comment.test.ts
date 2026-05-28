@@ -64,6 +64,12 @@ test("renderIssueStatusComment covers the core lifecycle fields", () => {
 	);
 });
 
+test("buildIssueStatusCommentMarker returns the canonical rendered marker", () => {
+	expect(buildIssueStatusCommentMarker("github_issue:owner/repo#1")).toBe(
+		'<!-- rhapsody:issue-status-comment workItemId="github_issue:owner/repo#1" -->',
+	);
+});
+
 test("upsertIssueStatusComment creates, reuses, and updates an issue status comment", async () => {
 	const database = await createTestDatabase();
 	const client = database.client;
@@ -199,6 +205,91 @@ test("upsertIssueStatusComment reuses an existing comment found by marker", asyn
 			repository: "repo",
 			commentId: 88,
 			body: expect.stringContaining("Rhapsody is working on this issue."),
+		});
+	} finally {
+		client.close();
+		database.cleanup();
+	}
+});
+
+test("upsertIssueStatusComment reuses an existing rendered managed comment from fetch", async () => {
+	const database = await createTestDatabase();
+	const client = database.client;
+
+	try {
+		const renderedBody = renderIssueStatusComment({
+			workItemId: "github_issue:owner/repo#4",
+			issueNumber: 4,
+			issueTitle: "Reuse rendered",
+			status: "running",
+			currentStep: "Intake classification started",
+			updatedAt: 1_000,
+			dashboardUrl: null,
+			latestRun: null,
+			pullRequestUrl: null,
+			lastHeartbeat: null,
+			latestEvent: null,
+			failurePoint: null,
+		});
+
+		const updater = vi.fn(
+			async (input: { commentId: number; body: string }) => ({
+				id: input.commentId,
+				htmlUrl: `https://github.com/owner/repo/issues/4#issuecomment-${input.commentId}`,
+			}),
+		);
+
+		const result = await upsertIssueStatusComment({
+			client,
+			workItemId: "github_issue:owner/repo#4",
+			owner: "owner",
+			repository: "repo",
+			issueNumber: 4,
+			issueTitle: "Reuse rendered",
+			status: "completed",
+			currentStep: "Classification completed",
+			updatedAt: 2_000,
+			dashboardUrl: null,
+			latestRun: null,
+			pullRequestUrl: null,
+			lastHeartbeat: null,
+			latestEvent: null,
+			failurePoint: null,
+			updater,
+			fetcher: vi.fn(async () => [
+				{
+					id: 144,
+					body: `Existing comment\n${renderedBody}`,
+					htmlUrl: "https://github.com/owner/repo/issues/4#issuecomment-144",
+					createdAt: "2026-01-01T00:00:00Z",
+					updatedAt: "2026-01-01T00:00:00Z",
+					authorLogin: "human",
+				},
+			]),
+		});
+
+		expect(result.ok).toBe(true);
+		expect(updater).toHaveBeenCalledWith({
+			owner: "owner",
+			repository: "repo",
+			commentId: 144,
+			body: expect.stringContaining("Rhapsody completed this issue."),
+		});
+		const artifactRows = await client.execute({
+			sql: `SELECT external_id, external_url, metadata_json FROM artifacts WHERE work_item_id = ? AND kind = ?`,
+			args: ["github_issue:owner/repo#4", "issue_status_comment"],
+		});
+		expect(artifactRows.rows[0]).toMatchObject({
+			external_id: "144",
+			external_url: "https://github.com/owner/repo/issues/4#issuecomment-144",
+		});
+		expect(
+			JSON.parse(
+				(artifactRows.rows[0] as unknown as { metadata_json: string })
+					.metadata_json,
+			),
+		).toMatchObject({
+			marker: buildIssueStatusCommentMarker("github_issue:owner/repo#4"),
 		});
 	} finally {
 		client.close();

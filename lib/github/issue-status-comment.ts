@@ -10,6 +10,7 @@ import {
 export const ISSUE_STATUS_COMMENT_KIND = "issue_status_comment";
 export const ISSUE_STATUS_COMMENT_MARKER =
 	'<!-- rhapsody:issue-status-comment workItemId="';
+const ISSUE_STATUS_COMMENT_MARKER_SUFFIX = '" -->';
 
 export type IssueStatusCommentArtifact = Artifact & {
 	kind: typeof ISSUE_STATUS_COMMENT_KIND;
@@ -114,10 +115,7 @@ export function renderIssueStatusComment(input: IssueStatusCommentRenderInput) {
 		lines.push(`Failure point: ${input.failurePoint}`);
 	}
 
-	lines.push(
-		"",
-		`<!-- rhapsody:issue-status-comment workItemId="${input.workItemId}" -->`,
-	);
+	lines.push("", buildIssueStatusCommentMarker(input.workItemId));
 	return lines.join("\n");
 }
 
@@ -262,7 +260,7 @@ export async function upsertIssueStatusComment(input: {
 }
 
 export function buildIssueStatusCommentMarker(workItemId: string) {
-	return `${ISSUE_STATUS_COMMENT_MARKER}${workItemId} -->`;
+	return `${ISSUE_STATUS_COMMENT_MARKER}${workItemId}${ISSUE_STATUS_COMMENT_MARKER_SUFFIX}`;
 }
 
 async function findExistingIssueStatusCommentArtifact(
