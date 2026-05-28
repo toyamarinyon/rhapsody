@@ -1057,8 +1057,8 @@ test("native closed blocker does not block and classifier runs", async () => {
 
 		expect(result.outcome).toBe("buildable");
 		expect(result.shouldStartBuilder).toBe(true);
-		expect(result.commentPosted).toBe(true);
-		expect(posted).toHaveLength(1);
+		expect(result.commentPosted).toBe(false);
+		expect(posted).toHaveLength(0);
 	} finally {
 		client.close();
 		database.cleanup();
@@ -1173,8 +1173,8 @@ test("runIntakeCurator does not block when blocker is closed", async () => {
 
 		expect(result.outcome).toBe("buildable");
 		expect(result.shouldStartBuilder).toBe(true);
-		expect(result.commentPosted).toBe(true);
-		expect(posted).toHaveLength(1);
+		expect(result.commentPosted).toBe(false);
+		expect(posted).toHaveLength(0);
 	} finally {
 		client.close();
 		database.cleanup();
@@ -1252,8 +1252,13 @@ test("runIntakeCurator posts comment for buildable items", async () => {
 
 		expect(result.outcome).toBe("buildable");
 		expect(result.shouldStartBuilder).toBe(true);
-		expect(result.commentPosted).toBe(true);
-		expect(posted).toHaveLength(1);
+		expect(result.commentPosted).toBe(false);
+		expect(posted).toHaveLength(0);
+
+		const graph = await listWorkItemGraph(client, workItemId);
+		expect(
+			graph.artifacts.some((artifact) => artifact.kind === "intake_comment"),
+		).toBe(false);
 	} finally {
 		client.close();
 		database.cleanup();

@@ -480,6 +480,7 @@ export async function runIntakeCurator(
 
 	let commentPosted = false;
 	if (
+		finalClassification.decision !== "buildable" &&
 		finalClassification.comment.trim() &&
 		!(await hasExistingIntakeCommentForFingerprint({
 			client,
