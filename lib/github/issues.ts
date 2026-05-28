@@ -56,6 +56,8 @@ type ListDependenciesBlockedByDependency =
 	ListDependenciesBlockedByResponse["data"][number];
 type CreateIssueCommentFn = Octokit["rest"]["issues"]["createComment"];
 type CreateIssueCommentResponse = Awaited<ReturnType<CreateIssueCommentFn>>;
+type UpdateIssueCommentFn = Octokit["rest"]["issues"]["updateComment"];
+type UpdateIssueCommentResponse = Awaited<ReturnType<UpdateIssueCommentFn>>;
 type CreateIssueReactionFn = Octokit["rest"]["reactions"]["createForIssue"];
 type CreateIssueReactionResponse = Awaited<ReturnType<CreateIssueReactionFn>>;
 type GetIssueFn = Octokit["rest"]["issues"]["get"];
@@ -225,6 +227,63 @@ export async function createIssueComment(
 			input.owner,
 			input.repository,
 			input.issueNumber,
+			message,
+		);
+	}
+
+	return {
+		id: response.data.id,
+		htmlUrl: response.data.html_url,
+	};
+}
+
+export async function updateIssueComment(
+	input: {
+		owner: string;
+		repository: string;
+		commentId: number;
+		body: string;
+	},
+	env: RhapsodyGitHubEnv = loadRhapsodyGitHubEnv(),
+	options?: {
+		octokit?: {
+			rest: {
+				issues: {
+					updateComment: (
+						...args: Parameters<UpdateIssueCommentFn>
+					) => ReturnType<UpdateIssueCommentFn>;
+				};
+			};
+		};
+	},
+): Promise<{ id: number; htmlUrl: string }> {
+	const octokit = options?.octokit ?? new Octokit({ auth: env.GITHUB_TOKEN });
+	let response: UpdateIssueCommentResponse;
+	try {
+		response = await octokit.rest.issues.updateComment({
+			owner: input.owner,
+			repo: input.repository,
+			comment_id: input.commentId,
+			body: input.body,
+			headers: {
+				Accept: "application/vnd.github+json",
+				"X-GitHub-Api-Version": "2022-11-28",
+			},
+		});
+	} catch (error) {
+		const typedError = error as Error & { status?: number };
+		const status =
+			typeof typedError?.status === "number" ? typedError.status : 500;
+		const message =
+			typeof typedError?.message === "string"
+				? typedError.message
+				: "GitHub issue comment request failed.";
+
+		throw new GitHubIssueCommentError(
+			status,
+			input.owner,
+			input.repository,
+			0,
 			message,
 		);
 	}

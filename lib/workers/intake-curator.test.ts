@@ -5,6 +5,7 @@ import path from "node:path";
 import { type Client, createClient } from "@libsql/client";
 import { expect, test, vi } from "vitest";
 import type { GitHubIssueComment } from "@/lib/github/issues";
+import * as issueStatusComment from "@/lib/github/issue-status-comment";
 import {
 	createArtifact,
 	createDecision,
@@ -362,7 +363,6 @@ test("runIntakeCurator dedupes by fingerprint and reuses decision", async () => 
 	const workItemId = "github_issue:toyamarinyon/rhapsody#210";
 
 	try {
-		const reaction = vi.fn();
 		const workerRun = await createWorkerRun(client, {
 			id: "wrn_existing",
 			workItemId,
@@ -387,7 +387,6 @@ test("runIntakeCurator dedupes by fingerprint and reuses decision", async () => 
 			dependencies: {
 				fetchBlockedBy: noNativeDependenciesFetcher,
 			},
-			reaction,
 			classify: async () =>
 				buildClassifierResult({
 					decision: "buildable",
@@ -421,30 +420,35 @@ test("runIntakeCurator dedupes by fingerprint and reuses decision", async () => 
 		expect(result.skippedFreshDuplicate).toBe(true);
 		expect(result.workerRunId).toBeNull();
 		expect(result.shouldStartBuilder).toBe(true);
-		expect(reaction).not.toHaveBeenCalled();
 	} finally {
 		client.close();
 		database.cleanup();
 	}
 });
 
-test("runIntakeCurator adds an eyes reaction when intake executes", async () => {
+test("runIntakeCurator upserts an issue status comment when intake executes", async () => {
 	const database = await createTestDatabase();
 	const client = database.client;
 	const workItem = buildProjectItem({
 		issueNumber: 211,
-		issueTitle: "Reaction on intake",
+		issueTitle: "Status comment on intake",
 		issueBody: "This is a full sentence body for intake validation.",
 	});
 	const workItemId = "github_issue:toyamarinyon/rhapsody#211";
-	const reaction = vi.fn(async () => ({ id: 555, content: "eyes" as const }));
+	const upsert = vi
+		.spyOn(issueStatusComment, "upsertIssueStatusComment")
+		.mockResolvedValue({
+			ok: true,
+			commentId: 555,
+			commentUrl:
+				"https://github.com/toyamarinyon/rhapsody/issues/211#issuecomment-555",
+		});
 
 	try {
 		const result = await runIntakeCurator(client, workItem, workItemId, {
 			dependencies: {
 				fetchBlockedBy: noNativeDependenciesFetcher,
 			},
-			reaction,
 			classify: async () =>
 				buildClassifierResult({
 					decision: "buildable",
@@ -455,38 +459,36 @@ test("runIntakeCurator adds an eyes reaction when intake executes", async () => 
 		});
 
 		expect(result.skippedFreshDuplicate).toBe(false);
-		expect(reaction).toHaveBeenCalledTimes(1);
-		expect(reaction).toHaveBeenCalledWith({
-			owner: "toyamarinyon",
-			repository: "rhapsody",
-			issueNumber: 211,
-			content: "eyes",
-		});
+		expect(upsert).toHaveBeenCalled();
+		expect(upsert.mock.calls.map(([call]) => call.status)).toContain("running");
 	} finally {
+		upsert.mockRestore();
 		client.close();
 		database.cleanup();
 	}
 });
 
-test("runIntakeCurator records a warn event when eyes reaction fails", async () => {
+test("runIntakeCurator records a warn event when issue status comment upsert fails", async () => {
 	const database = await createTestDatabase();
 	const client = database.client;
 	const workItem = buildProjectItem({
 		issueNumber: 212,
-		issueTitle: "Reaction failure",
+		issueTitle: "Status comment failure",
 		issueBody: "This is a full sentence body for intake validation.",
 	});
 	const workItemId = "github_issue:toyamarinyon/rhapsody#212";
-	const reaction = vi.fn(async () => {
-		throw Object.assign(new Error("reaction denied"), { status: 403 });
-	});
+	const upsert = vi
+		.spyOn(issueStatusComment, "upsertIssueStatusComment")
+		.mockResolvedValue({
+			ok: false,
+			error: "comment denied",
+		});
 
 	try {
 		const result = await runIntakeCurator(client, workItem, workItemId, {
 			dependencies: {
 				fetchBlockedBy: noNativeDependenciesFetcher,
 			},
-			reaction,
 			classify: async () =>
 				buildClassifierResult({
 					decision: "buildable",
@@ -497,7 +499,7 @@ test("runIntakeCurator records a warn event when eyes reaction fails", async () 
 		});
 
 		expect(result.outcome).toBe("buildable");
-		expect(reaction).toHaveBeenCalledTimes(1);
+		expect(upsert).toHaveBeenCalled();
 
 		const events = await client.execute({
 			sql: `
@@ -507,7 +509,7 @@ test("runIntakeCurator records a warn event when eyes reaction fails", async () 
 				ORDER BY created_at DESC
 				LIMIT 1
 			`,
-			args: ["intake_curator.issue_reaction_failed"],
+			args: ["intake_curator.issue_status_comment_failed"],
 		});
 
 		expect(events.rows).toHaveLength(1);
@@ -518,18 +520,21 @@ test("runIntakeCurator records a warn event when eyes reaction fails", async () 
 			data_json: string | null;
 		};
 		expect(row.level).toBe("warn");
-		expect(row.type).toBe("intake_curator.issue_reaction_failed");
-		expect(row.message).toBe("Failed to add eyes reaction to GitHub issue.");
+		expect(row.type).toBe("intake_curator.issue_status_comment_failed");
+		expect(row.message).toBe(
+			"Failed to upsert issue status comment on GitHub issue.",
+		);
 		expect(JSON.parse(row.data_json ?? "{}")).toMatchObject({
 			workItemId,
 			issueNumber: 212,
-			issueTitle: "Reaction failure",
+			issueTitle: "Status comment failure",
 			issueOwner: "toyamarinyon",
 			issueRepository: "rhapsody",
-			reaction: "eyes",
-			error: "reaction denied",
+			kind: "issue_status_comment",
+			error: "comment denied",
 		});
 	} finally {
+		upsert.mockRestore();
 		client.close();
 		database.cleanup();
 	}
