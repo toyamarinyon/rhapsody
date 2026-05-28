@@ -237,6 +237,7 @@ export async function loadWorkItemDiagnosticsProjection(
 	const latestCommentArtifact = getLatestArtifact(graph, [
 		"intake_comment",
 		"repair_blocked_comment",
+		"issue_status_comment",
 	]);
 	const latestPrArtifact = getLatestArtifact(graph, ["pull_request"]);
 	const github = extractGitHubWorkItem(

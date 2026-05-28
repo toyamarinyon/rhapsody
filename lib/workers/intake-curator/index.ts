@@ -7,12 +7,12 @@ import type { Client } from "@libsql/client";
 import { z } from "zod";
 import {
 	createIssueComment,
-	createIssueReaction,
 	fetchIssueComments,
 	fetchIssueDependenciesBlockedBy,
 	type GitHubBlockedByDependency,
 	type GitHubIssueComment,
 } from "@/lib/github/issues";
+import { upsertIssueStatusComment } from "@/lib/github/issue-status-comment";
 import type { GitHubProjectIssueWorkItem } from "@/lib/github/project-items";
 import {
 	createArtifact,
@@ -248,13 +248,6 @@ export type IssueCommenter = (input: {
 	body: string;
 }) => Promise<{ id: number; htmlUrl: string }>;
 
-export type IssueReactor = (input: {
-	owner: string;
-	repository: string;
-	issueNumber: number;
-	content: "eyes";
-}) => Promise<{ id: number; content: string }>;
-
 type IntakeIssueCommentFetcher = (input: {
 	owner: string;
 	repository: string;
@@ -266,7 +259,6 @@ export type IntakeCuratorOptions = {
 	classify?: IntakeClassifierRunner;
 	nowMs?: number;
 	comment?: IssueCommenter;
-	reaction?: IssueReactor;
 	schemaFilePath?: string;
 	dependencies?: {
 		fetchBlockedBy?: IntakeBlockedByDependencyFetcher;
@@ -325,11 +317,14 @@ export async function runIntakeCurator(
 		};
 	}
 
-	await addIntakeEyesReaction({
+	await upsertIssueStatusCommentForIntake({
 		client,
 		workItem,
 		workItemId,
-		reaction: options.reaction ?? createIssueReaction,
+		status: "running",
+		currentStep: "Intake classification started",
+		workerRunId: null,
+		latestRun: null,
 	});
 
 	let finalClassification: IntakeWorkerClassification;
@@ -441,6 +436,29 @@ export async function runIntakeCurator(
 		decisionEvidence.classifierDiagnostics = classifierDiagnostics;
 	}
 
+	await upsertIssueStatusCommentForIntake({
+		client,
+		workItem,
+		workItemId,
+		status:
+			finalClassification.decision === "buildable"
+				? "in progress"
+				: finalClassification.decision === "ask_human" ||
+						finalClassification.decision === "blocked"
+					? "human review"
+					: "completed",
+		currentStep: "Classification completed",
+		workerRunId: workerRun.id,
+		latestRun: {
+			id: workerRun.id,
+			status: "completed",
+			kind: "intake_curator",
+			updatedAt: Date.now(),
+		},
+		latestEventType: "intake.classification.completed",
+		failurePoint: classifierDiagnostics?.failedAttempts.at(-1)?.stage ?? null,
+	});
+
 	const decisionId = await createDecision(client, {
 		workItemId,
 		workerRunId: workerRun.id,
@@ -494,26 +512,56 @@ export async function runIntakeCurator(
 	};
 }
 
-async function addIntakeEyesReaction(input: {
+async function upsertIssueStatusCommentForIntake(input: {
 	client: Client;
 	workItem: IntakeCuratorWorkItem;
 	workItemId: string;
-	reaction: IssueReactor;
+	status: string | null;
+	currentStep: string | null;
+	workerRunId: string | null;
+	latestRun: {
+		id: string;
+		status: string;
+		kind: string;
+		updatedAt: number;
+	} | null;
+	latestEventType?: string | null;
+	failurePoint?: string | null;
 }) {
+	const result = await upsertIssueStatusComment({
+		client: input.client,
+		workItemId: input.workItemId,
+		owner: input.workItem.repository.owner,
+		repository: input.workItem.repository.name,
+		issueNumber: input.workItem.issueNumber,
+		issueTitle: input.workItem.issueTitle,
+		status: input.status,
+		currentStep: input.currentStep,
+		updatedAt: Date.now(),
+		dashboardUrl: null,
+		latestRun: input.latestRun,
+		pullRequestUrl: null,
+		lastHeartbeat: null,
+		latestEvent: input.latestEventType
+			? { type: input.latestEventType, message: null }
+			: null,
+		failurePoint: input.failurePoint ?? null,
+		workerRunId: input.workerRunId,
+	});
+
+	if (result.ok) {
+		return;
+	}
+
 	try {
-		await input.reaction({
-			owner: input.workItem.repository.owner,
-			repository: input.workItem.repository.name,
-			issueNumber: input.workItem.issueNumber,
-			content: "eyes",
-		});
-	} catch (error) {
 		await recordIntakeCuratorWarningEvent({
 			client: input.client,
 			workItemId: input.workItemId,
 			workItem: input.workItem,
-			error: error instanceof Error ? error.message : String(error),
+			error: result.error,
 		});
+	} catch {
+		return;
 	}
 }
 
@@ -526,15 +574,15 @@ async function recordIntakeCuratorWarningEvent(input: {
 	try {
 		await createEvent(input.client, {
 			level: "warn",
-			type: "intake_curator.issue_reaction_failed",
-			message: "Failed to add eyes reaction to GitHub issue.",
+			type: "intake_curator.issue_status_comment_failed",
+			message: "Failed to upsert issue status comment on GitHub issue.",
 			data: {
 				workItemId: input.workItemId,
 				issueNumber: input.workItem.issueNumber,
 				issueTitle: input.workItem.issueTitle,
 				issueOwner: input.workItem.repository.owner,
 				issueRepository: input.workItem.repository.name,
-				reaction: "eyes",
+				kind: "issue_status_comment",
 				error: boundedRedactedOutputPreview(input.error, 300),
 			},
 		});

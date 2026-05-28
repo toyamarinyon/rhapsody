@@ -11,6 +11,7 @@ import {
 	GitHubIssueCommentError,
 	GitHubIssueFetchError,
 	GitHubIssueReactionError,
+	updateIssueComment,
 } from "@/lib/github/issues";
 
 type ListDependenciesBlockedByResponse = Awaited<
@@ -25,12 +26,16 @@ type ListIssueCommentsComment = ListIssueCommentsResponse["data"][number];
 type CreateIssueCommentResponse = Awaited<
 	ReturnType<Octokit["rest"]["issues"]["createComment"]>
 >;
+type UpdateIssueCommentResponse = Awaited<
+	ReturnType<Octokit["rest"]["issues"]["updateComment"]>
+>;
 type CreateIssueReactionResponse = Awaited<
 	ReturnType<Octokit["rest"]["reactions"]["createForIssue"]>
 >;
 type ListDependenciesBlockedByMock = ReturnType<typeof vi.fn>;
 type ListIssueCommentsMock = ReturnType<typeof vi.fn>;
 type CreateIssueCommentMock = ReturnType<typeof vi.fn>;
+type UpdateIssueCommentMock = ReturnType<typeof vi.fn>;
 type CreateIssueReactionMock = ReturnType<typeof vi.fn>;
 type GetIssueMock = ReturnType<typeof vi.fn>;
 type MockOctokit = {
@@ -39,6 +44,7 @@ type MockOctokit = {
 			listDependenciesBlockedBy: ListDependenciesBlockedByMock;
 			listComments: ListIssueCommentsMock;
 			createComment: CreateIssueCommentMock;
+			updateComment: UpdateIssueCommentMock;
 			get: GetIssueMock;
 		};
 		reactions: {
@@ -53,6 +59,7 @@ const createOctokitMock = () => ({
 			listDependenciesBlockedBy: vi.fn(),
 			listComments: vi.fn(),
 			createComment: vi.fn(),
+			updateComment: vi.fn(),
 			get: vi.fn(),
 		},
 		reactions: {
@@ -729,6 +736,63 @@ test("createIssueComment creates comment via Octokit and returns normalized shap
 		repo: "rhapsody",
 		issue_number: 12,
 		body: "Hello",
+		headers: {
+			Accept: "application/vnd.github+json",
+			"X-GitHub-Api-Version": "2022-11-28",
+		},
+	});
+});
+
+test("updateIssueComment updates comment via Octokit and returns normalized shape", async () => {
+	const octokit = createOctokitMock() as MockOctokit;
+	const updateComment = octokit.rest.issues
+		.updateComment as UpdateIssueCommentMock;
+
+	const response: UpdateIssueCommentResponse = {
+		data: {
+			id: 456,
+			html_url: "https://github.com/octo/rhapsody/issues/12#issuecomment-456",
+			url: "https://api.github.com/repos/octo/rhapsody/issues/comments/456",
+			node_id: "MDEyOklzc3VlQ29tbWVudDQ1Ng==",
+			body: "Updated",
+			body_text: "Updated",
+			body_html: "<p>Updated</p>",
+			issue_url: "https://api.github.com/repos/octo/rhapsody/issues/12",
+			created_at: "2026-01-01T00:00:00Z",
+			updated_at: "2026-01-02T00:00:00Z",
+			author_association: "NONE",
+			user: null,
+		},
+		status: 200,
+		headers: {},
+		url: "",
+	};
+	updateComment.mockResolvedValue(response);
+
+	const result = await updateIssueComment(
+		{
+			owner: "octo",
+			repository: "rhapsody",
+			commentId: 456,
+			body: "Updated",
+		},
+		{
+			GITHUB_TOKEN: "test-token",
+		},
+		{
+			octokit,
+		},
+	);
+
+	expect(result).toEqual({
+		id: 456,
+		htmlUrl: "https://github.com/octo/rhapsody/issues/12#issuecomment-456",
+	});
+	expect(updateComment).toHaveBeenCalledWith({
+		owner: "octo",
+		repo: "rhapsody",
+		comment_id: 456,
+		body: "Updated",
 		headers: {
 			Accept: "application/vnd.github+json",
 			"X-GitHub-Api-Version": "2022-11-28",

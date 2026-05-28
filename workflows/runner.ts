@@ -2,6 +2,7 @@ import { createHook } from "workflow";
 import { parseWorkItemIssueNumber } from "@/lib/attempt-branch";
 import { loadRhapsodyConfig } from "@/lib/config";
 import { appendIssueReference } from "@/lib/github/issue-reference";
+import { upsertIssueStatusComment } from "@/lib/github/issue-status-comment";
 import { createOrReuseOpenPullRequest } from "@/lib/github/pull-requests";
 import { runAttemptExecution } from "@/lib/runners/registry";
 import {
@@ -341,12 +342,48 @@ async function recordBuilderOutcome(
 					artifactKind: "pull_request",
 				},
 			});
+
+			await upsertBuilderIssueStatusComment({
+				client,
+				workItemId,
+				workItemTitle: detail?.run?.workItemTitle ?? null,
+				workerRunId: input.builderWorkerRunId,
+				pullRequestUrl: handoff.pullRequest.htmlUrl,
+				status: "PR ready",
+				currentStep: "Pull request created or reused",
+				latestEvent: {
+					type: "sandbox_codex_runner.pull_request_ready",
+					message:
+						"Runner workflow created or reused a pull request for handoff.",
+				},
+			});
 		}
 
 		await updateWorkerRunStatus(client, {
 			id: input.builderWorkerRunId,
 			status: builderRunFinalStatusFromAttemptResult(finalization),
 		});
+
+		if (!handoff.ok || !handoff.pullRequest) {
+			await upsertBuilderIssueStatusComment({
+				client,
+				workItemId,
+				workItemTitle: detail?.run?.workItemTitle ?? null,
+				workerRunId: input.builderWorkerRunId,
+				pullRequestUrl: null,
+				status: handoff.ok ? "in progress" : "failed",
+				currentStep: handoff.ok
+					? "Runner completed without a pull request handoff"
+					: "Pull request handoff failed",
+				latestEvent: {
+					type: handoff.ok
+						? "sandbox_codex_runner.pull_request_missing"
+						: "sandbox_codex_runner.pull_request_failed",
+					message: handoff.ok ? null : handoff.error,
+				},
+				failurePoint: handoff.ok ? null : "pull_request_handoff",
+			});
+		}
 	} catch (error) {
 		await createEvent(client, {
 			runId: input.runId,
@@ -363,6 +400,63 @@ async function recordBuilderOutcome(
 	} finally {
 		client.close();
 	}
+}
+
+async function upsertBuilderIssueStatusComment(input: {
+	client: ReturnType<typeof createStateStoreClient>;
+	workItemId: string;
+	workItemTitle: string | null;
+	workerRunId: string;
+	pullRequestUrl: string | null;
+	status: string;
+	currentStep: string;
+	latestEvent: { type: string; message: string | null };
+	failurePoint?: string | null;
+}) {
+	const issueNumber = parseWorkItemIssueNumber({
+		workItemId: input.workItemId,
+	});
+
+	if (issueNumber === null) {
+		return;
+	}
+
+	const config = loadRhapsodyConfig();
+	await upsertIssueStatusComment({
+		client: input.client,
+		workItemId: input.workItemId,
+		owner: config.repository.owner,
+		repository: config.repository.name,
+		issueNumber,
+		issueTitle: input.workItemTitle ?? `#${issueNumber}`,
+		status: input.status,
+		currentStep: input.currentStep,
+		updatedAt: Date.now(),
+		dashboardUrl: buildDashboardWorkItemUrl(input.workItemId),
+		latestRun: {
+			id: input.workerRunId,
+			status: "running",
+			kind: "builder",
+			updatedAt: Date.now(),
+		},
+		pullRequestUrl: input.pullRequestUrl,
+		lastHeartbeat: null,
+		latestEvent: input.latestEvent,
+		failurePoint: input.failurePoint ?? null,
+		workerRunId: input.workerRunId,
+	});
+}
+
+function buildDashboardWorkItemUrl(workItemId: string) {
+	const baseUrl = process.env.VERCEL_URL
+		? `https://${process.env.VERCEL_URL.replace(/^https?:\/\//, "")}`
+		: null;
+
+	if (!baseUrl) {
+		return null;
+	}
+
+	return `${baseUrl}/dashboard/work-items/${encodeURIComponent(workItemId)}`;
 }
 
 function builderOutcomeFromResult(input: {
