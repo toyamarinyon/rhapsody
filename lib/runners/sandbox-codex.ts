@@ -17,8 +17,9 @@ import {
 import {
 	buildInstructionContext,
 	InstructionTemplateError,
-	loadRepositoryInstructions,
+	RHAPSODY_INSTRUCTION_PATH,
 	renderRepositoryInstructions,
+	validateRepositoryInstructionsTemplate,
 } from "@/lib/instructions";
 import {
 	expandSandboxNetworkPolicyForPreset,
@@ -128,11 +129,6 @@ export async function runSandboxCodexRunner(
 		};
 		const builderWorkerRunId = parsedBody.value.builderWorkerRunId ?? null;
 		const targetSandboxMode = "workspace-write";
-		const instructions = await loadRepositoryInstructions();
-		const prompt = renderRepositoryInstructions({
-			template: instructions.template,
-			context: buildInstructionContext({ detail, attempt, config }),
-		});
 		const expectedRepositoryUrl = `https://github.com/${config.repository.owner}/${config.repository.name}.git`;
 		const fallbackBranchName = buildAttemptBranchName({
 			branchPrefix: config.repository.branchPrefix,
@@ -142,17 +138,7 @@ export async function runSandboxCodexRunner(
 			attemptNumber: attempt.attemptNumber,
 		});
 		const requestedBranchName = attempt.gitBranchName ?? fallbackBranchName;
-		const executionPrompt = buildExecutionPrompt({
-			prompt,
-			targetRepositoryUrl: expectedRepositoryUrl,
-			targetBranchName: requestedBranchName,
-			sandboxMode: targetSandboxMode,
-		});
-		const promptSummary = {
-			instructionPath: instructions.instructionPath,
-			length: executionPrompt.length,
-			preview: executionPrompt.slice(0, PROMPT_PREVIEW_LENGTH),
-		};
+		const branchName = requestedBranchName;
 
 		if (
 			isTerminalRunStatus(detail.run.status) ||
@@ -162,22 +148,10 @@ export async function runSandboxCodexRunner(
 				idempotent: true,
 				runStatus: detail.run.status,
 				attemptStatus: attempt.status,
-				prompt: promptSummary,
+				prompt: null,
 			});
 		}
 
-		const codexCommand = buildCodexExecCommand({
-			cwd: REPOSITORY_PATH,
-			prompt: executionPrompt,
-			approvalPolicy: "never",
-			sandboxMode: targetSandboxMode,
-			json: true,
-			skipGitRepoCheck: true,
-			ephemeral: true,
-			dangerouslyBypassApprovalsAndSandbox: true,
-			configOverrides: codexConfigOverrides,
-			timeoutMs: runnerConfig.timeoutMs,
-		});
 		const mediatorEnv = loadRhapsodyMediatorEnv();
 		const protectionBypassEnv = loadRhapsodyProtectionBypassEnv();
 		const codexBaseSnapshotEnv = loadRhapsodyCodexBaseSnapshotEnv();
@@ -247,6 +221,94 @@ export async function runSandboxCodexRunner(
 		});
 		const wrapperSource = await readFile(WRAPPER_SOURCE_PATH, "utf8");
 
+		const sourcePreparationSummary = await prepareSourceInSandbox({
+			client,
+			sandbox,
+			sandboxEventContext,
+			repositoryUrl: expectedRepositoryUrl,
+			branchName,
+		});
+		await createEvent(client, {
+			runId,
+			attemptId,
+			level: sourcePreparationSummary.success ? "info" : "error",
+			type: "sandbox_codex_runner.source_preparation",
+			message: "Prepared repository source for the attempt.",
+			data: {
+				repositoryUrl: expectedRepositoryUrl,
+				branchName,
+				codexMode: CODEX_MODE,
+				commands: {
+					clone: summarizeCommand(
+						sourcePreparationSummary.cloneCommand,
+						runnerConfig.outputPreviewLength,
+					),
+					checkout: sourcePreparationSummary.checkoutCommand
+						? summarizeCommand(
+								sourcePreparationSummary.checkoutCommand,
+								runnerConfig.outputPreviewLength,
+							)
+						: null,
+				},
+				success: sourcePreparationSummary.success,
+			},
+		});
+
+		if (!sourcePreparationSummary.success) {
+			return Response.json(
+				{
+					error: "Source preparation failed.",
+					repositoryUrl: expectedRepositoryUrl,
+					branchName,
+				},
+				{ status: 500 },
+			);
+		}
+
+		const instructionsResult = await loadRepositoryInstructionsFromSandbox({
+			client,
+			sandbox,
+			sandboxEventContext,
+		});
+
+		if (!instructionsResult.ok) {
+			return Response.json(
+				{
+					error: instructionsResult.error,
+					instructionPath: instructionsResult.instructionPath,
+				},
+				{ status: 422 },
+			);
+		}
+
+		const prompt = renderRepositoryInstructions({
+			template: instructionsResult.instructions.template,
+			context: buildInstructionContext({ detail, attempt, config }),
+		});
+		const executionPrompt = buildExecutionPrompt({
+			prompt,
+			targetRepositoryUrl: expectedRepositoryUrl,
+			targetBranchName: requestedBranchName,
+			sandboxMode: targetSandboxMode,
+		});
+		const promptSummary = {
+			instructionPath: instructionsResult.instructions.instructionPath,
+			length: executionPrompt.length,
+			preview: executionPrompt.slice(0, PROMPT_PREVIEW_LENGTH),
+		};
+		const codexCommand = buildCodexExecCommand({
+			cwd: REPOSITORY_PATH,
+			prompt: executionPrompt,
+			approvalPolicy: "never",
+			sandboxMode: targetSandboxMode,
+			json: true,
+			skipGitRepoCheck: true,
+			ephemeral: true,
+			dangerouslyBypassApprovalsAndSandbox: true,
+			configOverrides: codexConfigOverrides,
+			timeoutMs: runnerConfig.timeoutMs,
+		});
+
 		await writeVercelSandboxFiles(sandbox, [
 			{
 				path: WRAPPER_PATH,
@@ -302,19 +364,11 @@ export async function runSandboxCodexRunner(
 			command: COMMAND,
 		});
 
-		const refreshedAttempt = (await getRunDetail(client, runId))?.attempts.find(
-			(candidate) => candidate.id === attemptId,
-		);
-		const branchName =
-			refreshedAttempt?.gitBranchName ||
-			attempt.gitBranchName ||
-			requestedBranchName;
-
 		if (!startResult.applied) {
 			return Response.json(
 				{
 					error: "Attempt could not be started.",
-					prompt: promptSummary,
+					prompt: null,
 					sandboxId: getVercelSandboxId(sandbox),
 					startResult,
 				},
@@ -329,50 +383,6 @@ export async function runSandboxCodexRunner(
 						"Attempt branch name is required for source preparation. Retry start flow to seed a deterministic branch name.",
 				},
 				{ status: 409 },
-			);
-		}
-
-		const sourcePreparationSummary = await prepareSourceInSandbox({
-			client,
-			sandbox,
-			sandboxEventContext,
-			repositoryUrl: expectedRepositoryUrl,
-			branchName,
-		});
-		await createEvent(client, {
-			runId,
-			attemptId,
-			level: sourcePreparationSummary.success ? "info" : "error",
-			type: "sandbox_codex_runner.source_preparation",
-			message: "Prepared repository source for the attempt.",
-			data: {
-				repositoryUrl: expectedRepositoryUrl,
-				branchName,
-				codexMode: CODEX_MODE,
-				commands: {
-					clone: summarizeCommand(
-						sourcePreparationSummary.cloneCommand,
-						runnerConfig.outputPreviewLength,
-					),
-					checkout: sourcePreparationSummary.checkoutCommand
-						? summarizeCommand(
-								sourcePreparationSummary.checkoutCommand,
-								runnerConfig.outputPreviewLength,
-							)
-						: null,
-				},
-				success: sourcePreparationSummary.success,
-			},
-		});
-
-		if (!sourcePreparationSummary.success) {
-			return Response.json(
-				{
-					error: "Source preparation failed.",
-					repositoryUrl: expectedRepositoryUrl,
-					branchName,
-				},
-				{ status: 500 },
 			);
 		}
 
@@ -742,6 +752,92 @@ async function prepareSourceInSandbox({
 		cloneCommand,
 		checkoutCommand,
 	};
+}
+
+async function loadRepositoryInstructionsFromSandbox(params: {
+	client: RunnerRouteContext["client"];
+	sandbox: RhapsodyVercelSandbox;
+	sandboxEventContext: SandboxLifecycleEventContext;
+}): Promise<
+	| {
+			ok: true;
+			instructions: { template: string; instructionPath: string };
+	  }
+	| {
+			ok: false;
+			error: string;
+			instructionPath: string;
+	  }
+> {
+	const instructionPath = `${REPOSITORY_PATH}/${RHAPSODY_INSTRUCTION_PATH}`;
+	const command = await runVercelSandboxCommand(params.sandbox, {
+		cmd: "cat",
+		args: [instructionPath],
+		cwd: SANDBOX_WORKDIR,
+	});
+	await recordSandboxCommandStartedEvent({
+		client: params.client,
+		context: params.sandboxEventContext,
+		commandName: "repository_instructions_read",
+		summary: command,
+	});
+	await recordSandboxCommandFinishedEvent({
+		client: params.client,
+		context: params.sandboxEventContext,
+		commandName: "repository_instructions_read",
+		summary: command,
+	});
+
+	if (command.exitCode !== 0) {
+		await createEvent(params.client, {
+			runId: params.sandboxEventContext.runId,
+			attemptId: params.sandboxEventContext.attemptId,
+			level: "error",
+			type: "sandbox_codex_runner.repository_instructions_missing",
+			message: "Repository instructions could not be read from the sandbox.",
+			data: {
+				instructionPath,
+				command: summarizeCommand(command, 240),
+			},
+		});
+
+		return {
+			ok: false,
+			error: `Repository instructions file not found in sandbox: ${instructionPath}.`,
+			instructionPath,
+		};
+	}
+
+	const instructionTemplate = command.stdout.trim();
+
+	if (!instructionTemplate) {
+		await createEvent(params.client, {
+			runId: params.sandboxEventContext.runId,
+			attemptId: params.sandboxEventContext.attemptId,
+			level: "error",
+			type: "sandbox_codex_runner.repository_instructions_missing",
+			message: "Repository instructions file was empty in the sandbox.",
+			data: {
+				instructionPath,
+				command: summarizeCommand(command, 240),
+			},
+		});
+
+		return {
+			ok: false,
+			error: `Repository instructions file is empty in sandbox: ${instructionPath}.`,
+			instructionPath,
+		};
+	}
+
+	const instructions = validateRepositoryInstructionsTemplate(
+		instructionTemplate,
+		{
+			instructionPath,
+		},
+	);
+
+	return { ok: true, instructions };
 }
 
 function summarizeCommand(
