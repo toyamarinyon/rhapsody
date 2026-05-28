@@ -1,0 +1,9 @@
+rhapsody/instructionの場所問題について考えていきたいのですが、今はどうしてrepoが読めてないですか？
+
+---
+
+1. で読んで、それをcodex exec時に参照できますか？
+
+---
+
+sandboxからserverに戻して、再度sandboxで実行するイメージであっていますか？

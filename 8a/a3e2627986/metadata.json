@@ -3,7 +3,7 @@
   "checkpoint_id": "8aa3e2627986",
   "strategy": "manual-commit",
   "branch": "codex-update-readme-launch-positioning",
-  "checkpoints_count": 3,
+  "checkpoints_count": 6,
   "files_touched": [
     "README.md"
   ],
@@ -13,13 +13,19 @@
       "transcript": "/8a/a3e2627986/0/full.jsonl",
       "content_hash": "/8a/a3e2627986/0/content_hash.txt",
       "prompt": "/8a/a3e2627986/0/prompt.txt"
+    },
+    {
+      "metadata": "/8a/a3e2627986/1/metadata.json",
+      "transcript": "/8a/a3e2627986/1/full.jsonl",
+      "content_hash": "/8a/a3e2627986/1/content_hash.txt",
+      "prompt": "/8a/a3e2627986/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 267592,
+    "input_tokens": 622912,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 1728512,
-    "output_tokens": 15287,
-    "api_call_count": 28
+    "cache_read_tokens": 3405312,
+    "output_tokens": 32706,
+    "api_call_count": 56
   }
 }
