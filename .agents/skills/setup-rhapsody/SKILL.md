@@ -1,0 +1,101 @@
+---
+name: setup-rhapsody
+description: Guide first-run Rhapsody onboarding. Use when the user invokes "$setup-rhapsody" or asks to set up, deploy, configure, or connect Rhapsody to Vercel, GitHub Projects, Turso/libSQL, Codex credentials, and repository-owned .rhapsody files. Covers prerequisite inspection, safe setup phases, user handoff points, preview-first deployment, and first issue smoke testing.
+---
+
+# Setup Rhapsody
+
+## Goal
+
+Guide an operator from a local Rhapsody checkout to a first runnable deployment without hiding
+credentials or making destructive remote changes. Prefer preview-first setup and explicit operator
+confirmation before production deployment, ProjectV2 mutation, or existing file edits.
+
+Follow [ADR 0015](../../../docs/adr/0015-use-setup-skill-for-first-run-onboarding.md) when it is
+present.
+
+## Default Flow
+
+Treat setup as resumable phases:
+
+1. `inspect`
+   - check `gh`, `vercel`, `pnpm`, and Node.js;
+   - check GitHub and Vercel authentication;
+   - infer Git remote, owner, repository, and current branch.
+2. `configure-local`
+   - confirm target GitHub owner/repository and ProjectV2 settings;
+   - generate or preserve local secrets;
+   - update `rhapsody.config.ts` only after explaining the intended diff;
+   - create `.rhapsody/INSTRUCTIONS.md` and `.rhapsody/config.toml` only when absent, or show a diff
+     and ask before modifying existing files.
+3. `configure-remotes`
+   - create or verify GitHub ProjectV2 configuration only after presenting a plan;
+   - never delete, rename, or reorder existing ProjectV2 fields/statuses;
+   - ask the operator to create Turso/libSQL and provide `TURSO_DATABASE_URL` and
+     `TURSO_AUTH_TOKEN`;
+   - configure Vercel environment variables with values redacted.
+4. `deploy-preview`
+   - run `pnpm install` when needed;
+   - run `pnpm db:migrate`;
+   - deploy a Vercel preview by default;
+   - ask before production env changes or production deployment.
+5. `smoke-test`
+   - guide the operator to create or choose one GitHub issue;
+   - place it in the configured active Project status;
+   - open `/dashboard`;
+   - trigger or wait for scheduler tick;
+   - verify run, attempt, branch, and pull request or handoff artifact evidence.
+
+## Inspect Phase
+
+Start by running the read-only helper:
+
+```bash
+pnpm setup:inspect
+```
+
+Use its output to decide the next step. If a required CLI is missing or unauthenticated, stop and ask
+the operator to install or log in before continuing.
+
+## Safety Rules
+
+- Do not print raw secrets.
+- Do not commit real secrets.
+- Do not write secrets to tracked files.
+- Before writing `.env.local`, verify it is ignored by Git.
+- Preserve existing env values unless the operator chooses to rotate or replace them.
+- Do not copy ChatGPT browser session state.
+- Do not copy Codex credential material unless the operator explicitly chooses the documented
+  Rhapsody credential seed flow.
+- Do not silently upload `INITIAL_CHATGPT_AUTH_JSON` to Vercel.
+- Do not silently overwrite `.rhapsody/INSTRUCTIONS.md`, `.rhapsody/config.toml`, `.codex/*`, or
+  `rhapsody.config.ts`.
+- Present a redacted plan before changing Vercel env vars, GitHub ProjectV2 configuration, or
+  production deployment.
+
+## User Handoffs
+
+Return control to the operator for:
+
+- missing CLI installation;
+- `gh auth login`;
+- Vercel login;
+- Turso/libSQL database creation and token generation;
+- Codex credential seed decisions;
+- production deployment confirmation.
+
+When handing off, state exactly what value or action is needed and how setup will resume.
+
+## Output Shape
+
+Keep updates concise and operational:
+
+```text
+Setup status:
+- inspect: done
+- configure-local: needs_user (TURSO_DATABASE_URL and TURSO_AUTH_TOKEN)
+- configure-remotes: blocked until Turso values are available
+
+Next action:
+Create a Turso/libSQL database, then provide TURSO_DATABASE_URL and TURSO_AUTH_TOKEN.
+```
