@@ -9,6 +9,7 @@
 		"db:migrate": "tsx scripts/db-migrate.ts",
 		"setup:inspect": "tsx scripts/setup-rhapsody-inspect.ts",
 		"setup:configure-local": "node --import tsx scripts/setup-rhapsody-configure-local.ts",
+		"setup:configure-github": "node --import tsx scripts/setup-rhapsody-configure-github.ts",
 		"lint": "eslint",
 		"test": "vitest",
 		"format:check": "biome format .",
