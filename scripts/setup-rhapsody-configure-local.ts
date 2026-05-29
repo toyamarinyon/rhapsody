@@ -1,5 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 
 type Check = {
@@ -45,16 +46,25 @@ type PlannedChange = {
 	wouldWrite: boolean;
 };
 
+type AppliedChange = {
+	key: string;
+	target: string;
+	action: string;
+	wrote: boolean;
+};
+
 type Report = {
 	ok: boolean;
-	mode: "dry-run";
+	mode: "dry-run" | "apply";
 	phase: "configure-local";
 	facts: Facts;
 	checks: Check[];
 	plannedChanges: PlannedChange[];
+	appliedChanges?: AppliedChange[];
 	needsUser: string[];
 	blocked: string[];
 	nextActions: string[];
+	error?: string;
 };
 
 const GENERATED_SECRET_KEYS = [
@@ -79,13 +89,22 @@ function run(command: string, args: string[]) {
 }
 
 function parseMode(argv: string[]) {
-	const flags = argv.slice(2).filter((flag) => flag !== "--");
-	if (flags.length === 0) {
+	const flags = argv.slice(2);
+	if (flags.length === 0 || (flags.length === 1 && flags[0] === "--")) {
 		return "dry-run" as const;
 	}
 
-	if (flags.length === 1 && flags[0] === "--dry-run") {
+	if (flags.length === 2 && flags[0] === "--" && flags[1] === "--dry-run") {
 		return "dry-run" as const;
+	}
+
+	if (
+		flags.length === 3 &&
+		flags[0] === "--" &&
+		flags[1] === "--apply" &&
+		flags[2] === "--yes"
+	) {
+		return "apply" as const;
 	}
 
 	return null;
@@ -183,6 +202,22 @@ function parseEnvFile(filePath: string) {
 	return keys;
 }
 
+function readEnvFile(filePath: string) {
+	return existsSync(filePath) ? readFileSync(filePath, "utf8") : null;
+}
+
+function ensureTrailingNewline(content: string) {
+	return content.endsWith("\n") ? content : `${content}\n`;
+}
+
+function formatGeneratedSecretValue() {
+	return randomBytes(32).toString("base64url");
+}
+
+function buildEnvAppendLines(missingKeys: readonly string[]) {
+	return missingKeys.map((key) => `${key}=${formatGeneratedSecretValue()}`);
+}
+
 function readEnvPresence(keys: readonly string[], envLocalKeys: Set<string>) {
 	const present: Record<string, boolean> = {};
 	const missing: string[] = [];
@@ -199,80 +234,26 @@ function readEnvPresence(keys: readonly string[], envLocalKeys: Set<string>) {
 	return { present, missing };
 }
 
-function main() {
-	const mode = parseMode(process.argv);
-	if (!mode) {
-		process.stdout.write(
-			JSON.stringify(
-				{
-					ok: false,
-					mode: "dry-run",
-					phase: "configure-local",
-					error:
-						"Unsupported arguments. This helper currently supports only dry-run mode.",
-				},
-				null,
-				2,
-			),
-		);
-		process.exitCode = 1;
-		return;
-	}
+function buildChecks(args: {
+	branch: string | null;
+	remote: {
+		url: string | null;
+		owner: string | null;
+		repository: string | null;
+	} | null;
+	files: Facts["files"];
+	generatedSecretsPresence: ReturnType<typeof readEnvPresence>;
+	externalInputsPresence: ReturnType<typeof readEnvPresence>;
+}): Check[] {
+	const {
+		branch,
+		remote,
+		files,
+		generatedSecretsPresence,
+		externalInputsPresence,
+	} = args;
 
-	const remote = readGitRemote();
-	const branch = readGitBranch();
-	const envLocalPath = path.join(process.cwd(), ".env.local");
-	const envLocalExists = existsSync(envLocalPath);
-	const envLocalIgnoredByGit = envLocalExists
-		? isIgnoredByGit(".env.local")
-		: null;
-	const envLocalKeys = parseEnvFile(envLocalPath);
-
-	const generatedSecretsPresence = readEnvPresence(
-		GENERATED_SECRET_KEYS,
-		envLocalKeys,
-	);
-	const externalInputsPresence = readEnvPresence(
-		EXTERNAL_INPUT_KEYS,
-		envLocalKeys,
-	);
-
-	const files = {
-		envLocalExists,
-		envLocalIgnoredByGit,
-		rhapsodyInstructionsExists: existsSync(
-			path.join(process.cwd(), ".rhapsody/INSTRUCTIONS.md"),
-		),
-		rhapsodyConfigTomlExists: existsSync(
-			path.join(process.cwd(), ".rhapsody/config.toml"),
-		),
-		rhapsodyConfigTsExists: existsSync(
-			path.join(process.cwd(), "rhapsody.config.ts"),
-		),
-	};
-
-	const blocked: string[] = [];
-	if (envLocalExists && envLocalIgnoredByGit === false) {
-		blocked.push(
-			".env.local is not ignored by git, so future write steps must not create or modify it until ignore rules are fixed.",
-		);
-	}
-	if (!remote?.owner || !remote.repository) {
-		blocked.push(
-			"GitHub repository owner and repository name could not be inferred from origin remote.",
-		);
-	}
-
-	const needsUser = externalInputsPresence.missing.map(
-		(key) => `Provide ${key} in process env or .env.local.`,
-	);
-	if (!remote?.owner || !remote.repository) {
-		needsUser.push(
-			"Confirm the GitHub owner/repository if the remote is not a GitHub origin.",
-		);
-	}
-
-	const checks: Check[] = [
+	return [
 		{
 			name: "git-branch",
 			ok: Boolean(branch),
@@ -289,14 +270,18 @@ function main() {
 		},
 		{
 			name: "env.local",
-			ok: !envLocalExists || envLocalIgnoredByGit !== false,
-			detail: envLocalExists
-				? envLocalIgnoredByGit === true
+			ok: !files.envLocalExists || files.envLocalIgnoredByGit !== false,
+			detail: files.envLocalExists
+				? files.envLocalIgnoredByGit === true
 					? ".env.local is ignored by git"
-					: envLocalIgnoredByGit === false
+					: files.envLocalIgnoredByGit === false
 						? ".env.local is not ignored by git"
 						: "git ignore status unavailable"
-				: ".env.local is missing",
+				: files.envLocalIgnoredByGit === true
+					? ".env.local is missing but ignored by git"
+					: files.envLocalIgnoredByGit === false
+						? ".env.local is missing and not ignored by git"
+						: ".env.local is missing",
 		},
 		{
 			name: "rhapsody.instructions",
@@ -330,14 +315,44 @@ function main() {
 					: `missing external inputs: ${externalInputsPresence.missing.join(", ")}`,
 		},
 	];
+}
 
-	const pendingGeneratedSecrets = generatedSecretsPresence.missing;
-	const pendingRepositoryFiles = [
-		!files.rhapsodyInstructionsExists ? ".rhapsody/INSTRUCTIONS.md" : null,
-		!files.rhapsodyConfigTomlExists ? ".rhapsody/config.toml" : null,
-	].filter((item): item is string => Boolean(item));
+function buildFacts(args: {
+	branch: string | null;
+	remote: {
+		url: string | null;
+		owner: string | null;
+		repository: string | null;
+	} | null;
+	files: Facts["files"];
+	generatedSecretsPresence: ReturnType<typeof readEnvPresence>;
+	externalInputsPresence: ReturnType<typeof readEnvPresence>;
+}): Facts {
+	return {
+		git: {
+			branch: args.branch,
+			remote: args.remote,
+		},
+		files: args.files,
+		env: {
+			generatedSecrets: {
+				present: args.generatedSecretsPresence.present,
+				missingGeneratedSecrets: args.generatedSecretsPresence.missing,
+			},
+			externalInputs: {
+				present: args.externalInputsPresence.present,
+				missingExternalInputs: args.externalInputsPresence.missing,
+			},
+		},
+	};
+}
 
-	const plannedChanges: PlannedChange[] = [
+function buildPlannedChanges(args: {
+	pendingGeneratedSecrets: string[];
+	files: Facts["files"];
+}) {
+	const { pendingGeneratedSecrets, files } = args;
+	return [
 		...(pendingGeneratedSecrets.length > 0
 			? [
 					{
@@ -351,7 +366,7 @@ function main() {
 					},
 				]
 			: []),
-		...(pendingRepositoryFiles.includes(".rhapsody/INSTRUCTIONS.md")
+		...(!files.rhapsodyInstructionsExists
 			? [
 					{
 						kind: "repository-file",
@@ -376,7 +391,7 @@ function main() {
 						wouldWrite: false,
 					},
 				]),
-		...(pendingRepositoryFiles.includes(".rhapsody/config.toml")
+		...(!files.rhapsodyConfigTomlExists
 			? [
 					{
 						kind: "repository-file",
@@ -411,15 +426,19 @@ function main() {
 			requiresUserConfirmation: true,
 			wouldWrite: true,
 		},
-		...(envLocalExists && envLocalIgnoredByGit === true
+		...(files.envLocalIgnoredByGit === true
 			? [
 					{
 						kind: "env-file",
 						target: ".env.local",
 						action:
 							pendingGeneratedSecrets.length > 0
-								? `Update only the missing generated secrets in .env.local: ${pendingGeneratedSecrets.join(", ")}.`
-								: "Preserve .env.local without writing new values.",
+								? files.envLocalExists
+									? `Update only the missing generated secrets in .env.local: ${pendingGeneratedSecrets.join(", ")}.`
+									: `Create .env.local with the missing generated secrets: ${pendingGeneratedSecrets.join(", ")}.`
+								: files.envLocalExists
+									? "Preserve .env.local without writing new values."
+									: "Create .env.local without external inputs.",
 						reason:
 							"Local env files must stay untracked; any .env.local update requires confirmation and only writes missing generated secrets.",
 						requiresUserConfirmation: true,
@@ -428,36 +447,247 @@ function main() {
 				]
 			: []),
 	];
+}
 
-	const ok = blocked.length === 0;
+function buildPostWritePlannedChanges(args: { files: Facts["files"] }) {
+	return buildPlannedChanges({
+		pendingGeneratedSecrets: [],
+		files: args.files,
+	}).filter(
+		(change) =>
+			change.kind !== "secret-generation" &&
+			!(change.kind === "env-file" && change.target === ".env.local"),
+	);
+}
+
+function reportJSON(report: Report, exitCode = 0) {
+	process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+	process.exitCode = exitCode;
+}
+
+function main() {
+	const mode = parseMode(process.argv);
+	if (!mode) {
+		process.stdout.write(
+			`${JSON.stringify(
+				{
+					ok: false,
+					mode: "dry-run",
+					phase: "configure-local",
+					error:
+						"Unsupported arguments. This helper supports no args, --dry-run, or --apply --yes.",
+				},
+				null,
+				2,
+			)}\n`,
+		);
+		process.exitCode = 1;
+		return;
+	}
+
+	const remote = readGitRemote();
+	const branch = readGitBranch();
+	const envLocalPath = path.join(process.cwd(), ".env.local");
+	const envLocalExists = existsSync(envLocalPath);
+	const envLocalIgnoredByGit = isIgnoredByGit(".env.local");
+	const envLocalKeys = parseEnvFile(envLocalPath);
+
+	const generatedSecretsPresence = readEnvPresence(
+		GENERATED_SECRET_KEYS,
+		envLocalKeys,
+	);
+	const externalInputsPresence = readEnvPresence(
+		EXTERNAL_INPUT_KEYS,
+		envLocalKeys,
+	);
+	const files = {
+		envLocalExists,
+		envLocalIgnoredByGit,
+		rhapsodyInstructionsExists: existsSync(
+			path.join(process.cwd(), ".rhapsody/INSTRUCTIONS.md"),
+		),
+		rhapsodyConfigTomlExists: existsSync(
+			path.join(process.cwd(), ".rhapsody/config.toml"),
+		),
+		rhapsodyConfigTsExists: existsSync(
+			path.join(process.cwd(), "rhapsody.config.ts"),
+		),
+	};
+
+	const needsUser = externalInputsPresence.missing.map(
+		(key) => `Provide ${key} in process env or .env.local.`,
+	);
+	if (!remote?.owner || !remote.repository) {
+		needsUser.push(
+			"Confirm the GitHub owner/repository if the remote is not a GitHub origin.",
+		);
+	}
+
+	const pendingGeneratedSecrets = generatedSecretsPresence.missing;
+	const plannedChanges = buildPlannedChanges({
+		pendingGeneratedSecrets,
+		files,
+	});
+
+	const localWriteBlocked: string[] = [];
+	if (envLocalExists && envLocalIgnoredByGit === false) {
+		localWriteBlocked.push(
+			".env.local is not ignored by git, so future write steps must not create or modify it until ignore rules are fixed.",
+		);
+	}
+	if (!envLocalExists && envLocalIgnoredByGit !== true) {
+		localWriteBlocked.push(
+			".env.local is missing and is not ignored by git, so it must not be created until ignore rules are fixed.",
+		);
+	}
+
+	const setupBlocked: string[] = [];
+	if (!remote?.owner || !remote.repository) {
+		setupBlocked.push(
+			"GitHub repository owner and repository name could not be inferred from origin remote.",
+		);
+	}
+
+	const checks = buildChecks({
+		branch,
+		remote,
+		files,
+		generatedSecretsPresence,
+		externalInputsPresence,
+	});
+
+	const ok = localWriteBlocked.length === 0 && setupBlocked.length === 0;
+
+	if (mode === "apply") {
+		if (localWriteBlocked.length > 0) {
+			const report: Report = {
+				ok: false,
+				mode,
+				phase: "configure-local",
+				facts: buildFacts({
+					branch,
+					remote,
+					files,
+					generatedSecretsPresence,
+					externalInputsPresence,
+				}),
+				checks,
+				plannedChanges,
+				appliedChanges: [],
+				needsUser,
+				blocked: localWriteBlocked,
+				nextActions: ["Resolve blocked items before any write step."],
+			};
+			reportJSON(report, 1);
+			return;
+		}
+
+		const envLocalContent = readEnvFile(envLocalPath);
+		const appendKeys = readEnvPresence(
+			GENERATED_SECRET_KEYS,
+			parseEnvFile(envLocalPath),
+		).missing.filter((key) => !envLocalKeys.has(key));
+		const envLocalWasCreated = envLocalContent === null;
+
+		if (envLocalWasCreated) {
+			if (appendKeys.length > 0) {
+				writeFileSync(
+					envLocalPath,
+					ensureTrailingNewline(buildEnvAppendLines(appendKeys).join("\n")),
+					{ encoding: "utf8", flag: "wx" },
+				);
+			}
+		} else if (appendKeys.length > 0) {
+			const prefix =
+				envLocalContent.endsWith("\n") || envLocalContent.length === 0
+					? ""
+					: "\n";
+			const appended = buildEnvAppendLines(appendKeys).join("\n");
+			writeFileSync(
+				envLocalPath,
+				ensureTrailingNewline(`${envLocalContent}${prefix}${appended}`),
+				{ encoding: "utf8" },
+			);
+		}
+
+		const postWriteEnvLocalKeys = parseEnvFile(envLocalPath);
+		const postWriteGeneratedSecretsPresence = readEnvPresence(
+			GENERATED_SECRET_KEYS,
+			postWriteEnvLocalKeys,
+		);
+		const postWriteExternalInputsPresence = readEnvPresence(
+			EXTERNAL_INPUT_KEYS,
+			postWriteEnvLocalKeys,
+		);
+		const postWriteFiles = {
+			...files,
+			envLocalExists: existsSync(envLocalPath),
+			envLocalIgnoredByGit: isIgnoredByGit(".env.local"),
+		};
+		const postWritePlannedChanges = buildPostWritePlannedChanges({
+			files: postWriteFiles,
+		});
+		const postWriteChecks = buildChecks({
+			branch,
+			remote,
+			files: postWriteFiles,
+			generatedSecretsPresence: postWriteGeneratedSecretsPresence,
+			externalInputsPresence: postWriteExternalInputsPresence,
+		});
+		const postWriteAppliedChanges = GENERATED_SECRET_KEYS.map((key) => ({
+			key,
+			target: ".env.local",
+			action: appendKeys.includes(key)
+				? envLocalWasCreated
+					? "Created .env.local with missing generated secret."
+					: "Appended missing generated secret to .env.local."
+				: "No write needed; key already present in process env or .env.local.",
+			wrote: appendKeys.includes(key),
+		}));
+
+		const applyReport: Report = {
+			ok: true,
+			mode,
+			phase: "configure-local",
+			facts: buildFacts({
+				branch,
+				remote,
+				files: postWriteFiles,
+				generatedSecretsPresence: postWriteGeneratedSecretsPresence,
+				externalInputsPresence: postWriteExternalInputsPresence,
+			}),
+			checks: postWriteChecks,
+			plannedChanges: postWritePlannedChanges,
+			appliedChanges: postWriteAppliedChanges,
+			needsUser,
+			blocked: [],
+			nextActions: postWriteAppliedChanges.some((change) => change.wrote)
+				? ["Re-run dry-run to confirm the final env state."]
+				: [
+						"No generated secrets were missing; proceed to the next setup phase.",
+					],
+		};
+		process.stdout.write(`${JSON.stringify(applyReport, null, 2)}\n`);
+		return;
+	}
 
 	const report: Report = {
 		ok,
 		mode,
 		phase: "configure-local",
-		facts: {
-			git: {
-				branch,
-				remote,
-			},
+		facts: buildFacts({
+			branch,
+			remote,
 			files,
-			env: {
-				generatedSecrets: {
-					present: generatedSecretsPresence.present,
-					missingGeneratedSecrets: generatedSecretsPresence.missing,
-				},
-				externalInputs: {
-					present: externalInputsPresence.present,
-					missingExternalInputs: externalInputsPresence.missing,
-				},
-			},
-		},
+			generatedSecretsPresence,
+			externalInputsPresence,
+		}),
 		checks,
 		plannedChanges,
 		needsUser,
-		blocked,
+		blocked: [...localWriteBlocked, ...setupBlocked],
 		nextActions: [
-			...(blocked.length > 0
+			...([...localWriteBlocked, ...setupBlocked].length > 0
 				? ["Resolve blocked items before any write step."]
 				: []),
 			...(needsUser.length > 0
