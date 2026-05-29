@@ -28,18 +28,24 @@ Treat setup as resumable phases:
    - update `rhapsody.config.ts` only after explaining the intended diff;
    - create `.rhapsody/INSTRUCTIONS.md` and `.rhapsody/config.toml` only when absent, or show a diff
      and ask before modifying existing files.
-3. `configure-remotes`
+3. `configure-github`
+   - run the read-only GitHub Project bootstrap dry-run helper;
+   - verify `gh` availability, auth, repository access, and whether local config already hints at
+     the intended ProjectV2 target;
+   - keep this phase read-only so it can prepare for GitHub Project detection or creation without
+     mutating remote state.
+4. `configure-remotes`
    - create or verify GitHub ProjectV2 configuration only after presenting a plan;
    - never delete, rename, or reorder existing ProjectV2 fields/statuses;
    - ask the operator to create Turso/libSQL and provide `TURSO_DATABASE_URL` and
      `TURSO_AUTH_TOKEN`;
    - configure Vercel environment variables with values redacted.
-4. `deploy-preview`
+5. `deploy-preview`
    - run `pnpm install` when needed;
    - run `pnpm db:migrate`;
    - deploy a Vercel preview by default;
    - ask before production env changes or production deployment.
-5. `smoke-test`
+6. `smoke-test`
    - guide the operator to create or choose one GitHub issue;
    - place it in the configured active Project status;
    - open `/dashboard`;
@@ -78,6 +84,16 @@ pnpm setup:configure-local -- --apply --yes
 This apply mode is intentionally narrow: it only appends missing generated local secrets to
 `.env.local`, never writes external inputs, never overwrites existing keys, and requires the
 explicit confirmation flags.
+
+Before any GitHub Project creation or detection work, run the read-only GitHub bootstrap probe:
+
+```bash
+pnpm setup:configure-github -- --dry-run
+```
+
+This helper does not create or modify GitHub Projects, issues, fields, repository settings, files,
+or environment variables. Use its JSON output to confirm repository access, GitHub CLI readiness,
+and whether the intended ProjectV2 target can be inferred from local config before any apply phase.
 
 ## Safety Rules
 
