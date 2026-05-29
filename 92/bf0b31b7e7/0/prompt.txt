@@ -1,0 +1,108 @@
+pull request作ってmergeしましょう。そして、CI待っている間に次のタスクを考えましょう。
+
+---
+
+okです。引き続き[@builder](subagent://builder) で進めましょう。
+
+---
+
+Implement the next setup-rhapsody MVP: a safe apply mode for `pnpm setup:configure-local`.
+
+Context:
+- Repo: /Users/toyamarinyon/Documents/rhapsody
+- Current main already has `scripts/setup-rhapsody-configure-local.ts` and `package.json` script `setup:configure-local`.
+- Existing dry-run outputs JSON only and inspects git repo, `.env.local`, generated local secrets, external inputs, and repository files.
+- Generated local secrets are: `ROOT_PASSWORD`, `AUTH_SECRET`, `CRON_SECRET`, `MEDIATOR_SECRET`.
+- External/operator inputs must not be generated or written: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `GITHUB_TOKEN`, `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID`, `INITIAL_CHATGPT_AUTH_JSON`.
+
+Task:
+Add a narrowly-scoped apply mode that writes ONLY missing generated local secrets to `.env.local`, and only when the operator explicitly asks for it.
+
+Required CLI behavior:
+- Keep existing accepted modes:
+  - no args => dry-run
+  - exactly `--dry-run` => dry-run
+- Add exactly one write mode: `--apply --yes`.
+- Reject all other argument combinations with JSON-only unsupported-arguments error and nonzero exit.
+- Apply mode must never write external inputs.
+- Apply mode must never overwrite existing env keys from `.env.local`.
+- Apply mode should only append missing generated secrets.
+- If `.env.local` exists and is not ignored by git, block with JSON and nonzero exit.
+- If `.env.local` does not exist, create it only if `.env.local` would be ignored by git; otherwise block. Be conservative.
+- Preserve comments and existing file content.
+- Ensure final file ends with a newline.
+- Do not print secret values in stdout/stderr; output only key names and action status.
+- Use Node built-ins; no new dependency unless truly necessary.
+
+Output schema:
+- Keep JSON-only output.
+- Reuse the report style where reasonable.
+- For apply mode include:
+  - `ok`
+  - `mode: "apply"`
+  - `phase: "configure-local"`
+  - `facts` with redacted/presence-only info
+  - `appliedChanges` structured array with key names, target, action, wrote true/false
+  - `blocked`
+  - `needsUser`
+  - `nextActions`
+- If no generated secrets are missing, apply mode should succeed with no writes and a clear next action.
+
+Docs:
+- Update `.agents/skills/setup-rhapsody/SKILL.md` to mention that apply is intentionally limited to missing generated local secrets and requires explicit confirmation flag.
+
+Verification to run:
+- `pnpm setup:configure-local -- --dry-run`
+- unsupported mixed flags, e.g. `pnpm setup:configure-local -- --dry-run --apply --yes`, should fail JSON-only
+- apply-mode behavior using a temp copy or temp git repo/env file if needed; do NOT mutate the real `.env.local` in the workspace unless you can safely restore it exactly. Prefer temp dirs.
+- `pnpm format:check .agents/skills/setup-rhapsody/SKILL.md scripts/setup-rhapsody-configure-local.ts package.json`
+- `pnpm lint`
+- `pnpm typecheck`
+
+Important:
+- You are not alone in the codebase. Do not revert unrelated changes. Keep edits scoped to the setup helper and skill docs.
+- Edit files directly in your workspace and report changed files plus verification results.
+
+---
+
+Good first pass. Please tighten a few correctness/agent-readability issues:
+
+1. Apply report facts must reflect post-write state.
+   - Currently `generatedSecretsPresence` and `checks` are computed before writing, then reused in the apply report.
+   - If apply appends `CRON_SECRET`, the report can still say `CRON_SECRET` is missing. Please recompute env key presence, file facts, and relevant checks after a successful write before emitting the apply report.
+   - Do not print values, only presence/key names.
+
+2. Dry-run plannedChanges should include the `.env.local` create/update plan when `.env.local` is missing but `git check-ignore .env.local` proves it would be ignored.
+   - Right now the env-file planned change is only emitted when `envLocalExists && envLocalIgnoredByGit === true`.
+   - If it is missing and ignored, dry-run should plan creation of `.env.local` with missing generated secrets, requiring confirmation.
+   - If it is missing and not ignored/unknown, keep blocking.
+
+3. Separate local write safety blockers from non-local informational blockers if needed.
+   - Apply mode's only write is `.env.local` generated secrets. A missing/unrecognized GitHub remote should be reported in `needsUser`, but should not block local secret generation unless the code has a concrete reason.
+   - Dry-run can still report the remote issue as a blocker for future setup phases if you think that is useful, but apply mode should not refuse a safe local env write only because origin is not parseable.
+
+4. Make `--apply --yes` parsing strict in order if easy: accept exactly no args, exactly `--dry-run`, exactly `--apply --yes`; reject `--yes --apply` and all mixed flags. This keeps the confirmation surface boring and explicit.
+
+Please rerun:
+- `pnpm setup:configure-local -- --dry-run`
+- `pnpm setup:configure-local -- --dry-run --apply --yes` fails JSON-only
+- `pnpm setup:configure-local -- --yes --apply` fails JSON-only
+- temp-dir apply where `.env.local` is ignored and missing, confirming post-write JSON says generated secrets are present
+- temp-dir apply where origin is absent/unparseable but `.env.local` is safely ignored, confirming local secret write is not blocked by remote inference
+- format/lint/typecheck
+
+---
+
+Very close. I ran an isolated temp repo apply and found one remaining report consistency issue.
+
+Apply succeeded and did not print secret values, but the apply JSON now has mixed pre/post state:
+- `facts.env.generatedSecrets.missingGeneratedSecrets` is post-write and empty, good.
+- But `plannedChanges` is still pre-write and says it will generate/create all missing generated secrets.
+
+For apply mode, please make the report internally consistent. Preferred options:
+1. Recompute `plannedChanges` from post-write facts before emitting the apply report, so it no longer says generated secrets are missing after they were written; or
+2. Replace it in apply reports with `plannedChanges: []` and rely on `appliedChanges`; but keep the schema stable if possible.
+
+Also please make `appliedChanges.action` distinguish creating `.env.local` from appending to an existing file. In my temp test it created the file but said `Appended missing generated secret to .env.local.`.
+
+Please rerun the same verification, especially temp-dir create case, and report back.

@@ -1,0 +1,26 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "92bf0b31b7e7",
+  "strategy": "manual-commit",
+  "branch": "codex-setup-configure-local-apply",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".agents/skills/setup-rhapsody/SKILL.md",
+    "scripts/setup-rhapsody-configure-local.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/92/bf0b31b7e7/0/metadata.json",
+      "transcript": "/92/bf0b31b7e7/0/full.jsonl",
+      "content_hash": "/92/bf0b31b7e7/0/content_hash.txt",
+      "prompt": "/92/bf0b31b7e7/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 162026,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2561152,
+    "output_tokens": 7771,
+    "api_call_count": 35
+  }
+}
