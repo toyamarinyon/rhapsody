@@ -57,6 +57,17 @@ pnpm setup:inspect
 Use its output to decide the next step. If a required CLI is missing or unauthenticated, stop and ask
 the operator to install or log in before continuing.
 
+For the first local configuration pass, run the dry-run helper next:
+
+```bash
+pnpm setup:configure-local -- --dry-run
+```
+
+Use its JSON output to confirm inferred repository facts, missing env inputs, and any blocked
+future write steps before attempting changes. Treat generated secrets such as `ROOT_PASSWORD`,
+`AUTH_SECRET`, `CRON_SECRET`, and `MEDIATOR_SECRET` as local setup material, while treating
+Turso, GitHub, Vercel, and initial Codex seed values as operator-provided external inputs.
+
 ## Safety Rules
 
 - Do not print raw secrets.
