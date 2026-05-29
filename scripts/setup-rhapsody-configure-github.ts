@@ -60,6 +60,25 @@ type Facts = {
 		summary: string;
 		listingAvailable: boolean;
 		listingSummary: string | null;
+		remote: {
+			attempted: boolean;
+			queried: boolean;
+			exists: boolean;
+			id: string | null;
+			title: string | null;
+			url: string | null;
+			number: number | null;
+			statusField: {
+				name: string | null;
+				dataType: string | null;
+				exists: boolean;
+				isSingleSelect: boolean;
+				options: string[];
+			};
+			missingStatusOptions: string[];
+			errorSummary: string | null;
+			graphQLErrors: string[];
+		};
 	};
 };
 
@@ -81,6 +100,56 @@ function run(command: string, args: string[], timeout = 12_000) {
 		encoding: "utf8",
 		timeout,
 	});
+}
+
+function runGhGraphQL(query: string, variables: Record<string, unknown>) {
+	const variableArgs = Object.entries(variables).flatMap(([key, value]) => [
+		"-F",
+		`${key}=${typeof value === "string" ? value : String(value)}`,
+	]);
+	const result = run(
+		"gh",
+		["api", "graphql", "-F", `query=${query}`, ...variableArgs],
+		15_000,
+	);
+
+	if (result.status !== 0) {
+		return {
+			attempted: true,
+			ok: false,
+			errorSummary: summarizeAuthResult(result),
+			graphQLErrors: [],
+			data: null as unknown,
+		};
+	}
+
+	try {
+		const parsed = JSON.parse(result.stdout) as {
+			data?: unknown;
+			errors?: Array<{ message?: string }>;
+		};
+		const graphQLErrors = (parsed.errors ?? [])
+			.map((entry) => entry.message?.trim() ?? "")
+			.filter(Boolean);
+		return {
+			attempted: true,
+			ok: true,
+			errorSummary: graphQLErrors.length > 0 ? graphQLErrors.join("; ") : null,
+			graphQLErrors,
+			data: parsed as unknown,
+		};
+	} catch (error) {
+		return {
+			attempted: true,
+			ok: false,
+			errorSummary:
+				error instanceof Error
+					? error.message
+					: "invalid JSON from gh api graphql",
+			graphQLErrors: [],
+			data: null as unknown,
+		};
+	}
 }
 
 function emitJSON(report: Report, exitCode = 0) {
@@ -135,6 +204,25 @@ function unsupportedArgsError() {
 					summary: "unsupported arguments",
 					listingAvailable: false,
 					listingSummary: null,
+					remote: {
+						attempted: false,
+						queried: false,
+						exists: false,
+						id: null,
+						title: null,
+						url: null,
+						number: null,
+						statusField: {
+							name: null,
+							dataType: null,
+							exists: false,
+							isSingleSelect: false,
+							options: [],
+						},
+						missingStatusOptions: [],
+						errorSummary: null,
+						graphQLErrors: [],
+					},
 				},
 			},
 			checks: [],
@@ -454,6 +542,178 @@ function readProjectListing(owner: string) {
 	}
 }
 
+function readProjectRemote(
+	owner: string,
+	projectNumber: number,
+	statusFieldName: string | null,
+	activeStatuses: string[],
+	terminalStatuses: string[],
+) {
+	const query = `
+query($owner: String!, $projectNumber: Int!) {
+  organization(login: $owner) {
+    projectV2(number: $projectNumber) {
+      id
+      title
+      url
+      number
+      fields(first: 100) {
+        nodes {
+          __typename
+          ... on ProjectV2FieldCommon {
+            id
+            name
+            dataType
+          }
+          ... on ProjectV2SingleSelectField {
+            options {
+              id
+              name
+            }
+          }
+        }
+      }
+    }
+  }
+  user(login: $owner) {
+    projectV2(number: $projectNumber) {
+      id
+      title
+      url
+      number
+      fields(first: 100) {
+        nodes {
+          __typename
+          ... on ProjectV2FieldCommon {
+            id
+            name
+            dataType
+          }
+          ... on ProjectV2SingleSelectField {
+            options {
+              id
+              name
+            }
+          }
+        }
+      }
+    }
+  }
+}
+`;
+
+	type ProjectNode = {
+		id?: string;
+		title?: string;
+		url?: string;
+		number?: number;
+		fields?: {
+			nodes?: Array<{
+				__typename?: string;
+				id?: string;
+				name?: string;
+				dataType?: string;
+				options?: Array<{ id?: string; name?: string }>;
+			} | null>;
+		};
+	};
+
+	const response = runGhGraphQL(query, { owner, projectNumber });
+	if (!response.ok) {
+		return {
+			attempted: response.attempted,
+			queried: false,
+			exists: false,
+			id: null,
+			title: null,
+			url: null,
+			number: null,
+			statusField: {
+				name: statusFieldName,
+				dataType: null,
+				exists: false,
+				isSingleSelect: false,
+				options: [],
+			},
+			missingStatusOptions: [],
+			errorSummary: response.errorSummary,
+			graphQLErrors: response.graphQLErrors,
+		};
+	}
+
+	const payload = response.data as {
+		data?: {
+			organization?: { projectV2?: ProjectNode | null } | null;
+			user?: { projectV2?: ProjectNode | null } | null;
+		};
+		errors?: Array<{ message?: string }>;
+	};
+	const project =
+		payload.data?.organization?.projectV2 ??
+		payload.data?.user?.projectV2 ??
+		null;
+
+	if (!project) {
+		return {
+			attempted: response.attempted,
+			queried: true,
+			exists: false,
+			id: null,
+			title: null,
+			url: null,
+			number: null,
+			statusField: {
+				name: statusFieldName,
+				dataType: null,
+				exists: false,
+				isSingleSelect: false,
+				options: [],
+			},
+			missingStatusOptions: [],
+			errorSummary:
+				response.errorSummary ??
+				`ProjectV2 #${projectNumber} was not found for ${owner}`,
+			graphQLErrors: response.graphQLErrors,
+		};
+	}
+
+	const fields = project.fields?.nodes?.filter(Boolean) ?? [];
+	const field = statusFieldName
+		? (fields.find((candidate) => candidate?.name === statusFieldName) ?? null)
+		: null;
+	const isSingleSelect =
+		field?.__typename === "ProjectV2SingleSelectField" ||
+		typeof field?.options !== "undefined";
+	const options =
+		field?.options?.map((option) => option?.name ?? "").filter(Boolean) ?? [];
+	const expectedStatuses = Array.from(
+		new Set([...activeStatuses, ...terminalStatuses]),
+	);
+	const missingStatusOptions = expectedStatuses.filter(
+		(status) => !options.includes(status),
+	);
+
+	return {
+		attempted: response.attempted,
+		queried: true,
+		exists: true,
+		id: project.id ?? null,
+		title: project.title ?? null,
+		url: project.url ?? null,
+		number: project.number ?? projectNumber,
+		statusField: {
+			name: field?.name ?? statusFieldName,
+			dataType: field?.dataType ?? null,
+			exists: Boolean(field),
+			isSingleSelect,
+			options,
+		},
+		missingStatusOptions,
+		errorSummary: response.errorSummary,
+		graphQLErrors: response.graphQLErrors,
+	};
+}
+
 function main() {
 	const mode = parseMode(process.argv);
 	if (!mode) {
@@ -506,6 +766,50 @@ function main() {
 	const projectIdentified =
 		localConfig.projectTarget.kind === "github_project" &&
 		typeof localConfig.projectTarget.projectNumber === "number";
+	const projectOwner = localConfig.projectTarget.owner ?? remote?.owner ?? null;
+	const projectRepository =
+		localConfig.projectTarget.repository ?? remote?.repository ?? null;
+	const trackerTargetDiffersFromRemote =
+		Boolean(
+			remote?.owner && remote.repository && projectOwner && projectRepository,
+		) &&
+		(remote?.owner !== projectOwner || remote.repository !== projectRepository);
+	const projectRemote =
+		projectOwner && projectIdentified && ghAvailability.available && ghAuth.ok
+			? readProjectRemote(
+					projectOwner,
+					localConfig.projectTarget.projectNumber as number,
+					localConfig.projectTarget.statusField,
+					localConfig.projectTarget.activeStatuses,
+					localConfig.projectTarget.terminalStatuses,
+				)
+			: {
+					queried: false,
+					exists: false,
+					id: null,
+					title: null,
+					url: null,
+					number: null,
+					statusField: {
+						name: localConfig.projectTarget.statusField,
+						dataType: null,
+						exists: false,
+						isSingleSelect: false,
+						options: [],
+					},
+					missingStatusOptions: [] as string[],
+					graphQLErrors: [] as string[],
+					errorSummary: !ghAvailability.available
+						? "gh is not available"
+						: !ghAuth.ok
+							? "gh authentication required"
+							: !projectOwner
+								? "project owner could not be inferred"
+								: !projectIdentified
+									? "project target could not be identified from local config"
+									: "project read unavailable",
+					attempted: false,
+				};
 	const checks: Check[] = [
 		{
 			name: "gh-cli",
@@ -559,6 +863,56 @@ function main() {
 			ok: projectListing.available,
 			detail: projectListing.summary,
 		},
+		{
+			name: "project-target-owner-mismatch",
+			ok: !trackerTargetDiffersFromRemote,
+			detail: trackerTargetDiffersFromRemote
+				? `local tracker target ${projectOwner}/${projectRepository} differs from git remote ${remote?.owner}/${remote?.repository}`
+				: "local tracker target matches git remote",
+		},
+		{
+			name: "project-remote-read",
+			ok: projectRemote.queried && projectRemote.exists,
+			detail: projectRemote.queried
+				? projectRemote.exists
+					? `${projectRemote.title ?? "ProjectV2"} (#${projectRemote.number ?? localConfig.projectTarget.projectNumber})`
+					: projectRemote.attempted
+						? (projectRemote.errorSummary ??
+							`ProjectV2 #${localConfig.projectTarget.projectNumber} not found`)
+						: "skipped until GitHub auth is available"
+				: projectRemote.attempted
+					? (projectRemote.errorSummary ?? "project read unavailable")
+					: "skipped until GitHub auth is available",
+		},
+		{
+			name: "project-status-field",
+			ok:
+				projectRemote.statusField.exists &&
+				projectRemote.statusField.isSingleSelect,
+			detail: projectRemote.statusField.exists
+				? projectRemote.statusField.isSingleSelect
+					? `${projectRemote.statusField.name} (${projectRemote.statusField.dataType ?? "single-select"})`
+					: `${projectRemote.statusField.name} is not a single-select field`
+				: projectRemote.queried
+					? `${localConfig.projectTarget.statusField ?? "Status"} field missing`
+					: "skipped until GitHub auth is available",
+		},
+		{
+			name: "project-status-options",
+			ok:
+				projectRemote.exists &&
+				projectRemote.statusField.exists &&
+				projectRemote.statusField.isSingleSelect &&
+				projectRemote.missingStatusOptions.length === 0,
+			detail: projectRemote.exists
+				? projectRemote.statusField.exists &&
+					projectRemote.statusField.isSingleSelect
+					? projectRemote.missingStatusOptions.length === 0
+						? "all configured active and terminal statuses exist"
+						: `missing options: ${projectRemote.missingStatusOptions.join(", ")}`
+					: "status options unavailable"
+				: "skipped until GitHub auth is available",
+		},
 	];
 
 	const needsUser: string[] = [];
@@ -605,6 +959,35 @@ function main() {
 		!projectListing.available
 	) {
 		blocked.push("gh project list could not read the owner project list.");
+	}
+
+	if (trackerTargetDiffersFromRemote) {
+		needsUser.push(
+			`The configured tracker target points at ${projectOwner}/${projectRepository}, which differs from the git remote ${remote?.owner}/${remote?.repository}.`,
+		);
+	}
+
+	if (projectRemote.queried && !projectRemote.exists) {
+		needsUser.push(
+			`Create or reconfigure GitHub ProjectV2 #${localConfig.projectTarget.projectNumber} for ${remote?.owner ?? "the configured owner"} so the configured target can be read.`,
+		);
+	} else if (projectRemote.queried && projectRemote.exists) {
+		const projectStatusNeedsUser =
+			!projectRemote.statusField.exists ||
+			!projectRemote.statusField.isSingleSelect ||
+			projectRemote.missingStatusOptions.length > 0;
+
+		if (projectStatusNeedsUser) {
+			needsUser.push(
+				"Reconcile the ProjectV2 status field/options so the configured active and terminal statuses are available.",
+			);
+		}
+	}
+
+	if (projectRemote.attempted && !projectRemote.queried) {
+		blocked.push(
+			"gh api graphql could not read the configured ProjectV2 target.",
+		);
 	}
 
 	const plannedChanges: PlannedChange[] = [
@@ -679,6 +1062,19 @@ function main() {
 				listingSummary: projectListing.available
 					? projectListing.summary
 					: null,
+				remote: {
+					attempted: projectRemote.attempted,
+					queried: projectRemote.queried,
+					exists: projectRemote.exists,
+					id: projectRemote.id,
+					title: projectRemote.title,
+					url: projectRemote.url,
+					number: projectRemote.number,
+					statusField: projectRemote.statusField,
+					missingStatusOptions: projectRemote.missingStatusOptions,
+					errorSummary: projectRemote.errorSummary,
+					graphQLErrors: projectRemote.graphQLErrors,
+				},
 			},
 		},
 		checks,
