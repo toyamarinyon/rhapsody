@@ -1,0 +1,25 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "e6d26e6c2f2d",
+  "strategy": "manual-commit",
+  "branch": "codex-setup-github-project-verify",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "scripts/setup-rhapsody-configure-github.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e6/d26e6c2f2d/0/metadata.json",
+      "transcript": "/e6/d26e6c2f2d/0/full.jsonl",
+      "content_hash": "/e6/d26e6c2f2d/0/content_hash.txt",
+      "prompt": "/e6/d26e6c2f2d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 13035,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1595264,
+    "output_tokens": 6162,
+    "api_call_count": 21
+  }
+}

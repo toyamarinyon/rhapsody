@@ -1,0 +1,226 @@
+<subagent_notification>
+{"agent_path":"019e6f31-8c70-7b40-bb7f-38ba7e225644","status":{"completed":"Fresh critiqueしました。高信号だけ挙げます。\n\n**Findings**\n\n- [README.md](/Users/toyamarinyon/Documents/rhapsody/README.md:85) says users should add `.rhapsody/INSTRUCTIONS.md` to the target repository, but the runner currently loads instructions from the deployed Rhapsody app checkout via `process.cwd()`, before cloning the target repo. See [lib/instructions.ts](/Users/toyamarinyon/Documents/rhapsody/lib/instructions.ts:40) and [lib/runners/sandbox-codex.ts](/Users/toyamarinyon/Documents/rhapsody/lib/runners/sandbox-codex.ts:131). This is probably the biggest setup-trust mismatch: a user may edit the target repo and see no effect unless the target repo is also the Rhapsody deployment repo.\n\n- [README.md](/Users/toyamarinyon/Documents/rhapsody/README.md:79) through [README.md](/Users/toyamarinyon/Documents/rhapsody/README.md:89) gives a happy path, but omits the concrete required admin calls. There is an implemented DB migration endpoint at `POST /api/v1/admin/db/migrate` in [app/api/v1/admin/db/migrate/route.ts](/Users/toyamarinyon/Documents/rhapsody/app/api/v1/admin/db/migrate/route.ts:6), credential seed at `POST /api/v1/admin/codex-chatgpt-credentials/seed-from-env` in [app/api/v1/admin/codex-chatgpt-credentials/seed-from-env/route.ts](/Users/toyamarinyon/Documents/rhapsody/app/api/v1/admin/codex-chatgpt-credentials/seed-from-env/route.ts:6), and scheduler tick at `POST/GET /api/v1/admin/scheduler/tick` in [app/api/v1/admin/scheduler/tick/route.ts](/Users/toyamarinyon/Documents/rhapsody/app/api/v1/admin/scheduler/tick/route.ts:9). README should name these exact endpoints and auth header shape, otherwise first-run setup is guesswork.\n\n- [README.md](/Users/toyamarinyon/Documents/rhapsody/README.md:88) says “Trigger a manual scheduler refresh,” but the dashboard currently only has a “Refresh view” link, not an action that starts scheduler work. See [app/dashboard/page.tsx](/Users/toyamarinyon/Documents/rhapsody/app/dashboard/page.tsx:115). The actual trigger is the admin scheduler endpoint, so a user opening the dashboard may get stuck looking for a button that does not exist.\n\n- [README.md](/Users/toyamarinyon/Documents/rhapsody/README.md:123) lists `INITIAL_CHATGPT_AUTH_JSON` under “Common optional variables,” but with the default `sandbox-codex` runner in [rhapsody.config.ts](/Users/toyamarinyon/Documents/rhapsody/rhapsody.config.ts:24), Codex credential seeding is effectively required for the advertised happy path. `.env.example` also says it is required when using `sandbox-codex` at [.env.example](/Users/toyamarinyon/Documents/rhapsody/.env.example:29). I’d move it to a “Required for sandbox-codex” section.\n\n- [README.md](/Users/toyamarinyon/Documents/rhapsody/README.md:73) and [README.md](/Users/toyamarinyon/Documents/rhapsody/README.md:252) say sandboxed runs use mediated GitHub writes and do not receive broad secrets directly. The implementation still injects the upstream GitHub token into sandbox network policy for broad GitHub hosts; the code itself marks this as exploratory, not final mediator behavior. See [lib/runners/sandbox-codex.ts](/Users/toyamarinyon/Documents/rhapsody/lib/runners/sandbox-codex.ts:218) and [lib/sandbox/vercel.ts](/Users/toyamarinyon/Documents/rhapsody/lib/sandbox/vercel.ts:133). README should soften this to “intended model” or explicitly call out the current broad transform.\n\n- [README.md](/Users/toyamarinyon/Documents/rhapsody/README.md:89) promises “hand the result back as a branch and pull request,” but the wrapper requires Codex to create a commit, push the assigned branch, and write `/vercel/sandbox/rhapsody-output/pr.json`; otherwise the run fails postflight. See [lib/runners/sandbox-codex-wrapper/wrapper.cjs](/Users/toyamarinyon/Documents/rhapsody/lib/runners/sandbox-codex-wrapper/wrapper.cjs:322). README should document this contract, because target repo instructions must tell Codex to produce that PR spec.\n\n- [README.md](/Users/toyamarinyon/Documents/rhapsody/README.md:97) says “Vercel account with access to Workflow and Sandbox features,” but the repo gives no Vercel-specific setup details beyond env vars. Since [vercel.json](/Users/toyamarinyon/Documents/rhapsody/vercel.json:2) configures cron and routes call `workflow/api`, setup trust would improve by saying whether this requires a particular Vercel plan/beta access, how `VERCEL_PROJECT_ID`/`VERCEL_TEAM_ID` are obtained, and whether Workflow DevKit needs any project-level enablement.\n\n- [README.md](/Users/toyamarinyon/Documents/rhapsody/README.md:224) lists `npm run lint`, `typecheck`, `test`, `build`, but not `npm run format:check`, which exists in [package.json](/Users/toyamarinyon/Documents/rhapsody/package.json:11). Minor, but for a public template the checks list should match the repo’s actual quality gate.\n\n**Overall**\n\nThe README is good as a vision/public-positioning document. The weak spot is the gap between “deploy and run your first issue” and the current operational reality: DB migration, credential seeding, exact scheduler endpoint, auth headers, and the postflight PR contract are all implemented but under-documented.\n\nThe one claim I would fix first is the `.rhapsody/INSTRUCTIONS.md` location, because that can directly cause a user to configure the wrong repository and lose trust fast."}}
+</subagent_notification>
+
+---
+
+とりあえずReadmeをcommitして、pr作ってmergeしてください。
+
+---
+
+configは修正しました。mainにmerge済みです。
+
+---
+
+> .rhapsody/INSTRUCTIONS.md の読み込み元を、修正後の実装に合わせて明記
+
+やったので見てみてください。
+
+---
+
+そうですね。fakeはテスト用なので、これでいいと思っています。
+
+---
+
+では、次は何をしましょう
+
+---
+
+migrateというかdbレイヤ、そろそろdrizzle必要ですかね？
+
+---
+
+そうですね。ただ、migrationがapi実行なのは気持ち悪さがあるので、`pnpm db:migrate`みたいな感じでやりたいですね。
+tsxを使って、typescriptでmigrationを実行する感じです。どう思います？
+
+---
+
+[@builder](subagent://builder) に実装してもらいましょう。あなたはゴールを設定して、アウトプットを評価し、十分な水準に達するまでフィードバックを繰り返してください。
+
+---
+
+<subagent_notification>
+{"agent_path":"019e7124-1c99-7410-9e4f-7b1e208b644d","status":{"completed":"Implemented in:\n- [package.json](/Users/toyamarinyon/Documents/rhapsody/package.json)\n- [scripts/db-migrate.ts](/Users/toyamarinyon/Documents/rhapsody/scripts/db-migrate.ts)\n\nWhat changed:\n- Added `db:migrate` script: `tsx scripts/db-migrate.ts`\n- Added `tsx` to `devDependencies`\n- Added a small CLI that:\n  - loads Next-style env files with `@next/env` from `process.cwd()`\n  - creates the existing state-store client\n  - runs `migrateStateStore`\n  - prints a concise success summary with applied migration count and ids\n  - reports failures with a clear non-zero exit path\n  - avoids logging env values or secrets\n\nVerification:\n- `./node_modules/.bin/biome format --write package.json scripts/db-migrate.ts`\n- `./node_modules/.bin/eslint scripts/db-migrate.ts`\n- `./node_modules/.bin/tsc --noEmit`\n\nCaveat:\n- I could not complete `pnpm add -D tsx` in this sandbox because pnpm is trying to reach the registry / repopulate its store and fails here. The code and types verify against the current workspace, but the dependency install step still needs to be completed in a normal pnpm environment so `pnpm db:migrate` can run end to end."}}
+</subagent_notification>
+
+---
+
+okです。pull request作ってmergeしておきましょう。
+
+---
+
+いいですね。次は何がいいですかね
+
+---
+
+1やりましょう。
+
+---
+
+setup skillは、テキストファイルだけじゃなくて、VercelのdeployもGitHub Projectの作成もしたいんですよね。
+Tursoの作成だけユーザーに制御を返すというか、ユーザーに作成してもらうのは待つ必要がありそうですが、プロンプトに
+
+`$setup-rhapsody` 
+
+とだけ入力したら、Vercel CLIの有無、認証状態や ghの有無、認証状態を確認し、RhapsodyがVercelにデプロイされる状態を作りたいです。
+
+---
+
+adrにするのはどうでしょう？
+
+---
+
+では作って、subagentにレビューさせてください。フレッシュなコンテキストで読んで指摘事項があれば対応考えてください。
+
+---
+
+<subagent_notification>
+{"agent_path":"019e7266-152c-7261-902c-ca86a53fb68c","status":{"completed":"**Findings**\n\n1. **[High] Decision scope is too broad for a single ADR-backed MVP path**  \n   [docs/adr/0015-use-setup-skill-for-first-run-onboarding.md:40](/Users/toyamarinyon/Documents/rhapsody/docs/adr/0015-use-setup-skill-for-first-run-onboarding.md:40) through [81](/Users/toyamarinyon/Documents/rhapsody/docs/adr/0015-use-setup-skill-for-first-run-onboarding.md:81) makes `$setup-rhapsody` responsible for local prereqs, GitHub Projects mutation, secret generation, env files, Vercel env sync, install, migration, deploy, and end-to-end smoke testing. That is a whole installer plus operator runbook plus production deploy assistant. The ADR would be stronger if it defined an MVP phase boundary, for example: “v1 skill verifies/authenticates, writes local config, guides Turso, syncs preview env, runs migrations, and performs preview smoke test; production deploy and ProjectV2 mutation are optional follow-up capabilities.”\n\n2. **[High] Codex credential handling is introduced but never bounded**  \n   Codex credentials from local ChatGPT login are listed in Context at [17](/Users/toyamarinyon/Documents/rhapsody/docs/adr/0015-use-setup-skill-for-first-run-onboarding.md:17), but the Decision and Security Requirements do not say what the skill may inspect, copy, store, or forward. Given Rhapsody’s agent-runner nature, this is a major handoff/security gap. Suggested change: add a “Codex Credentials Boundary” section stating whether setup only verifies local availability, whether credentials are operator-provided to Vercel/Sandbox later, and explicitly forbids copying browser/session tokens or local ChatGPT auth artifacts into repo, env files, Vercel env, `.rhapsody/`, or logs unless a documented credential export path exists.\n\n3. **[Medium] “Deploy Rhapsody to Vercel” contradicts the later preview-first boundary**  \n   The main SHOULD list says “Deploy Rhapsody to Vercel” at [75](/Users/toyamarinyon/Documents/rhapsody/docs/adr/0015-use-setup-skill-for-first-run-onboarding.md:75), while the Vercel boundary later says production needs confirmation and preview can be default at [127](/Users/toyamarinyon/Documents/rhapsody/docs/adr/0015-use-setup-skill-for-first-run-onboarding.md:127)-[132](/Users/toyamarinyon/Documents/rhapsody/docs/adr/0015-use-setup-skill-for-first-run-onboarding.md:132). Tighten the decision list to say “Deploy a preview by default; deploy production only after explicit confirmation.” That removes ambiguity for implementers.\n\n4. **[Medium] Environment-file behavior needs sharper repo boundary**  \n   Security says secrets must not be committed or written to tracked files at [155](/Users/toyamarinyon/Documents/rhapsody/docs/adr/0015-use-setup-skill-for-first-run-onboarding.md:155)-[163](/Users/toyamarinyon/Documents/rhapsody/docs/adr/0015-use-setup-skill-for-first-run-onboarding.md:163), but the ADR does not name allowed files or required preflight checks. Suggested change: specify allowed targets such as `.env.local` and Vercel env vars, require verifying `.gitignore` before writing, require file permissions where practical, and require dry-run/diff summaries that redact values.\n\n5. **[Medium] User-handoff states are named but not operationally defined**  \n   The resumability requirement at [83](/Users/toyamarinyon/Documents/rhapsody/docs/adr/0015-use-setup-skill-for-first-run-onboarding.md:83)-[85](/Users/toyamarinyon/Documents/rhapsody/docs/adr/0015-use-setup-skill-for-first-run-onboarding.md:85) is good, but it does not say where state lives, what is persisted, or how secret-related steps are represented without storing sensitive values. Suggested change: require a redacted setup-state model, with idempotent probes as source of truth where possible, and explicit “resume tokens” like “Vercel project linked” or “Turso URL present” rather than storing raw secret material.\n\n6. **[Medium] GitHub Project mutation risk is acknowledged but still underspecified**  \n   The ADR allows creating projects, fields, and statuses at [57](/Users/toyamarinyon/Documents/rhapsody/docs/adr/0015-use-setup-skill-for-first-run-onboarding.md:57)-[58](/Users/toyamarinyon/Documents/rhapsody/docs/adr/0015-use-setup-skill-for-first-run-onboarding.md:58) and [141](/Users/toyamarinyon/Documents/rhapsody/docs/adr/0015-use-setup-skill-for-first-run-onboarding.md:141)-[149](/Users/toyamarinyon/Documents/rhapsody/docs/adr/0015-use-setup-skill-for-first-run-onboarding.md:149), but does not define permissions, collision behavior, naming conventions, or rollback/repair behavior. Suggested change: require preflight permission checks, never delete or rename existing fields/statuses, and produce an operator-approved plan before mutating ProjectV2 configuration.\n\n7. **[Low] “Create or update repository-owned workflow files” may silently change user workflows**  \n   The skill is allowed to create/update `.rhapsody/INSTRUCTIONS.md` and `.rhapsody/config.toml` at [65](/Users/toyamarinyon/Documents/rhapsody/docs/adr/0015-use-setup-skill-for-first-run-onboarding.md:65)-[67](/Users/toyamarinyon/Documents/rhapsody/docs/adr/0015-use-setup-skill-for-first-run-onboarding.md:67), while security only says not to silently overwrite existing config at [160](/Users/toyamarinyon/Documents/rhapsody/docs/adr/0015-use-setup-skill-for-first-run-onboarding.md:160). Suggested change: require preserving existing files, showing a diff, writing examples or `.generated` files when conflicts exist, and asking before modifying tracked workflow files.\n\n**Suggested ADR Tightening**\n\nAdd explicit “Out of Scope for MVP” bullets: Turso automation, production deployment by default, credential export/copying, destructive ProjectV2 edits, deleting/renaming existing workflow/config files, and fully autonomous first PR creation if sandbox credentials are not configured.\n\nAlso consider splitting implementation responsibility into phases: `inspect`, `configure-local`, `configure-remotes`, `deploy-preview`, `smoke-test`. That would keep the decision clear while still allowing the setup skill to feel guided and resumable."}}
+</subagent_notification>
+
+---
+
+okです。次は何しましょう
+
+---
+
+お願いします。pull request作ったら、CI待っている間に setup skillのMVP skeleton に進みましょう。
+
+---
+
+ありがとうございます。次は何しましょう。
+
+---
+
+> setup:inspect を少し人間向けにする
+
+実行するのはAgentでAgentが読みやすくするでしょう？
+
+---
+
+いいですね。 [@builder](subagent://builder) に実装させてください。あなたはゴールをイメージしておき、アウトプットを評価、十分な水準になるまでフィードバックを続けてください。
+
+---
+
+<subagent_notification>
+{"agent_path":"019e72a4-e815-7a63-86de-cee82dc8698e","status":{"completed":"Implemented the new dry-run local setup probe.\n\nChanged files:\n- [package.json](/Users/toyamarinyon/Documents/rhapsody/package.json)\n- [scripts/setup-rhapsody-configure-local.ts](/Users/toyamarinyon/Documents/rhapsody/scripts/setup-rhapsody-configure-local.ts)\n- [.agents/skills/setup-rhapsody/SKILL.md](/Users/toyamarinyon/Documents/rhapsody/.agents/skills/setup-rhapsody/SKILL.md)\n\nWhat it does:\n- Adds `pnpm setup:configure-local` and runs the helper through `tsx` via `node --import tsx`.\n- Defaults to dry-run only and accepts `--dry-run` explicitly.\n- Emits JSON only.\n- Inspects:\n  - git branch\n  - git remote owner/repo when inferable\n  - `.env.local` existence and git-ignore status\n  - required env key presence without printing values\n  - `.rhapsody/INSTRUCTIONS.md`\n  - `.rhapsody/config.toml`\n  - `rhapsody.config.ts`\n- Reports stable fields for `ok`, `mode`, `phase`, `facts`, `checks`, `plannedChanges`, `needsUser`, `blocked`, and `nextActions`.\n- Marks `.env.local` as blocking future write steps if it is not ignored by git.\n- Leaves write mode unimplemented, with a clear unsupported-arguments path.\n\nVerification:\n- `pnpm setup:configure-local -- --dry-run` ran and produced JSON output.\n- `pnpm format:check` passed.\n- `pnpm lint` passed.\n- `pnpm typecheck` passed.\n\nCaveat:\n- The dry-run currently exits nonzero when required inputs are missing, which is why the sample run reported missing `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, and `VERCEL_PROJECT_ID`. The JSON report still comes through cleanly for agent consumption."}}
+</subagent_notification>
+
+---
+
+pull request作ってmergeしましょう。そして、CI待っている間に次のタスクを考えましょう。
+
+---
+
+okです。引き続き[@builder](subagent://builder) で進めましょう。
+
+---
+
+<subagent_notification>
+{"agent_path":"019e72c6-c54e-7772-8287-d2d7ad620e36","status":{"completed":"Implemented the safe apply mode for `pnpm setup:configure-local`.\n\nChanged files:\n- [scripts/setup-rhapsody-configure-local.ts](/Users/toyamarinyon/Documents/rhapsody/scripts/setup-rhapsody-configure-local.ts)\n- [.agents/skills/setup-rhapsody/SKILL.md](/Users/toyamarinyon/Documents/rhapsody/.agents/skills/setup-rhapsody/SKILL.md)\n\nWhat changed:\n- Kept existing dry-run behavior for no args and `--dry-run`.\n- Added exactly one write mode: `--apply --yes`.\n- Rejected mixed or unsupported flag combinations with JSON-only error output and nonzero exit.\n- Made apply mode append-only for missing generated local secrets only:\n  - `ROOT_PASSWORD`\n  - `AUTH_SECRET`\n  - `CRON_SECRET`\n  - `MEDIATOR_SECRET`\n- Ensured apply mode never writes external inputs.\n- Ensured apply mode never overwrites existing `.env.local` keys.\n- Added conservative git-ignore gating:\n  - if `.env.local` exists and is not ignored, apply blocks\n  - if `.env.local` is missing and would not be ignored, apply blocks\n- Preserved existing file content and comments.\n- Ensured created/appended `.env.local` content ends with a newline.\n- Kept stdout JSON-only and redacted in the report surface.\n- Updated the setup skill to document the limited apply mode and explicit confirmation flag.\n\nVerification:\n- `pnpm setup:configure-local -- --dry-run`\n- `pnpm setup:configure-local -- --dry-run --apply --yes` failed as expected with JSON-only unsupported-arguments error\n- Apply mode was validated in a temporary git repo using an isolated `.env.local`:\n  - it created/appended only missing generated secrets\n  - it did not print secret values in stdout\n  - it blocked when `.env.local` was missing and not ignored by git\n- `pnpm format:check .agents/skills/setup-rhapsody/SKILL.md scripts/setup-rhapsody-configure-local.ts package.json`\n- `pnpm lint`\n- `pnpm typecheck`\n\nI did not mutate the workspace `.env.local`."}}
+</subagent_notification>
+
+---
+
+pull request作成、マージお願いします。次のタスク何しましょう
+
+---
+
+okです。 [@builder](subagent://builder) で実装してください。あなたは評価、フィードバックをしてください。できたらpull request作成mergeまでお願いします。その次にやること何がいいですかね。
+
+---
+
+<subagent_notification>
+{"agent_path":"019e732b-7be6-7d30-8e2a-c1dc928b2702","status":{"completed":"Implemented the GitHub Project bootstrap dry-run helper.\n\nChanged files:\n- [scripts/setup-rhapsody-configure-github.ts](/Users/toyamarinyon/Documents/rhapsody/scripts/setup-rhapsody-configure-github.ts)\n- [package.json](/Users/toyamarinyon/Documents/rhapsody/package.json)\n- [.agents/skills/setup-rhapsody/SKILL.md](/Users/toyamarinyon/Documents/rhapsody/.agents/skills/setup-rhapsody/SKILL.md)\n\nWhat it does:\n- Adds `pnpm setup:configure-github`.\n- Supports only no args or `--dry-run`.\n- Rejects other args with JSON-only output and nonzero exit.\n- Stays read-only.\n- Probes:\n  - git origin owner/repo\n  - `gh` availability\n  - `gh auth status`\n  - `gh repo view owner/repo --json nameWithOwner,defaultBranchRef,url`\n  - local config presence in `rhapsody.config.ts` and `.rhapsody/config.toml`\n  - conservative ProjectV2 readiness signals\n- Redacts remote URLs and avoids printing secrets.\n\nVerification:\n- `pnpm format:check .agents/skills/setup-rhapsody/SKILL.md scripts/setup-rhapsody-configure-github.ts package.json`\n- `pnpm lint`\n- `pnpm typecheck`\n- `pnpm setup:configure-github -- --dry-run`\n- `pnpm setup:configure-github -- --apply --yes`\n\nNotes:\n- The dry-run currently reports `ok: false` in this environment because `gh auth status` is unauthenticated.\n- The unsupported-args path returns JSON and exits nonzero as requested.\n\nIf you want, the next useful step is to add the corresponding apply-phase GitHub Project creation helper behind an explicit confirmation gate."}}
+</subagent_notification>
+
+---
+
+ゴールを決めて、そこまで自律的に進めて欲しいんです。ただ、一つのコミットにすると後から検証できないのでこれまでやったくらいの粒度で分割して [@builder](subagent://builder) で実装してPull request, mergeという単位で進めたいです。
+
+---
+
+Implement the next reviewable setup-rhapsody increment: extend the existing read-only GitHub setup helper to verify the configured GitHub ProjectV2 target and status field/options via read-only GitHub GraphQL.
+
+Context:
+- Repo: /Users/toyamarinyon/Documents/rhapsody
+- Current main has `scripts/setup-rhapsody-configure-github.ts` and package script `setup:configure-github`.
+- Current helper is dry-run only and checks gh availability/auth, repo access, local config target, and project listing.
+- `rhapsody.config.ts` currently has:
+  - tracker.kind = "github_project"
+  - tracker.owner = "toyamarinyon"
+  - tracker.repository = "rhapsody"
+  - tracker.projectNumber = 4
+  - tracker.statusField = "Status"
+  - activeStatuses = ["Todo", "In Progress"]
+  - terminalStatuses = ["Done", "Canceled", "Cancelled", "Duplicate"]
+- The next step should remain read-only. Do not create or modify GitHub Projects, issues, fields, repo settings, files, or env vars.
+
+Task:
+- Extend `scripts/setup-rhapsody-configure-github.ts` so that, when `gh` is available/authenticated and local config identifies a GitHub ProjectV2 target, it runs a read-only GraphQL query via `gh api graphql` to inspect that project.
+- Query should verify at least:
+  - ProjectV2 exists for owner + projectNumber.
+  - Project id/title/url/number are reported in facts if available.
+  - Status field named by local config exists.
+  - Status field is a single-select ProjectV2 field if possible to determine.
+  - Configured active and terminal status names exist as options of that field.
+- Keep all output JSON-only and no tokens/secrets.
+- If gh is unauthenticated, keep current behavior: JSON report with auth blocker, no crash.
+- If the project query fails, report a remote read blocker, not a crash.
+- If project exists but status field/options are missing, this should be `needsUser` or `blocked` clearly enough for an agent to decide next action. Prefer: remote access/query failure is `blocked`; missing expected field/options is `needsUser` for future reconciliation.
+
+Suggested output shape additions:
+- Add `facts.project.target` or expand existing `facts.project` with:
+  - `identified`, `summary`, existing listing info
+  - `remote` object: `queried`, `exists`, `id`, `title`, `url`, `number`, `statusField`, `missingStatusOptions`, `errorSummary`
+- Add checks like:
+  - `project-remote-read`
+  - `project-status-field`
+  - `project-status-options`
+
+Implementation notes:
+- Use Node built-ins and `spawnSync`, consistent with the existing script.
+- Prefer passing GraphQL variables to `gh api graphql` safely. Avoid shell interpolation.
+- Be tolerant of owner being a user or org. GitHub GraphQL can use `organization(login:)` and `user(login:)`; query both aliases if practical.
+- Keep unsupported args behavior unchanged: no args and `--dry-run` only.
+- Keep local config detection working.
+- Update `.agents/skills/setup-rhapsody/SKILL.md` to mention that configure-github now verifies ProjectV2 status field/options when authenticated.
+
+Verification:
+- `pnpm setup:configure-github -- --dry-run` in this environment may exit 1 due gh unauthenticated, but must emit JSON-only and retain local project target detection.
+- `pnpm setup:configure-github -- --apply --yes` fails JSON-only.
+- `pnpm format:check .agents/skills/setup-rhapsody/SKILL.md scripts/setup-rhapsody-configure-github.ts package.json`
+- `pnpm lint`
+- `pnpm typecheck`
+
+Important:
+- You are not alone in the codebase. Do not revert unrelated changes.
+- Keep this PR-sized: only update the existing GitHub setup helper and setup skill docs unless a tiny local helper is clearly needed.
+- Edit files directly and report changed files plus verification results.
+
+---
+
+Good direction. I ran the dry-run and found a few issues to tighten before PR.
+
+1. Avoid false GraphQL blockers when GraphQL was not attempted.
+Current unauthenticated output has both:
+- `gh auth status failed.`
+- `gh api graphql could not read the configured ProjectV2 target.`
+
+But `projectRemote.queried` is false because auth was missing. Please do not add the GraphQL read blocker unless the GraphQL command was actually attempted and failed. Keep the check detail as `gh authentication required`, but blocked should stay focused on auth.
+
+2. Query the configured Project owner, not necessarily the git remote owner.
+The ProjectV2 target comes from `rhapsody.config.ts` tracker fields. Use `localConfig.projectTarget.owner` for the ProjectV2 GraphQL query when present, falling back to remote owner if absent. The repo access check can still use remote owner/repo.
+
+3. Surface owner mismatch as useful info.
+If `remote.owner/repository` and `localConfig.projectTarget.owner/repository` differ, add a check or `needsUser` explaining that the configured tracker target differs from the git remote. It should not necessarily block read-only Project verification, but it should be visible.
+
+4. Handle GraphQL errors explicitly.
+If `gh api graphql` exits 0 but the JSON payload has `errors`, include a redacted/summarized error. If project data is still usable, keep facts but report the error summary; if not usable, make it a remote read failure. Avoid dumping raw JSON.
+
+5. For checks that require a remote ProjectV2 read (`project-status-field`, `project-status-options`), when the remote read was skipped due auth/gh unavailable, their detail should say something like `skipped until GitHub auth is available` rather than repeating a remote-read failure.
+
+Please rerun:
+- `pnpm setup:configure-github -- --dry-run` (JSON-only, in this env likely only auth blocker)
+- `pnpm setup:configure-github -- --apply --yes` fails JSON-only
+- format/lint/typecheck
