@@ -1,0 +1,34 @@
+okです。pull request作ってmergeしておきましょう。
+
+---
+
+いいですね。次は何がいいですかね
+
+---
+
+1やりましょう。
+
+---
+
+setup skillは、テキストファイルだけじゃなくて、VercelのdeployもGitHub Projectの作成もしたいんですよね。
+Tursoの作成だけユーザーに制御を返すというか、ユーザーに作成してもらうのは待つ必要がありそうですが、プロンプトに
+
+`$setup-rhapsody` 
+
+とだけ入力したら、Vercel CLIの有無、認証状態や ghの有無、認証状態を確認し、RhapsodyがVercelにデプロイされる状態を作りたいです。
+
+---
+
+adrにするのはどうでしょう？
+
+---
+
+では作って、subagentにレビューさせてください。フレッシュなコンテキストで読んで指摘事項があれば対応考えてください。
+
+---
+
+Fresh review task. Please read only docs/adr/0015-use-setup-skill-for-first-run-onboarding.md and critique it as an ADR for Rhapsody's setup/onboarding strategy. Focus on whether the decision is clear, whether scope is too broad or missing boundaries, whether it captures security/user-handoff concerns, and whether there are contradictions or implementation risks. Do not edit files. Return high-signal findings and concrete suggested changes.
+
+---
+
+okです。次は何しましょう
