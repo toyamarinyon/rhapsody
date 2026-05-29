@@ -1,0 +1,4 @@
+interface:
+  display_name: "Setup Rhapsody"
+  short_description: "Guide first-run Rhapsody deployment"
+  default_prompt: "Use $setup-rhapsody to inspect prerequisites and guide a first Rhapsody deployment."
