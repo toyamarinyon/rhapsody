@@ -43,6 +43,7 @@ Treat setup as resumable phases:
      `TURSO_AUTH_TOKEN`;
    - configure Vercel environment variables with values redacted.
 5. `deploy-preview`
+   - run the deploy readiness dry-run helper before any apply or deploy step;
    - run `pnpm install` when needed;
    - run `pnpm db:migrate`;
    - deploy a Vercel preview by default;
@@ -97,6 +98,16 @@ This helper does not create or modify GitHub Projects, issues, fields, repositor
 or environment variables. Use its JSON output to confirm repository access, GitHub CLI readiness,
 and whether the intended ProjectV2 target and status field/options can be verified from local
 config and read-only remote inspection before any apply phase.
+
+Before any deploy-preview or remote env apply work, run the read-only deploy readiness helper:
+
+```bash
+pnpm setup:configure-deploy -- --dry-run
+```
+
+This helper does not deploy, migrate, or mutate Vercel env vars. Use its JSON output to confirm
+Vercel CLI availability, Vercel auth, local project link state, and whether the deployment-critical
+env keys are present before any apply or deploy step.
 
 ## Safety Rules
 
