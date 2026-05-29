@@ -32,6 +32,8 @@ Treat setup as resumable phases:
    - run the read-only GitHub Project bootstrap dry-run helper;
    - verify `gh` availability, auth, repository access, and whether local config already hints at
      the intended ProjectV2 target;
+   - when authenticated, read the configured ProjectV2 target with GraphQL to confirm the project,
+     status field, and configured active/terminal status options;
    - keep this phase read-only so it can prepare for GitHub Project detection or creation without
      mutating remote state.
 4. `configure-remotes`
@@ -93,7 +95,8 @@ pnpm setup:configure-github -- --dry-run
 
 This helper does not create or modify GitHub Projects, issues, fields, repository settings, files,
 or environment variables. Use its JSON output to confirm repository access, GitHub CLI readiness,
-and whether the intended ProjectV2 target can be inferred from local config before any apply phase.
+and whether the intended ProjectV2 target and status field/options can be verified from local
+config and read-only remote inspection before any apply phase.
 
 ## Safety Rules
 
