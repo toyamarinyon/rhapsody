@@ -68,6 +68,17 @@ future write steps before attempting changes. Treat generated secrets such as `R
 `AUTH_SECRET`, `CRON_SECRET`, and `MEDIATOR_SECRET` as local setup material, while treating
 Turso, GitHub, Vercel, and initial Codex seed values as operator-provided external inputs.
 
+If the operator explicitly wants to persist only missing generated local secrets, use the limited
+apply mode:
+
+```bash
+pnpm setup:configure-local -- --apply --yes
+```
+
+This apply mode is intentionally narrow: it only appends missing generated local secrets to
+`.env.local`, never writes external inputs, never overwrites existing keys, and requires the
+explicit confirmation flags.
+
 ## Safety Rules
 
 - Do not print raw secrets.
