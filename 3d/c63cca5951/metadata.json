@@ -1,0 +1,28 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "3dc63cca5951",
+  "strategy": "manual-commit",
+  "branch": "codex-setup-rhapsody-skill-skeleton",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".agents/skills/setup-rhapsody/SKILL.md",
+    ".agents/skills/setup-rhapsody/agents/openai.yaml",
+    "package.json",
+    "scripts/setup-rhapsody-inspect.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/3d/c63cca5951/0/metadata.json",
+      "transcript": "/3d/c63cca5951/0/full.jsonl",
+      "content_hash": "/3d/c63cca5951/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 25300,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6434048,
+    "output_tokens": 7184,
+    "api_call_count": 30
+  }
+}

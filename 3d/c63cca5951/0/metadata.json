@@ -1,0 +1,42 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "3dc63cca5951",
+  "session_id": "019e6ee5-09b4-7430-a46a-58e27ddb4189",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-29T06:33:52.279087Z",
+  "branch": "codex-setup-rhapsody-skill-skeleton",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".agents/skills/setup-rhapsody/SKILL.md",
+    ".agents/skills/setup-rhapsody/agents/openai.yaml",
+    "scripts/setup-rhapsody-inspect.ts",
+    "package.json"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "efa0a50056c5",
+  "checkpoint_transcript_start": 911,
+  "transcript_lines_at_start": 911,
+  "token_usage": {
+    "input_tokens": 25300,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6434048,
+    "output_tokens": 7184,
+    "api_call_count": 30
+  },
+  "session_metrics": {
+    "turn_count": 22
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-29T06:33:52.215591Z",
+    "agent_lines": 274,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 274,
+    "total_lines_changed": 274,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
