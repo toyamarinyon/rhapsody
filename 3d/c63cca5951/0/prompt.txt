@@ -1,0 +1,1 @@
+お願いします。pull request作ったら、CI待っている間に setup skillのMVP skeleton に進みましょう。
