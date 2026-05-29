@@ -13,7 +13,7 @@ The goal is to make team-facing coding-agent operations feel familiar:
 - Vercel Sandbox isolates each Codex execution.
 - Rhapsody records claims, runs, attempts, events, decisions, branches, and pull requests.
 
-Rhapsody is a template and reference application, not a hosted SaaS. You deploy it into your own Vercel project and connect it to your own GitHub Project, repository, state store, and Codex credentials.
+Rhapsody is intended to be distributed as a Vercel Template and currently works as a reference application you can deploy yourself. It is not a hosted SaaS. You deploy it into your own Vercel project and connect it to your own GitHub Project, repository, state store, and Codex credentials.
 
 ## Why Rhapsody?
 
@@ -27,13 +27,13 @@ This is the shape Rhapsody is exploring:
 GitHub Project issue
   -> scheduler workflow
   -> durable claim
-  -> worker workflow
+  -> runner workflow
   -> Vercel Sandbox
   -> Codex
   -> branch / pull request / dashboard events
 ```
 
-Earlier Vercel and Next.js stacks made parts of this hard to model as a serverless application. With Workflow DevKit for durable orchestration and Vercel Sandbox for isolated execution, the pieces are much closer to the platform shape Rhapsody needs.
+Long-running schedulers and isolated agent execution are awkward fits for a traditional request/response Next.js app. With Workflow DevKit for durable orchestration and Vercel Sandbox for isolated execution, the pieces are much closer to the platform shape Rhapsody needs.
 
 ## Current Status
 
@@ -60,6 +60,12 @@ Known MVP boundaries:
 
 See [docs/SPEC.md](docs/SPEC.md) for the working product and engineering specification.
 
+## Can I Try It Today?
+
+Yes, if you are comfortable wiring together Vercel, GitHub Projects v2, Turso/libSQL, and Codex credentials manually.
+
+The guided Vercel Template flow and setup skill are still in progress. For now, expect to edit `rhapsody.config.ts`, configure environment variables, run `pnpm db:migrate`, seed Codex credentials through the admin endpoint, and trigger the scheduler endpoint by hand.
+
 ## How It Works
 
 Rhapsody has three layers of configuration:
@@ -76,19 +82,30 @@ Rhapsody keeps sensitive credentials in trusted server-side code. Sandboxed runs
 
 This is the expected happy path for a first run:
 
-1. Deploy Rhapsody to Vercel.
-2. Create a Turso/libSQL database for durable state.
-3. Create or choose a GitHub ProjectV2 board.
-4. Configure `rhapsody.config.ts` for your GitHub owner, repository, Project number, status field, and eligible statuses.
-5. Add the required environment variables in Vercel.
-6. Seed Codex ChatGPT credentials for sandboxed Codex runs.
-7. Add `.rhapsody/INSTRUCTIONS.md` to the target repository.
-8. Create one GitHub issue and place it in an eligible Project status.
-9. Open the Rhapsody dashboard.
-10. Trigger a manual scheduler refresh or wait for the configured cron.
-11. Watch Rhapsody create a run, execute Codex in Sandbox, and hand the result back as a branch and pull request.
+1. Create or choose a GitHub ProjectV2 board.
+2. Configure `rhapsody.config.ts` for your GitHub owner, repository, Project number, status field, and eligible statuses.
+3. Create a Turso/libSQL database for durable state.
+4. Copy `.env.example` to `.env.local` and fill in the required values.
+5. Run `pnpm install`.
+6. Run `pnpm db:migrate`.
+7. Deploy Rhapsody to Vercel and add the same environment variables to the Vercel project.
+8. Seed Codex ChatGPT credentials with `POST /api/v1/admin/codex-chatgpt-credentials/seed-from-env`.
+9. Add `.rhapsody/INSTRUCTIONS.md` to the target repository.
+10. Create one GitHub issue and place it in an eligible Project status.
+11. Open `/dashboard`.
+12. Trigger `POST /api/v1/admin/scheduler/tick` or wait for the configured cron.
+13. Watch Rhapsody create a run, execute Codex in Sandbox, and hand the result back as a branch and pull request.
 
-The setup experience is still being refined. Until the template flow and setup skill are complete, expect to read the configuration files and docs alongside this README.
+Admin endpoints accept `Authorization: Bearer <ROOT_PASSWORD>`. Scheduler tick also accepts `Authorization: Bearer <CRON_SECRET>` when `CRON_SECRET` is configured.
+
+After a successful first run, you should see:
+
+- A claimed GitHub Project item in the Rhapsody dashboard.
+- A recorded runner attempt with event logs.
+- A branch created in the target repository.
+- A pull request or handoff artifact linked from the run detail page.
+
+The setup experience is still being refined. Until the template flow and setup skill are complete, treat this README as an operator setup guide for early adopters.
 
 ## Prerequisites
 
@@ -100,7 +117,7 @@ You need:
 - A GitHub token with repository access and ProjectV2 read/write access.
 - A Turso/libSQL database.
 - Codex credentials from a local ChatGPT login.
-- Node.js and npm for local development.
+- Node.js and pnpm for local development.
 
 ## Environment Variables
 
@@ -120,12 +137,17 @@ Required for the MVP:
 | `VERCEL_TEAM_ID` | Vercel team scope for Sandbox operations. |
 | `VERCEL_PROJECT_ID` | Vercel project scope for Sandbox operations. |
 
+Required for the default `sandbox-codex` runner:
+
+| Name | Purpose |
+| --- | --- |
+| `INITIAL_CHATGPT_AUTH_JSON` | Initial Codex ChatGPT auth seed used by the credential seeding endpoint. |
+
 Common optional variables:
 
 | Name | Purpose |
 | --- | --- |
 | `CRON_SECRET` | Secret expected by cron/admin refresh endpoints. |
-| `INITIAL_CHATGPT_AUTH_JSON` | Initial Codex ChatGPT auth seed used by the credential seeding endpoint. |
 | `RHAPSODY_CODEX_BASE_SNAPSHOT_ID` | Optional Sandbox snapshot ID used as a Codex-ready base image. |
 | `VERCEL_PROTECTION_BYPASS_SECRET` | Optional Vercel Deployment Protection bypass for callback brokering. |
 | `VERCEL_OIDC_ISSUER` | Optional issuer for Vercel OIDC verification. |
@@ -175,6 +197,12 @@ For the MVP, one Rhapsody deployment schedules one configured GitHub Project and
 
 The target repository should contain `.rhapsody/INSTRUCTIONS.md`. This Markdown file is rendered into the Codex prompt for each claimed work item.
 
+| File | Purpose |
+| --- | --- |
+| `.rhapsody/INSTRUCTIONS.md` | Per-run workflow instructions rendered with issue, run, attempt, repository, and Project context. |
+| `.rhapsody/config.toml` | Optional repository policy for post-run decisions, review destinations, and repair rules. |
+| `.codex/*` | Codex-native runtime configuration and agent files discovered by Codex inside the sandbox. |
+
 Example:
 
 ```md
@@ -183,6 +211,8 @@ Example:
 You are working on this repository through Rhapsody.
 
 Read the GitHub issue, inspect the existing code, make the smallest safe change, run relevant checks, and prepare a pull request.
+
+When a code change is needed, create a commit, push the assigned branch, and provide a concise pull request title and body for Rhapsody's handoff.
 
 Prefer clear commits, concise PR descriptions, and changes that a human maintainer can review quickly.
 ```
@@ -195,12 +225,14 @@ Codex runtime behavior should stay in Codex-native `.codex/` files. Rhapsody own
 
 Rhapsody is designed to run Codex inside Vercel Sandbox while keeping upstream ChatGPT-backed Codex credentials in trusted server-side storage.
 
+This is currently an operator-managed MVP flow, not a polished OAuth installation flow.
+
 For the MVP, operators seed the initial ChatGPT auth JSON from a local Codex login:
 
 1. Log in to Codex locally.
 2. Copy the contents of `~/.codex/auth.json`.
 3. Set `INITIAL_CHATGPT_AUTH_JSON` in the trusted Rhapsody environment.
-4. Call the admin seeding endpoint described in `.env.example`.
+4. Call `POST /api/v1/admin/codex-chatgpt-credentials/seed-from-env` with `Authorization: Bearer <ROOT_PASSWORD>`.
 5. Remove the seed value after the current credentials have been stored and refresh health is confirmed.
 
 This area is intentionally security-sensitive. Review [docs/SPEC.md](docs/SPEC.md) and the credential-related ADRs before exposing a deployment beyond trusted operators.
@@ -210,13 +242,19 @@ This area is intentionally security-sensitive. Review [docs/SPEC.md](docs/SPEC.m
 Install dependencies:
 
 ```bash
-npm install
+pnpm install
+```
+
+Run migrations:
+
+```bash
+pnpm db:migrate
 ```
 
 Run the development server:
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
@@ -224,10 +262,11 @@ Open [http://localhost:3000](http://localhost:3000).
 Useful checks:
 
 ```bash
-npm run lint
-npm run typecheck
-npm run test
-npm run build
+pnpm format:check
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
 ```
 
 ## Dashboard
