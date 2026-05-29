@@ -10,6 +10,7 @@
 		"setup:inspect": "tsx scripts/setup-rhapsody-inspect.ts",
 		"setup:configure-local": "node --import tsx scripts/setup-rhapsody-configure-local.ts",
 		"setup:configure-github": "node --import tsx scripts/setup-rhapsody-configure-github.ts",
+		"setup:configure-deploy": "node --import tsx scripts/setup-rhapsody-configure-deploy.ts",
 		"lint": "eslint",
 		"test": "vitest",
 		"format:check": "biome format .",
