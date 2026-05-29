@@ -1,0 +1,110 @@
+pull request作成、マージお願いします。次のタスク何しましょう
+
+---
+
+okです。 [@builder](subagent://builder) で実装してください。あなたは評価、フィードバックをしてください。できたらpull request作成mergeまでお願いします。その次にやること何がいいですかね。
+
+---
+
+Implement the next setup-rhapsody MVP: a safe GitHub Project bootstrap dry-run helper.
+
+Context:
+- Repo: /Users/toyamarinyon/Documents/rhapsody
+- Current main has setup helpers:
+  - `scripts/setup-rhapsody-inspect.ts`
+  - `scripts/setup-rhapsody-configure-local.ts`
+  - package scripts `setup:inspect`, `setup:configure-local`
+- Setup skill docs live in `.agents/skills/setup-rhapsody/SKILL.md`.
+- Rhapsody targets GitHub Issues in a configured GitHub ProjectV2 board first. See AGENTS.md and docs/SPEC.md if needed.
+
+Task:
+Add a new dry-run-only helper for checking whether the repository and GitHub Project setup are ready for Rhapsody intake.
+
+Suggested script/API:
+- Add package script `setup:configure-github`, running a TS script via `node --import tsx` if consistent with recent setup helpers.
+- Add `scripts/setup-rhapsody-configure-github.ts`.
+- Accept only:
+  - no args => dry-run
+  - exactly `--dry-run` => dry-run
+- Reject all other args with JSON-only unsupported-arguments error and nonzero exit.
+- Do not create or modify GitHub Projects, issues, fields, repo settings, files, or env vars.
+- Do not print tokens or secret values.
+
+What to inspect, read-only:
+- git repository owner/name from origin remote, redacted remote URL in output.
+- `gh` CLI availability.
+- `gh auth status` or equivalent auth signal. Keep output redacted and summarized.
+- Whether the repository is accessible via `gh repo view owner/repo --json nameWithOwner,defaultBranchRef,url` if owner/repo is known.
+- ProjectV2 readiness. Use conservative read-only checks; prefer `gh project list` / GraphQL if already available via gh. If project identification is not yet configured, report it as `needsUser`, not as a crash.
+- Inspect local config files for likely project config sources, without inventing a final config contract if none exists. Check `rhapsody.config.ts` and `.rhapsody/config.toml` existence and maybe surface that project id/number could not be inferred.
+
+Output schema:
+- JSON-only stable shape, similar to other setup helpers:
+  - `ok`
+  - `mode: "dry-run"`
+  - `phase: "configure-github"`
+  - `facts` with redacted info and presence-only auth/config state
+  - `checks` array with `{ name, ok, detail }`
+  - `plannedChanges` array of future write/remote actions, all `wouldWrite: false` in this dry-run helper unless you are describing a future apply phase with `wouldWrite: true` clearly as planned only
+  - `needsUser`
+  - `blocked`
+  - `nextActions`
+- Distinguish local/config blockers from remote auth/access blockers.
+- `ok` should mean the probe itself succeeded and no hard blockers exist; missing project config should appear in `needsUser` / `nextActions`.
+
+Docs:
+- Update `.agents/skills/setup-rhapsody/SKILL.md` to include this helper after configure-local.
+- Make clear this phase is read-only and prepares for GitHub Project creation/detection.
+
+Verification:
+- `pnpm setup:configure-github -- --dry-run`
+- unsupported mixed/write args fail JSON-only, e.g. `pnpm setup:configure-github -- --apply --yes`
+- `pnpm format:check .agents/skills/setup-rhapsody/SKILL.md scripts/setup-rhapsody-configure-github.ts package.json`
+- `pnpm lint`
+- `pnpm typecheck`
+
+Important:
+- You are not alone in the codebase. Do not revert unrelated changes.
+- Keep edits scoped to package.json, the new script, and setup skill docs unless a tiny shared helper is obviously warranted.
+- Edit files directly and report changed files plus verification results.
+
+---
+
+Good first pass, but I found a key issue in the project config detection.
+
+Current `rhapsody.config.ts` contains:
+
+```ts
+tracker: {
+  kind: "github_project",
+  owner: "toyamarinyon",
+  repository: "rhapsody",
+  projectNumber: 4,
+  statusField: "Status",
+  activeStatuses: ["Todo", "In Progress"],
+  terminalStatuses: ["Done", ...],
+}
+```
+
+Your `readLocalConfigHints` regex only captures quoted project values, so it misses numeric `projectNumber: 4`. This helper must recognize the current config as a ProjectV2 target.
+
+Please tighten the local config inspection:
+1. Detect at least these fields from `rhapsody.config.ts` when present:
+   - `tracker.kind`, especially `github_project`
+   - `tracker.owner`
+   - `tracker.repository`
+   - numeric or quoted `tracker.projectNumber`
+   - `tracker.statusField`
+   - maybe active/terminal status arrays as presence/count or names if easy
+2. Keep output structured rather than only free-form strings if possible, e.g. `localConfig.projectHints` object with `kind`, `owner`, `repository`, `projectNumber`, `statusField`, or add a separate `projectTarget` fact. Avoid secret concerns; these are not secrets.
+3. `project.identified` should be true in this repository because `projectNumber: 4` is present.
+4. Keep `.rhapsody/config.toml` as supplemental; don't claim project target missing just because TOML has no project field.
+
+A couple of smaller cleanups:
+- Unsupported-args JSON should include an explicit `error` field like the other setup helper, while staying JSON-only.
+- Be robust to `gh project list --format json` returning either an array or an object with `projects`; I’m not fully sure which current gh version returns.
+
+Please rerun:
+- `pnpm setup:configure-github -- --dry-run`
+- `pnpm setup:configure-github -- --apply --yes` fails JSON-only
+- format/lint/typecheck
