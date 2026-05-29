@@ -1,0 +1,26 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "ff8805eddc99",
+  "strategy": "manual-commit",
+  "branch": "codex-setup-configure-local-dry-run",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".agents/skills/setup-rhapsody/SKILL.md",
+    "package.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ff/8805eddc99/0/metadata.json",
+      "transcript": "/ff/8805eddc99/0/full.jsonl",
+      "content_hash": "/ff/8805eddc99/0/content_hash.txt",
+      "prompt": "/ff/8805eddc99/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 348586,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3737088,
+    "output_tokens": 9242,
+    "api_call_count": 41
+  }
+}
