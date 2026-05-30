@@ -20,7 +20,7 @@ const EXTERNAL_INPUT_KEYS = [
 
 const CODEX_SEED_KEYS = ["INITIAL_CHATGPT_AUTH_JSON"] as const;
 
-type EnvSource = "process" | ".env.local";
+type EnvSource = "process" | ".env.local" | "vercel-link";
 
 type EnvPresence = {
 	present: Record<string, boolean>;
@@ -114,9 +114,40 @@ function parseEnvFileKeys(filePath: string) {
 	return keys;
 }
 
+function readVercelProjectLink() {
+	const filePath = path.join(process.cwd(), ".vercel", "project.json");
+	if (!existsSync(filePath)) {
+		return {
+			exists: false,
+			orgIdPresent: false,
+			projectIdPresent: false,
+		};
+	}
+
+	try {
+		const parsed = JSON.parse(readFileSync(filePath, "utf8")) as {
+			orgId?: string;
+			projectId?: string;
+		};
+
+		return {
+			exists: true,
+			orgIdPresent: Boolean(parsed.orgId?.trim()),
+			projectIdPresent: Boolean(parsed.projectId?.trim()),
+		};
+	} catch {
+		return {
+			exists: true,
+			orgIdPresent: false,
+			projectIdPresent: false,
+		};
+	}
+}
+
 function readEnvPresence(
 	keys: readonly string[],
 	envLocalKeys: ReadonlySet<string>,
+	vercelProjectLink: ReturnType<typeof readVercelProjectLink>,
 ): EnvPresence {
 	const present: Record<string, boolean> = {};
 	const sources: Record<string, EnvSource[]> = {};
@@ -129,6 +160,12 @@ function readEnvPresence(
 		}
 		if (envLocalKeys.has(key)) {
 			keySources.push(".env.local");
+		}
+		if (key === "VERCEL_TEAM_ID" && vercelProjectLink.orgIdPresent) {
+			keySources.push("vercel-link");
+		}
+		if (key === "VERCEL_PROJECT_ID" && vercelProjectLink.projectIdPresent) {
+			keySources.push("vercel-link");
 		}
 
 		present[key] = keySources.length > 0;
@@ -213,6 +250,7 @@ const rhapsodyInstructionsPath = path.join(
 	"INSTRUCTIONS.md",
 );
 const envLocalKeys = parseEnvFileKeys(envLocalPath);
+const vercelProjectLink = readVercelProjectLink();
 
 const files = {
 	envLocalExists: existsSync(envLocalPath),
@@ -222,9 +260,21 @@ const files = {
 	rhapsodyInstructionsExists: existsSync(rhapsodyInstructionsPath),
 	rhapsodyConfigTomlExists: existsSync(rhapsodyConfigTomlPath),
 };
-const generatedSecrets = readEnvPresence(GENERATED_SECRET_KEYS, envLocalKeys);
-const externalInputs = readEnvPresence(EXTERNAL_INPUT_KEYS, envLocalKeys);
-const codexSeed = readEnvPresence(CODEX_SEED_KEYS, envLocalKeys);
+const generatedSecrets = readEnvPresence(
+	GENERATED_SECRET_KEYS,
+	envLocalKeys,
+	vercelProjectLink,
+);
+const externalInputs = readEnvPresence(
+	EXTERNAL_INPUT_KEYS,
+	envLocalKeys,
+	vercelProjectLink,
+);
+const codexSeed = readEnvPresence(
+	CODEX_SEED_KEYS,
+	envLocalKeys,
+	vercelProjectLink,
+);
 const recommendedNextCommand = buildRecommendedNextCommand({
 	files,
 	generatedSecrets,
@@ -242,6 +292,7 @@ const report = {
 	phase: "status",
 	facts: {
 		files,
+		vercelProjectLink,
 		git: readGitContext(),
 		env: {
 			generatedSecrets,
