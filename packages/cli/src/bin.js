@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync } from "node:fs";
+import {
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -30,16 +36,101 @@ if (command === "setup") {
 			console.error(parse.error);
 			process.exit(1);
 		}
-		if (!parse.dryRun) {
+		if (!parse.dryRun && !parse.yes) {
 			console.error(
-				"provision-turso apply mode is not implemented yet; rerun with --dry-run",
+				"rhapsody setup provision-turso requires confirmation in apply mode. Pass --yes to execute.",
 			);
 			process.exit(1);
 		}
 
 		const plan = buildProvisionTursoPlan({ region: parse.region });
-		printProvisionTurso({ json: parse.json, plan });
-		process.exit(plan.ok ? 0 : 1);
+		plan.applyConfirmationProvided = parse.yes;
+		if (!parse.dryRun && !plan.applyReady) {
+			console.error(
+				`Cannot execute apply without source .vercel/project.json at ${inferTursoProjectJsonPath()}`,
+			);
+			process.exit(1);
+		}
+		if (parse.dryRun) {
+			printProvisionTurso({
+				json: parse.json,
+				plan,
+			});
+			process.exit(plan.ok ? 0 : 1);
+		}
+
+		recordSetupState({
+			command: "provision-turso",
+			mode: "apply",
+			region: parse.region,
+			applyConfirmationProvided: parse.yes,
+			before: stateSnapshot(plan.linkDir, plan.wouldWriteProjectJson),
+			after: {
+				linkDir: plan.linkDir,
+				linkDirExists: existsSync(plan.linkDir),
+				wouldWriteProjectJson: plan.wouldWriteProjectJson,
+				preparedProjectJson: existsSync(
+					path.join(plan.linkDir, ".vercel", "project.json"),
+				),
+			},
+			nextAction: "prepare-link-dir",
+		});
+
+		const prepared = prepareTursoLinkDirectory({
+			linkDir: plan.linkDir,
+			projectJsonPath: inferTursoProjectJsonPath(),
+		});
+		recordSetupState({
+			command: "provision-turso",
+			mode: "apply",
+			region: parse.region,
+			applyConfirmationProvided: parse.yes,
+			before: {
+				linkDir: plan.linkDir,
+				linkDirExists: existsSync(plan.linkDir),
+				wouldWriteProjectJson: plan.wouldWriteProjectJson,
+				preparedProjectJson: false,
+			},
+			after: {
+				linkDir: plan.linkDir,
+				linkDirExists: existsSync(plan.linkDir),
+				wouldWriteProjectJson: plan.wouldWriteProjectJson,
+				preparedProjectJson: prepared.prepared,
+				projectJsonTarget: prepared.projectJsonTarget,
+			},
+			nextAction: "run-command",
+		});
+
+		const result = runProvisionTursoApply({
+			commandArgv: plan.commandArgv,
+			cwd: plan.linkDir,
+		});
+		recordSetupState({
+			command: "provision-turso",
+			mode: "apply",
+			region: parse.region,
+			applyConfirmationProvided: parse.yes,
+			before: {
+				linkDir: plan.linkDir,
+				linkDirExists: existsSync(plan.linkDir),
+				wouldWriteProjectJson: plan.wouldWriteProjectJson,
+				preparedProjectJson: prepared.prepared,
+				projectJsonTarget: prepared.projectJsonTarget,
+			},
+			after: {
+				linkDir: plan.linkDir,
+				linkDirExists: existsSync(plan.linkDir),
+				wouldWriteProjectJson: plan.wouldWriteProjectJson,
+				preparedProjectJson: prepared.prepared,
+				projectJsonTarget: prepared.projectJsonTarget,
+				exitCode: result.exitCode,
+				signal: result.signal,
+			},
+			exitCode: result.exitCode,
+			signal: result.signal,
+			nextAction: result.ok ? "complete" : "failed",
+		});
+		process.exit(result.ok ? 0 : 1);
 	}
 	if (subcommand === "status") {
 		printSetupStatus({ json: flags.has("--json") });
@@ -79,6 +170,7 @@ function printSetupHelp() {
   rhapsody setup status [--json]
   rhapsody setup plan [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]
   rhapsody setup provision-turso --dry-run [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]
+  rhapsody setup provision-turso --yes [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]
 
 The setup command will orchestrate the self-hosted Rhapsody install flow.
 
@@ -134,6 +226,10 @@ Region: ${plan.region}`);
 		}`,
 	);
 	console.log(`Command to run: ${plan.command}`);
+	console.log(`Apply confirmation required: ${plan.applyConfirmationRequired}`);
+	console.log(`Apply confirmation provided: ${plan.applyConfirmationProvided}`);
+	console.log(`Apply-ready: ${plan.applyReady}`);
+	console.log(`Setup state path: ${plan.statePath}`);
 	console.log("\nExpected environment variables:");
 	for (const envKey of plan.expectedEnvKeys) {
 		console.log(`  - ${envKey}`);
@@ -180,7 +276,7 @@ function parseProvisionTursoArgs(args) {
 		return {
 			ok: false,
 			error:
-				"Usage: rhapsody setup provision-turso --dry-run [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]",
+				"Usage: rhapsody setup provision-turso (--dry-run|--yes) [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]",
 		};
 	}
 
@@ -189,6 +285,7 @@ function parseProvisionTursoArgs(args) {
 		json: args.includes("--json"),
 		region: parsedRegion.region,
 		dryRun,
+		yes: args.includes("--yes"),
 	};
 }
 
@@ -244,6 +341,7 @@ function parseRegionFlag(args) {
 }
 
 function buildProvisionTursoPlan({ region }) {
+	const statePath = getSetupStatePath();
 	const command =
 		"npx -y vercel@53 integration add tursocloud --name rhapsody-db --plan starter -m region=" +
 		region +
@@ -277,14 +375,28 @@ function buildProvisionTursoPlan({ region }) {
 		region,
 		linkDir,
 		wouldWriteProjectJson,
+		statePath,
+		applyConfirmationRequired: true,
+		applyConfirmationProvided: false,
+		applyReady: wouldWriteProjectJson,
 		command,
 		commandArgv,
 		expectedEnvKeys: ["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"],
 		nextActions: [
 			"No resources were created in dry-run mode.",
-			"Re-run with --dry-run to view the exact command and path planning output.",
-			"Once apply mode is implemented, rerun this command without --dry-run to execute provisioning.",
+			"Run again with --yes (and no --dry-run) to execute provisioning.",
 		],
+	};
+}
+
+function stateSnapshot(linkDir, wouldWriteProjectJson) {
+	return {
+		linkDir,
+		linkDirExists: existsSync(linkDir),
+		wouldWriteProjectJson,
+		preparedProjectJson: existsSync(
+			path.join(linkDir, ".vercel", "project.json"),
+		),
 	};
 }
 
@@ -434,6 +546,8 @@ App workspace:
   .vercel/project.json: ${label(status.app.vercelProjectLink.exists)}
   Turso URL: ${label(status.app.env.tursoDatabaseUrlPresent)}
   Turso token: ${label(status.app.env.tursoAuthTokenPresent)}
+  setup state: ${label(status.app.setupState.exists)}${status.app.setupState.lastUpdatedAt ? ` (${status.app.setupState.lastUpdatedAt})` : ""}
+  last setup command: ${status.app.setupState.lastCommand ?? "none"}
 
 Next action:
   ${status.nextActions[0] ?? "Run `rhapsody setup status --json` for machine-readable details."}
@@ -446,6 +560,8 @@ function collectSetupStatus() {
 	const envLocalPath = path.join(appRoot, ".env.local");
 	const vercelProjectPath = path.join(appRoot, ".vercel", "project.json");
 	const env = readDotEnv(envLocalPath);
+	const setupStatePath = getSetupStatePath();
+	const setupState = readSetupState(setupStatePath);
 	const ghVersion = run(["gh", "--version"]);
 	const ghToken = run(["gh", "auth", "token"]);
 	const vercelVersion = run(["vercel", "--version"]);
@@ -524,6 +640,13 @@ function collectSetupStatus() {
 				tursoDatabaseUrlPresent: Boolean(env.TURSO_DATABASE_URL),
 				tursoAuthTokenPresent: Boolean(env.TURSO_AUTH_TOKEN),
 			},
+			setupState: {
+				path: setupStatePath,
+				exists: existsSync(setupStatePath),
+				lastUpdatedAt: setupState.lastUpdatedAt ?? null,
+				lastCommand: setupState.commandState?.command ?? null,
+				nextAction: setupState.commandState?.nextAction ?? null,
+			},
 		},
 		nextActions,
 	};
@@ -542,6 +665,79 @@ function findWorkspaceRoot(start) {
 		if (parent === current) return start;
 		current = parent;
 	}
+}
+
+function inferTursoProjectJsonPath() {
+	const workspaceRoot = findWorkspaceRoot(process.cwd());
+	return path.join(workspaceRoot, "apps", "app", ".vercel", "project.json");
+}
+
+function getSetupStatePath() {
+	const workspaceRoot = findWorkspaceRoot(process.cwd());
+	return path.join(
+		workspaceRoot,
+		"apps",
+		"app",
+		".rhapsody",
+		"setup-state.json",
+	);
+}
+
+function readSetupState(statePath) {
+	return readJson(statePath) ?? {};
+}
+
+function recordSetupState(payload) {
+	const statePath = getSetupStatePath();
+	const previous = readSetupState(statePath);
+	const timestamp = new Date().toISOString();
+	const next = {
+		...previous,
+		lastUpdatedAt: timestamp,
+		commandState: {
+			...previous.commandState,
+			...payload,
+			updatedAt: timestamp,
+		},
+	};
+	const stateDir = path.dirname(statePath);
+	mkdirSync(stateDir, { recursive: true });
+	writeFileSync(statePath, JSON.stringify(next, null, 2) + "\n", "utf8");
+}
+
+function prepareTursoLinkDirectory({ linkDir, projectJsonPath }) {
+	let linkDirExisted = true;
+	if (!existsSync(linkDir)) {
+		mkdirSync(linkDir, { recursive: true });
+		linkDirExisted = false;
+	}
+
+	let prepared = false;
+	if (existsSync(projectJsonPath)) {
+		const targetDir = path.join(linkDir, ".vercel");
+		mkdirSync(targetDir, { recursive: true });
+		copyFileSync(projectJsonPath, path.join(targetDir, "project.json"));
+		prepared = true;
+	}
+
+	return {
+		linkDirExisted,
+		prepared,
+		projectJsonTarget: path.join(linkDir, ".vercel", "project.json"),
+	};
+}
+
+function runProvisionTursoApply({ commandArgv, cwd }) {
+	const result = spawnSync(commandArgv[0], commandArgv.slice(1), {
+		cwd,
+		stdio: "inherit",
+		encoding: "utf8",
+	});
+	return {
+		ok: result.status === 0,
+		exitCode: result.status ?? 1,
+		signal: result.signal,
+	};
 }
 
 function readDotEnv(filePath) {

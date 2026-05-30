@@ -46,6 +46,9 @@ yarn-error.log*
 .vercel
 apps/*/.vercel
 
+# local setup state
+apps/*/.rhapsody/setup-state.json
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
