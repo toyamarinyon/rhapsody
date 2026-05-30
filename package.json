@@ -17,6 +17,7 @@
 		"setup:first-issue": "node --import tsx scripts/setup-rhapsody-first-issue.ts",
 		"setup:start-attempt": "node --import tsx scripts/setup-rhapsody-start-attempt.ts",
 		"setup:verify-run": "node --import tsx scripts/setup-rhapsody-verify-run.ts",
+		"setup:seed-codex": "node --import tsx scripts/setup-rhapsody-seed-codex.ts",
 		"lint": "eslint",
 		"test": "vitest",
 		"format:check": "biome format .",

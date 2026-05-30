@@ -54,17 +54,20 @@ Treat setup as resumable phases:
    - if `ROOT_PASSWORD` is available and the operator opts in, verify authenticated `/api/v1/state`;
    - open `/dashboard`;
    - verify the preview is ready for the first issue handoff.
-7. `create-first-issue`
+7. `seed-codex`
+   - run dry-run to confirm seed endpoint + health-check endpoint targets and next actions;
+   - apply only with `--apply --yes --use-root-password` so seed and health checks stay explicit.
+8. `create-first-issue`
    - create one smoke-test issue and add it to the configured ProjectV2 board;
    - dry-run to confirm GitHub repository/project preconditions and planned mutations;
    - apply only with `--apply --yes`;
    - capture `issueNumber`/`issueUrl` for the subsequent manual handoff helper.
-8. `first-issue`
+9. `first-issue`
    - run the first issue handoff helper against the preview URL and issue number;
    - dry-run to confirm the manual run request before mutation;
    - apply only with `--use-root-password` and explicit confirmation;
    - verify the manual handoff response before moving on to scheduler or PR verification.
-9. `first-attempt-start`
+10. `first-attempt-start`
    - use the start-attempt helper with the manual run `runId`, `attemptId`, and the run's
      `claimToken`;
    - if `RHAPSODY_CLAIM_TOKEN` is not already available in process env or `.env.local`, derive it
@@ -76,7 +79,7 @@ Treat setup as resumable phases:
      preview URL and run ID;
    - use the verification output to decide whether to wait for the runner workflow, inspect the
      dashboard for attempt and event evidence, or look for the PR handoff.
-10. `verify-run`
+11. `verify-run`
    - run the read-only verification helper against the preview URL and run ID after
      `first-attempt-start`;
    - without `--use-root-password`, use it as a dry classification step that reports the endpoint
@@ -292,13 +295,25 @@ pnpm setup:smoke-test -- --url <https://your-preview-url.vercel.app>
 pnpm setup:create-first-issue -- --apply --yes --title "Rhapsody smoke test"
 ```
 
-7. Create first run manually (dry run)
+7. Seed deployed Codex credentials (dry run)
+
+```bash
+pnpm setup:seed-codex -- --url <https://your-preview-url.vercel.app>
+```
+
+8. Seed deployed Codex credentials (apply)
+
+```bash
+pnpm setup:seed-codex -- --url <https://your-preview-url.vercel.app> --apply --yes --use-root-password
+```
+
+9. Create first run manually (dry run)
 
 ```bash
 pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-number <issueNumber>
 ```
 
-8. Create first run manually (apply)
+10. Create first run manually (apply)
 
 ```bash
 pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-number <issueNumber> --apply --yes --use-root-password
@@ -306,13 +321,13 @@ pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-nu
 
 Capture `runId` and `attemptId` from the response before continuing.
 
-9. Start the attempt (dry run)
+11. Start the attempt (dry run)
 
 ```bash
 pnpm setup:start-attempt -- --url <https://your-preview-url.vercel.app> --run-id <runId> --attempt-id <attemptId>
 ```
 
-10. Start the attempt (apply)
+12. Start the attempt (apply)
 
 ```bash
 pnpm setup:start-attempt -- --url <https://your-preview-url.vercel.app> --run-id <runId> --attempt-id <attemptId> --apply --yes --use-root-password
@@ -321,13 +336,13 @@ pnpm setup:start-attempt -- --url <https://your-preview-url.vercel.app> --run-id
 If `RHAPSODY_CLAIM_TOKEN` is missing, it is derived from authenticated `GET /api/v1/runs/:runId`
 during the same apply invocation.
 
-11. Verify run state (no auth)
+13. Verify run state (no auth)
 
 ```bash
 pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId>
 ```
 
-12. Verify run state with auth
+14. Verify run state with auth
 
 ```bash
 pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId> --use-root-password
