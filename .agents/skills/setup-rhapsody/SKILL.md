@@ -291,22 +291,22 @@ pnpm setup:deploy-preview -- --apply --yes
 pnpm setup:smoke-test -- --url <https://your-preview-url.vercel.app>
 ```
 
-6. Create first smoke-test issue and add it to ProjectV2
-
-```bash
-pnpm setup:create-first-issue -- --apply --yes --title "Rhapsody smoke test"
-```
-
-7. Seed deployed Codex credentials (dry run)
+6. Seed deployed Codex credentials (dry run)
 
 ```bash
 pnpm setup:seed-codex -- --url <https://your-preview-url.vercel.app>
 ```
 
-8. Seed deployed Codex credentials (apply)
+7. Seed deployed Codex credentials (apply)
 
 ```bash
 pnpm setup:seed-codex -- --url <https://your-preview-url.vercel.app> --apply --yes --use-root-password
+```
+
+8. Create first smoke-test issue and add it to ProjectV2
+
+```bash
+pnpm setup:create-first-issue -- --apply --yes --title "Rhapsody smoke test"
 ```
 
 9. Create first run manually (dry run)
