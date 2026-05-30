@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
 	buildPlannedChanges,
+	buildConfigureDeployUnsupportedNextActions,
 	getConfigureDeployWriteKeys,
 	parseConfigureDeployArgs,
 } from "@/scripts/setup-rhapsody-configure-deploy";
@@ -57,6 +58,13 @@ test("parses configure-deploy argument forms", () => {
 	expect(
 		parseConfigureDeployArgs(["node", "script.ts", "--unknown"]),
 	).toBeNull();
+});
+
+test("builds concrete unsupported-args next actions", () => {
+	expect(buildConfigureDeployUnsupportedNextActions()).toEqual([
+		"Run `pnpm setup:configure-deploy -- --dry-run` to inspect deploy environment readiness.",
+		"Run `pnpm setup:configure-deploy -- --apply --yes` only after the dry-run blockers are resolved.",
+	]);
 });
 
 test("builds seed-aware write key list", () => {
