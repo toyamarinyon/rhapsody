@@ -20,17 +20,59 @@ function run(command: string, args: string[], timeout = 10_000) {
 	});
 }
 
+function summarizeCommandFailure(
+	error: Error | null,
+	command: string,
+	args: string[],
+	timeoutMs: number,
+) {
+	const errnoError = error as NodeJS.ErrnoException | null;
+
+	if (errnoError?.code === "ETIMEDOUT") {
+		const invokedCommand = `${command} ${args.join(" ")}`.trim();
+		return `${invokedCommand} timed out after ${timeoutMs}ms; rerun when the CLI is responsive`;
+	}
+
+	return errnoError?.message ?? "Command execution failed";
+}
+
+function summarizeAuthResult(
+	result: ReturnType<typeof run>,
+	command: string,
+	timeoutMs: number,
+) {
+	const errnoError = result.error as NodeJS.ErrnoException | null;
+
+	if (result.error) {
+		if (errnoError?.code === "ETIMEDOUT") {
+			return `${command} timed out after ${timeoutMs}ms; run ${
+				command.startsWith("vercel") ? "vercel login" : "gh auth login"
+			} or rerun when the CLI is responsive`;
+		}
+		return errnoError?.message ?? "Authentication check failed";
+	}
+
+	const output = (result.stdout || result.stderr || "").trim();
+
+	if (!output) {
+		return result.status === 0 ? "authenticated" : `exit ${result.status}`;
+	}
+
+	return output.split("\n")[0] ?? output;
+}
+
 function checkCommand(
 	name: string,
 	args: string[] = ["--version"],
+	timeout = 10_000,
 ): CommandCheck {
-	const result = run(name, args);
+	const result = run(name, args, timeout);
 
 	if (result.error) {
 		return {
 			name,
 			available: false,
-			error: result.error.message,
+			error: summarizeCommandFailure(result.error, name, args, timeout),
 		};
 	}
 
@@ -55,7 +97,7 @@ function checkGitHubAuth(): AuthCheck {
 	return {
 		name: "github",
 		ok: result.status === 0,
-		detail: summarizeAuthResult(result),
+		detail: summarizeAuthResult(result, "gh auth status", 10_000),
 	};
 }
 
@@ -65,22 +107,8 @@ function checkVercelAuth(): AuthCheck {
 	return {
 		name: "vercel",
 		ok: result.status === 0,
-		detail: summarizeAuthResult(result),
+		detail: summarizeAuthResult(result, "vercel whoami", 10_000),
 	};
-}
-
-function summarizeAuthResult(result: ReturnType<typeof run>) {
-	if (result.error) {
-		return result.error.message;
-	}
-
-	const output = (result.stdout || result.stderr || "").trim();
-
-	if (!output) {
-		return result.status === 0 ? "authenticated" : `exit ${result.status}`;
-	}
-
-	return output.split("\n")[0] ?? output;
 }
 
 function readGitContext() {
