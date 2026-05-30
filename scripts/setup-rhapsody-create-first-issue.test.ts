@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import {
+	buildBlockedNextActions,
 	buildPartialIssueProjectActions,
 	buildUnsupportedArgsReport,
 	parseArgs,
@@ -101,4 +102,20 @@ test("builds a concrete nextActions list when arguments are unsupported", () => 
 			"Use --title <title>, optional --body <body>, optional --apply --yes to run.",
 		],
 	});
+});
+
+test("builds concrete blocked nextActions for first issue preconditions", () => {
+	expect(
+		buildBlockedNextActions({
+			ghAvailable: true,
+			ghAuthOk: true,
+			repoResolved: false,
+			repoAccessible: false,
+			configExists: true,
+			projectNumberConfigured: false,
+		}),
+	).toEqual([
+		"Configure tracker.owner/repository in rhapsody.config.ts or add a valid GitHub origin remote, then rerun `pnpm setup:create-first-issue -- --dry-run`.",
+		"Run `pnpm setup:configure-github -- --dry-run`, then persist the ProjectV2 number with `pnpm setup:configure-local -- --apply --yes --project-number <number>`.",
+	]);
 });

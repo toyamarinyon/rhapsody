@@ -581,6 +581,94 @@ export function buildPartialIssueProjectActions(args: {
 	};
 }
 
+export function buildBlockedNextActions(args: {
+	ghAvailable: boolean;
+	ghAuthOk: boolean;
+	repoResolved: boolean;
+	repoAccessible: boolean;
+	configExists: boolean;
+	projectNumberConfigured: boolean;
+}) {
+	const nextActions: string[] = [];
+
+	if (!args.ghAvailable) {
+		nextActions.push(
+			"Install the GitHub CLI (`gh`), then rerun `pnpm setup:create-first-issue -- --dry-run`.",
+		);
+	}
+	if (!args.ghAuthOk) {
+		nextActions.push(
+			'Run `gh auth login` with repository and ProjectV2 access, then rerun `pnpm setup:create-first-issue -- --title "Rhapsody smoke test"`.',
+		);
+	}
+	if (!args.repoResolved) {
+		nextActions.push(
+			"Configure tracker.owner/repository in rhapsody.config.ts or add a valid GitHub origin remote, then rerun `pnpm setup:create-first-issue -- --dry-run`.",
+		);
+	}
+	if (args.repoResolved && !args.repoAccessible) {
+		nextActions.push(
+			"Confirm the resolved repository is readable with `gh repo view <owner>/<repo>`, then rerun `pnpm setup:create-first-issue -- --dry-run`.",
+		);
+	}
+	if (!args.configExists) {
+		nextActions.push(
+			"Create or restore rhapsody.config.ts before creating the smoke-test issue.",
+		);
+	}
+	if (!args.projectNumberConfigured) {
+		nextActions.push(
+			"Run `pnpm setup:configure-github -- --dry-run`, then persist the ProjectV2 number with `pnpm setup:configure-local -- --apply --yes --project-number <number>`.",
+		);
+	}
+
+	return [...new Set(nextActions)];
+}
+
+function buildIssueCreateFailureNextActions(args: {
+	owner: string;
+	repository: string;
+	title: string;
+	error: string | null | undefined;
+}) {
+	const output = String(args.error ?? "").toLowerCase();
+	const nextActions = [
+		`Check issue creation manually with: gh issue create --repo ${args.owner}/${args.repository} --title "${args.title}" --body "<body>".`,
+	];
+
+	if (
+		output.includes("authentication") ||
+		output.includes("not logged") ||
+		output.includes("login")
+	) {
+		nextActions.unshift(
+			"Refresh GitHub authentication with `gh auth login` or `gh auth refresh -s project,repo`, then rerun `pnpm setup:create-first-issue -- --apply --yes`.",
+		);
+	} else if (
+		output.includes("not found") ||
+		output.includes("could not resolve") ||
+		output.includes("repository")
+	) {
+		nextActions.unshift(
+			"Verify tracker.owner/repository or the git origin remote resolves to the intended GitHub repository.",
+		);
+	} else if (
+		output.includes("permission") ||
+		output.includes("forbidden") ||
+		output.includes("resource not accessible")
+	) {
+		nextActions.unshift(
+			"Confirm the GitHub token has permission to create issues in the target repository.",
+		);
+	} else {
+		nextActions.unshift(
+			"Inspect the gh error above, fix the issue creation precondition, then rerun `pnpm setup:create-first-issue -- --apply --yes`.",
+		);
+	}
+
+	return [...new Set(nextActions)];
+}
+
 function titleOrDefault(value: string | null) {
 	return value?.trim() || DEFAULT_TITLE;
 }
@@ -853,15 +941,17 @@ async function main() {
 				blocked: blocked,
 				nextActions:
 					blocked.length > 0
-						? !gh.available
-							? [
-									"Install the GitHub CLI (`gh`), then rerun this helper in dry-run mode.",
-								]
-							: !ghAuth.ok
-								? [
-										'Run `gh auth login` with repository and ProjectV2 access, then rerun `pnpm setup:create-first-issue -- --title "Rhapsody smoke test"`.',
-									]
-								: ["Resolve blocked prerequisites and rerun in dry-run mode."]
+						? buildBlockedNextActions({
+								ghAvailable: gh.available,
+								ghAuthOk: ghAuth.ok,
+								repoResolved: Boolean(
+									resolvedRepo.owner && resolvedRepo.repository,
+								),
+								repoAccessible: repoView.accessible,
+								configExists: config.exists,
+								projectNumberConfigured:
+									typeof config.projectNumber === "number",
+							})
 						: [
 								"Run with --apply --yes to create and queue the issue.",
 								"Current defaults can be overridden with --title and --body.",
@@ -968,9 +1058,12 @@ async function main() {
 					"Re-run only after fixing gh issue creation environment.",
 				],
 				blocked: [...blocked, issue.error ?? "Issue creation failed."],
-				nextActions: [
-					"Fix gh issue creation blocker and rerun with --apply --yes.",
-				],
+				nextActions: buildIssueCreateFailureNextActions({
+					owner: resolvedRepo.owner!,
+					repository: resolvedRepo.repository!,
+					title: facts.issue.title,
+					error: issue.error,
+				}),
 				plannedChanges: [
 					{
 						kind: "github-issue-create",
