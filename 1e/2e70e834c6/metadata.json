@@ -1,0 +1,16 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "1e2e70e834c6",
+  "strategy": "manual-commit",
+  "branch": "codex-setup-apply-root-next-actions",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/1e/2e70e834c6/0/metadata.json",
+      "transcript": "/1e/2e70e834c6/0/full.jsonl",
+      "content_hash": "/1e/2e70e834c6/0/content_hash.txt",
+      "prompt": "/1e/2e70e834c6/0/prompt.txt"
+    }
+  ]
+}
