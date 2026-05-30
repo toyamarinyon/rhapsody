@@ -1,0 +1,69 @@
+Implement the next reviewable setup increment: a first issue handoff helper MVP.
+
+Context:
+- Goal is `$setup-rhapsody` path from deployed preview to first GitHub Project issue becoming an agent-created PR.
+- Recent merged PRs added:
+  - `setup:deploy-preview`
+  - `setup:smoke-test`
+- This PR should add the next step after smoke-test: prepare/perform a manual first issue handoff to the deployed preview API.
+- Keep it small and safe. English-only repo content. Do not touch `.codex/agents/builder.toml` if modified.
+
+Existing relevant API:
+- `POST /api/v1/runs` accepts admin auth and either `{ issueNumber }` or manual work item fields. It creates a claimed manual run. See `app/api/v1/runs/route.ts`.
+- Admin auth can use `Authorization: Bearer <ROOT_PASSWORD>`.
+- Starting worker attempts may be separate; do not overreach unless there is already a clear manual start endpoint pattern.
+
+Task:
+1. Add a package script, likely `setup:first-issue`, backed by a new TypeScript script in `scripts/`.
+2. Supported args:
+   - `--url <preview base URL>` or `--url=<...>` required
+   - `--issue-number <positive integer>` or `--issue-number=<n>` required
+   - no secret CLI args
+   - `--dry-run` optional/default: do not mutate, only report plan
+   - `--apply --yes` optional: perform the manual handoff
+   - `--use-root-password` required for apply, and uses ROOT_PASSWORD from process first then `.env.local`; do not print it
+   - reject unsupported args as JSON-only error
+3. Dry-run behavior:
+   - normalize URL
+   - verify root password availability and whether `--use-root-password` is set
+   - report exact endpoint that would be called (`POST /api/v1/runs`) and payload shape without secrets
+   - do not call remote API
+   - produce JSON shape similar to setup helpers: ok/mode/phase/facts/checks/plannedChanges/needsUser/blocked/nextActions
+4. Apply behavior:
+   - require valid URL, issue number, ROOT_PASSWORD availability, and `--use-root-password`
+   - POST to `${baseUrl}/api/v1/runs` with JSON `{ issueNumber, claimedBy: "setup-rhapsody" }` and Bearer root password
+   - summarize response status/content-type and safe JSON shape/keys; include returned run id / attempt id only if those fields are present and non-secret
+   - classify 201 success, 401 unauthorized, 409 existing run, 400 validation, network error
+   - do not trigger scheduler tick or start attempts in this PR unless implementation already obviously requires it
+5. Update `.agents/skills/setup-rhapsody/SKILL.md` to place this after smoke-test and before scheduler/PR verification.
+6. Verification:
+   - missing args JSON
+   - unsupported args JSON
+   - dry-run with dummy URL/issue number JSON
+   - apply without `--use-root-password` blocks before network
+   - format/lint/typecheck
+
+Keep code straightforward; avoid shared refactors. Report changed files and verification. Do not commit/PR; parent will review.
+
+---
+
+Good shape. Please fix these before PR:
+
+1. Tighten mode parsing: `--apply` without `--yes` should be rejected as unsupported args, not treated as apply mode with a later blocker. Supported forms should be no `--dry-run`/`--dry-run` for dry-run, and exact `--apply --yes` for apply (order can be flexible if you want, but both must be present). `--yes` without `--apply` should also be unsupported.
+
+2. Do not include raw JSON response in `facts.response.error`. Current code can set `error: JSON.stringify(parsed)` for HTTP >=400. That may expose future server details. Replace with a safe summary only, e.g. `response returned JSON object with keys: error, existingRunId`, or just omit error and rely on status/classification/objectKeys.
+
+3. The top-level catch should not emit raw exception messages if they could include request data. Summarize as `unexpected script error` or include only error name. Normal network errors in `postRun` are already summarized.
+
+4. Add a check for `--use-root-password` in dry-run: it can be accepted, but nextActions should still be dry-run focused; no mutation.
+
+Please rerun:
+- missing args JSON
+- unsupported `--apply` without `--yes` JSON
+- dry-run dummy URL/issue
+- apply without `--use-root-password` with exact `--apply --yes` blocks before network
+- format/lint/typecheck
+
+---
+
+builder subagent, gpt-5.3-codex-sparkの方が仕事速いし精度もいいのでそっち使ってください。
