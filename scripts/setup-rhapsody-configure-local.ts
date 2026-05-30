@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 type Check = {
@@ -767,7 +768,7 @@ function buildExternalInputGuidance(missingExternalInputs: readonly string[]) {
 	return guidance;
 }
 
-function buildDryRunNextActions(args: {
+export function buildDryRunNextActions(args: {
 	blocked: string[];
 	planProjectNumber: boolean;
 	projectNumberWouldWrite: boolean;
@@ -778,7 +779,35 @@ function buildDryRunNextActions(args: {
 	const nextActions: string[] = [];
 
 	if (args.blocked.length > 0) {
-		nextActions.push("Resolve blocked items before any write step.");
+		for (const blocked of args.blocked) {
+			if (blocked.includes(".env.local") && blocked.includes("not ignored")) {
+				nextActions.push(
+					"Add `.env.local` to .gitignore or another ignore rule, then rerun `pnpm setup:configure-local -- --dry-run` before any local secret write.",
+				);
+				continue;
+			}
+			if (
+				blocked.includes(
+					"GitHub repository owner and repository name could not be inferred",
+				)
+			) {
+				nextActions.push(
+					"Configure a GitHub origin remote or set tracker.owner/repository in rhapsody.config.ts before continuing setup.",
+				);
+				continue;
+			}
+			if (blocked.includes("tracker.projectNumber")) {
+				nextActions.push(
+					"Open rhapsody.config.ts and update tracker.projectNumber manually, then rerun `pnpm setup:configure-local -- --dry-run --project-number <number>`.",
+				);
+				continue;
+			}
+		}
+		if (nextActions.length === 0) {
+			nextActions.push(
+				"Inspect the blocked items above, fix them, then rerun `pnpm setup:configure-local -- --dry-run` before any write step.",
+			);
+		}
 	}
 
 	if (args.planProjectNumber && args.projectNumberWouldWrite) {
@@ -1159,7 +1188,14 @@ function main() {
 				appliedChanges: [],
 				needsUser,
 				blocked: localWriteBlocked,
-				nextActions: ["Resolve blocked items before any write step."],
+				nextActions: buildDryRunNextActions({
+					blocked: localWriteBlocked,
+					planProjectNumber: false,
+					projectNumberWouldWrite: false,
+					missingGeneratedSecrets: generatedSecretsPresence.missing,
+					missingExternalInputs: externalInputsPresence.missing,
+					needsUser,
+				}),
 			};
 			reportJSON(report, 1);
 			return;
@@ -1295,4 +1331,6 @@ function main() {
 	process.exitCode = 0;
 }
 
-main();
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
+	main();
+}
