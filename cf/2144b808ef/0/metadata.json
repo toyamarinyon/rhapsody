@@ -1,0 +1,32 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "cf2144b808ef",
+  "session_id": "019e6ee5-09b4-7430-a46a-58e27ddb4189",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-30T03:18:27.071513Z",
+  "branch": "codex-configure-local-project-number",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "3a93798aea0e",
+  "token_usage": {
+    "input_tokens": 83301,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 4794368,
+    "output_tokens": 31006,
+    "api_call_count": 67
+  },
+  "session_metrics": {
+    "turn_count": 35
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
