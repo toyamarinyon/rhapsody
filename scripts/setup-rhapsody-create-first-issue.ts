@@ -770,7 +770,15 @@ async function main() {
 	const blocked: string[] = [];
 
 	if (!gh.available) blocked.push("gh CLI is unavailable.");
-	if (!ghAuth.ok) blocked.push("Authenticate gh with `gh auth login`.");
+	if (!gh.available) {
+		needsUser.push("Install the GitHub CLI (`gh`) before creating issues.");
+	}
+	if (!ghAuth.ok) {
+		blocked.push("Authenticate gh with `gh auth login`.");
+		needsUser.push(
+			'Run `gh auth login` with repository and ProjectV2 access, then rerun `pnpm setup:create-first-issue -- --title "Rhapsody smoke test"`.',
+		);
+	}
 	if (!resolvedRepo.owner || !resolvedRepo.repository) {
 		blocked.push(
 			"Resolve repository owner/repository from local config or git remote before apply.",
@@ -841,7 +849,15 @@ async function main() {
 				blocked: blocked,
 				nextActions:
 					blocked.length > 0
-						? ["Resolve blocked prerequisites and rerun in dry-run mode."]
+						? !gh.available
+							? [
+									"Install the GitHub CLI (`gh`), then rerun this helper in dry-run mode.",
+								]
+							: !ghAuth.ok
+								? [
+										'Run `gh auth login` with repository and ProjectV2 access, then rerun `pnpm setup:create-first-issue -- --title "Rhapsody smoke test"`.',
+									]
+								: ["Resolve blocked prerequisites and rerun in dry-run mode."]
 						: [
 								"Run with --apply --yes to create and queue the issue.",
 								"Current defaults can be overridden with --title and --body.",
@@ -872,7 +888,9 @@ async function main() {
 					checks,
 					needsUser,
 					blocked,
-					nextActions: ["Authenticate gh and rerun with --apply --yes."],
+					nextActions: [
+						'Run `gh auth login` with repository and ProjectV2 access, then rerun `pnpm setup:create-first-issue -- --apply --yes --title "Rhapsody smoke test"`.',
+					],
 					plannedChanges: [
 						{
 							kind: "github-issue-create",
