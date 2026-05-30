@@ -109,13 +109,14 @@ test("builds concrete blocked nextActions for first issue preconditions", () => 
 	expect(
 		buildBlockedNextActions({
 			ghAvailable: true,
-			ghAuthOk: true,
+			ghAuthOk: false,
 			repoResolved: false,
 			repoAccessible: false,
 			configExists: true,
 			projectNumberConfigured: false,
 		}),
 	).toEqual([
+		'Refresh or replace GITHUB_TOKEN/GH_TOKEN with repository and ProjectV2 access, or run `gh auth login`, then rerun `pnpm setup:create-first-issue -- --title "Rhapsody smoke test"`.',
 		"Configure tracker.owner/repository in rhapsody.config.ts or add a valid GitHub origin remote, then rerun `pnpm setup:create-first-issue -- --dry-run`.",
 		"Run `pnpm setup:configure-github -- --dry-run`, then persist the ProjectV2 number with `pnpm setup:configure-local -- --apply --yes --project-number <number>`.",
 	]);

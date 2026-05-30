@@ -405,9 +405,11 @@ function ghAuthSummary(result: ReturnType<typeof run>) {
 
 function readGhAuthStatus() {
 	if (hasGithubTokenForGh()) {
+		const result = run("gh", ["api", "user", "--jq", ".login"]);
 		return {
-			ok: true,
-			summary: "GITHUB_TOKEN present",
+			ok: result.status === 0,
+			summary:
+				result.status === 0 ? "GITHUB_TOKEN valid" : ghAuthSummary(result),
 		};
 	}
 
@@ -655,7 +657,7 @@ export function buildBlockedNextActions(args: {
 	}
 	if (!args.ghAuthOk) {
 		nextActions.push(
-			'Run `gh auth login` with repository and ProjectV2 access, then rerun `pnpm setup:create-first-issue -- --title "Rhapsody smoke test"`.',
+			'Refresh or replace GITHUB_TOKEN/GH_TOKEN with repository and ProjectV2 access, or run `gh auth login`, then rerun `pnpm setup:create-first-issue -- --title "Rhapsody smoke test"`.',
 		);
 	}
 	if (!args.repoResolved) {
@@ -925,7 +927,7 @@ async function main() {
 	if (!ghAuth.ok) {
 		blocked.push("Authenticate gh with `gh auth login`.");
 		needsUser.push(
-			'Run `gh auth login` with repository and ProjectV2 access, then rerun `pnpm setup:create-first-issue -- --title "Rhapsody smoke test"`.',
+			'Refresh or replace GITHUB_TOKEN/GH_TOKEN with repository and ProjectV2 access, or run `gh auth login`, then rerun `pnpm setup:create-first-issue -- --title "Rhapsody smoke test"`.',
 		);
 	}
 	if (!resolvedRepo.owner || !resolvedRepo.repository) {
@@ -1040,7 +1042,7 @@ async function main() {
 					needsUser,
 					blocked,
 					nextActions: [
-						'Run `gh auth login` with repository and ProjectV2 access, then rerun `pnpm setup:create-first-issue -- --apply --yes --title "Rhapsody smoke test"`.',
+						'Refresh or replace GITHUB_TOKEN/GH_TOKEN with repository and ProjectV2 access, or run `gh auth login`, then rerun `pnpm setup:create-first-issue -- --apply --yes --title "Rhapsody smoke test"`.',
 					],
 					plannedChanges: [
 						{

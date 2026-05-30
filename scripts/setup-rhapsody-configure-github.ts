@@ -681,9 +681,13 @@ function readLocalConfigHints() {
 
 function checkGhAuth() {
 	if (hasGithubTokenForGh()) {
+		const result = run("gh", ["api", "user", "--jq", ".login"], 12_000);
 		return {
-			ok: true,
-			summary: "GITHUB_TOKEN present",
+			ok: result.status === 0,
+			summary:
+				result.status === 0
+					? "GITHUB_TOKEN valid"
+					: summarizeAuthResult(result),
 		};
 	}
 
@@ -1202,7 +1206,7 @@ function main() {
 	} else if (!ghAuth.ok) {
 		blocked.push("gh auth status failed.");
 		needsUser.push(
-			"Run `gh auth login` with repository and ProjectV2 access, then rerun `pnpm setup:configure-github -- --dry-run`.",
+			"Refresh or replace GITHUB_TOKEN/GH_TOKEN with repository and ProjectV2 access, or run `gh auth login`, then rerun `pnpm setup:configure-github -- --dry-run`.",
 		);
 	}
 
@@ -1470,7 +1474,7 @@ function main() {
 			);
 		} else if (!ghAuth.ok) {
 			nextActions.push(
-				"Run `gh auth login` with repository and ProjectV2 access, then rerun `pnpm setup:configure-github -- --dry-run`.",
+				"Refresh or replace GITHUB_TOKEN/GH_TOKEN with repository and ProjectV2 access, or run `gh auth login`, then rerun `pnpm setup:configure-github -- --dry-run`.",
 			);
 		} else if (
 			blocked.some(

@@ -150,10 +150,14 @@ function checkGitHubAuthWithToken(
 	envLocalKeys: ReadonlySet<string>,
 ): AuthCheck {
 	if (hasEnvKey("GITHUB_TOKEN", envLocalKeys)) {
+		const result = run("gh", ["api", "user", "--jq", ".login"], 10_000);
 		return {
 			name: "github",
-			ok: true,
-			detail: "GITHUB_TOKEN present",
+			ok: result.status === 0,
+			detail:
+				result.status === 0
+					? "GITHUB_TOKEN valid"
+					: summarizeAuthResult(result, "gh api user", 10_000),
 		};
 	}
 
@@ -245,7 +249,7 @@ function buildNeedsUser(args: { commands: CommandCheck[]; auth: AuthCheck[] }) {
 	}
 	if (!args.auth.find((item) => item.name === "github")?.ok) {
 		needsUser.push(
-			"Run `gh auth login` with repository and ProjectV2 access, then rerun `pnpm setup:inspect`.",
+			"Refresh or replace GITHUB_TOKEN/GH_TOKEN with repository and ProjectV2 access, or run `gh auth login`, then rerun `pnpm setup:inspect`.",
 		);
 	}
 	if (!args.auth.find((item) => item.name === "vercel")?.ok) {
