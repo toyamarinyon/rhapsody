@@ -825,23 +825,64 @@ function reportJSON(report: Report, exitCode = 0) {
 	process.exitCode = exitCode;
 }
 
+function buildUnsupportedArgsReport(): Report {
+	return {
+		ok: false,
+		mode: "dry-run",
+		phase: "configure-local",
+		error:
+			"Unsupported arguments. Supported forms: no args, --dry-run, -- --dry-run, --dry-run --project-number <number>, -- --dry-run --project-number <number>, --apply --yes, -- --apply --yes, --apply --yes --project-number <number>, -- --apply --yes --project-number <number>.",
+		facts: {
+			git: {
+				branch: null,
+				remote: null,
+			},
+			files: {
+				envLocalExists: false,
+				envLocalIgnoredByGit: null,
+				rhapsodyInstructionsExists: false,
+				rhapsodyConfigTomlExists: false,
+				rhapsodyConfigTsExists: false,
+			},
+			vercelProjectLink: {
+				exists: false,
+				orgIdPresent: false,
+				projectIdPresent: false,
+			},
+			env: {
+				generatedSecrets: {
+					present: {},
+					missingGeneratedSecrets: [],
+				},
+				externalInputs: {
+					present: {},
+					missingExternalInputs: [],
+				},
+				codexSeed: {
+					present: {},
+					missingCodexSeedInputs: [],
+				},
+			},
+		},
+		checks: [],
+		plannedChanges: [],
+		appliedChanges: [],
+		needsUser: [
+			"Use no args or --dry-run for inspection, --apply --yes for local generated-secret writes, or include --project-number <number> to persist the ProjectV2 board number.",
+		],
+		blocked: ["Unsupported or missing arguments."],
+		nextActions: [
+			"Run `pnpm setup:configure-local -- --dry-run` to inspect local setup readiness.",
+			"Run `pnpm setup:configure-local -- --apply --yes` only after reviewing the dry-run.",
+			"Run `pnpm setup:configure-local -- --apply --yes --project-number <number>` only after configure-github reports the ProjectV2 board number.",
+		],
+	};
+}
+
 function main() {
 	const mode = parseMode(process.argv);
 	if (!mode) {
-		process.stdout.write(
-			`${JSON.stringify(
-				{
-					ok: false,
-					mode: "dry-run",
-					phase: "configure-local",
-					error:
-						"Unsupported arguments. Supported forms: no args, --dry-run, -- --dry-run, --dry-run --project-number <number>, -- --dry-run --project-number <number>, --apply --yes, -- --apply --yes, --apply --yes --project-number <number>, -- --apply --yes --project-number <number>.",
-				},
-				null,
-				2,
-			)}\n`,
-		);
-		process.exitCode = 1;
+		reportJSON(buildUnsupportedArgsReport(), 1);
 		return;
 	}
 
