@@ -1,0 +1,46 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "766c4dbb06fb",
+  "session_id": "019e6ee5-09b4-7430-a46a-58e27ddb4189",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-30T03:50:28.474935Z",
+  "branch": "codex-improve-setup-inspect-errors",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "scripts/setup-rhapsody-inspect.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "b2539666023f",
+  "token_usage": {
+    "input_tokens": 36254,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 473984,
+    "output_tokens": 4607,
+    "api_call_count": 18
+  },
+  "session_metrics": {
+    "turn_count": 36
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-30T03:50:28.429069Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 28,
+    "human_modified": 18,
+    "human_removed": 0,
+    "total_committed": 28,
+    "total_lines_changed": 46,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
