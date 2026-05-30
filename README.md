@@ -117,9 +117,12 @@ If you started from the Vercel Template, use this path after deployment:
 7. Seed Codex credentials on the deployed preview (safe dry-run, then apply):
    - `pnpm setup:seed-codex -- --url <https://your-preview-url.vercel.app>`
    - `pnpm setup:seed-codex -- --url <https://your-preview-url.vercel.app> --apply --yes --use-root-password`
-8. Create and hand off a first issue:
+8. Create and hand off a first issue (safe dry-run, then apply):
+   - `pnpm setup:create-first-issue -- --title "Rhapsody smoke test"`
    - `pnpm setup:create-first-issue -- --apply --yes --title "Rhapsody smoke test"`
+   - `pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-number <issueNumber>`
    - `pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-number <issueNumber> --apply --yes --use-root-password`
+   - `pnpm setup:start-attempt -- --url <https://your-preview-url.vercel.app> --run-id <runId> --attempt-id <attemptId>`
    - `pnpm setup:start-attempt -- --url <https://your-preview-url.vercel.app> --run-id <runId> --attempt-id <attemptId> --apply --yes --use-root-password`
 9. Verify PR handoff evidence:
    - `pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId> [--use-root-password]`
