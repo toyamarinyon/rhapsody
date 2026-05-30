@@ -25,6 +25,15 @@ const phases: SetupPhase[] = [
 		purpose: "Print the first-run setup map and recommended next command.",
 	},
 	{
+		id: "status",
+		command: "pnpm setup:status",
+		mode: "read-only",
+		writes: [],
+		requiresUser: [],
+		purpose:
+			"Read local setup progress without calling network CLIs or printing secret values.",
+	},
+	{
 		id: "inspect",
 		command: "pnpm setup:inspect",
 		mode: "read-only",
@@ -154,10 +163,10 @@ const report: SetupPlanReport = {
 	ok: true,
 	phase: "plan",
 	phases,
-	recommendedNextCommand: "pnpm setup:inspect",
+	recommendedNextCommand: "pnpm setup:status",
 	nextActions: [
-		"Run pnpm setup:inspect to check local tools, authentication, and repository context.",
-		"Then run configure-local, configure-github, and configure-deploy in dry-run mode before any apply step.",
+		"Run pnpm setup:status to check local setup progress without network calls.",
+		"Then run pnpm setup:inspect to check local tools, authentication, and repository context.",
 	],
 };
 
