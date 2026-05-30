@@ -170,11 +170,11 @@ Required for the MVP:
 | `VERCEL_TEAM_ID` | Vercel team scope for Sandbox operations. |
 | `VERCEL_PROJECT_ID` | Vercel project scope for Sandbox operations. |
 
-Required for the default `sandbox-codex` runner:
+Operator-provided for the explicit Codex credential seed flow:
 
 | Name | Purpose |
 | --- | --- |
-| `INITIAL_CHATGPT_AUTH_JSON` | Initial Codex ChatGPT auth seed used by the credential seeding endpoint. |
+| `INITIAL_CHATGPT_AUTH_JSON` | Initial Codex ChatGPT auth seed used by the credential seeding endpoint. Provide it only when you intentionally run `setup:seed-codex` or opt into `setup:configure-deploy -- --include-codex-seed`. |
 
 Common optional variables:
 
