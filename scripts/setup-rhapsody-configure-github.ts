@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 type Check = {
@@ -128,7 +129,57 @@ function run(command: string, args: string[], timeout = 12_000) {
 	return spawnSync(command, args, {
 		encoding: "utf8",
 		timeout,
+		env: buildCommandEnv(command),
 	});
+}
+
+function readEnvLocalValue(key: string) {
+	if (!existsSync(".env.local")) {
+		return "";
+	}
+	const content = readFileSync(".env.local", "utf8");
+	for (const rawLine of content.split(/\r?\n/)) {
+		const line = rawLine.trim();
+		if (!line || line.startsWith("#")) {
+			continue;
+		}
+		const entry = line.startsWith("export ") ? line.slice(7).trim() : line;
+		const equalsIndex = entry.indexOf("=");
+		if (equalsIndex <= 0) {
+			continue;
+		}
+		const parsedKey = entry.slice(0, equalsIndex).trim();
+		const parsedValue = entry.slice(equalsIndex + 1).trim();
+		if (parsedKey === key && parsedValue) {
+			return parsedValue;
+		}
+	}
+	return "";
+}
+
+export function buildCommandEnv(command: string) {
+	if (command !== "gh" || process.env.GH_TOKEN?.trim()) {
+		return process.env;
+	}
+
+	const githubToken =
+		process.env.GITHUB_TOKEN?.trim() || readEnvLocalValue("GITHUB_TOKEN");
+	if (!githubToken) {
+		return process.env;
+	}
+
+	return {
+		...process.env,
+		GH_TOKEN: githubToken,
+	};
+}
+
+function hasGithubTokenForGh() {
+	return Boolean(
+		process.env.GH_TOKEN?.trim() ||
+			process.env.GITHUB_TOKEN?.trim() ||
+			readEnvLocalValue("GITHUB_TOKEN"),
+	);
 }
 
 function runGhGraphQL(query: string, variables: Record<string, unknown>) {
@@ -629,6 +680,13 @@ function readLocalConfigHints() {
 }
 
 function checkGhAuth() {
+	if (hasGithubTokenForGh()) {
+		return {
+			ok: true,
+			summary: "GITHUB_TOKEN present",
+		};
+	}
+
 	const result = run("gh", ["auth", "status"], 12_000);
 	return {
 		ok: result.status === 0,
@@ -1414,6 +1472,20 @@ function main() {
 			nextActions.push(
 				"Run `gh auth login` with repository and ProjectV2 access, then rerun `pnpm setup:configure-github -- --dry-run`.",
 			);
+		} else if (
+			blocked.some(
+				(entry) =>
+					entry.includes("could not read the repository") ||
+					entry.includes("could not read the owner project list") ||
+					entry.includes("could not read the configured ProjectV2 target"),
+			)
+		) {
+			nextActions.push(
+				"Confirm GitHub API access from this environment with `gh repo view <owner>/<repo>` and `gh api graphql`, then rerun `pnpm setup:configure-github -- --dry-run`.",
+			);
+			nextActions.push(
+				"If the CLI reports a network error, retry when api.github.com is reachable or run the helper outside the restricted network environment with GITHUB_TOKEN/GH_TOKEN available.",
+			);
 		} else {
 			nextActions.push(
 				"Resolve the blocked CLI or auth issue, then rerun `pnpm setup:configure-github -- --dry-run`.",
@@ -1503,4 +1575,6 @@ function main() {
 	emitJSON(report, report.ok ? 0 : 1);
 }
 
-main();
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
+	main();
+}

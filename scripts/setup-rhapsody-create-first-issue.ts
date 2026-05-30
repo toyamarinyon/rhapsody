@@ -291,7 +291,57 @@ function run(command: string, args: string[]) {
 	return spawnSync(command, args, {
 		encoding: "utf8",
 		timeout: REQUEST_TIMEOUT_MS,
+		env: buildCommandEnv(command),
 	});
+}
+
+function readEnvLocalValue(key: string) {
+	if (!existsSync(".env.local")) {
+		return "";
+	}
+	const content = readFileSync(".env.local", "utf8");
+	for (const rawLine of content.split(/\r?\n/)) {
+		const line = rawLine.trim();
+		if (!line || line.startsWith("#")) {
+			continue;
+		}
+		const entry = line.startsWith("export ") ? line.slice(7).trim() : line;
+		const equalsIndex = entry.indexOf("=");
+		if (equalsIndex <= 0) {
+			continue;
+		}
+		const parsedKey = entry.slice(0, equalsIndex).trim();
+		const parsedValue = entry.slice(equalsIndex + 1).trim();
+		if (parsedKey === key && parsedValue) {
+			return parsedValue;
+		}
+	}
+	return "";
+}
+
+export function buildCommandEnv(command: string) {
+	if (command !== "gh" || process.env.GH_TOKEN?.trim()) {
+		return process.env;
+	}
+
+	const githubToken =
+		process.env.GITHUB_TOKEN?.trim() || readEnvLocalValue("GITHUB_TOKEN");
+	if (!githubToken) {
+		return process.env;
+	}
+
+	return {
+		...process.env,
+		GH_TOKEN: githubToken,
+	};
+}
+
+function hasGithubTokenForGh() {
+	return Boolean(
+		process.env.GH_TOKEN?.trim() ||
+			process.env.GITHUB_TOKEN?.trim() ||
+			readEnvLocalValue("GITHUB_TOKEN"),
+	);
 }
 
 function summarizeCommandResult(result: ReturnType<typeof run>) {
@@ -354,6 +404,13 @@ function ghAuthSummary(result: ReturnType<typeof run>) {
 }
 
 function readGhAuthStatus() {
+	if (hasGithubTokenForGh()) {
+		return {
+			ok: true,
+			summary: "GITHUB_TOKEN present",
+		};
+	}
+
 	const result = run("gh", ["auth", "status"]);
 	return {
 		ok: result.status === 0,

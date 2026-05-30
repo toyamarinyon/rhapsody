@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
 	buildBlockedNextActions,
+	buildCommandEnv,
 	buildPartialIssueProjectActions,
 	buildUnsupportedArgsReport,
 	parseArgs,
@@ -118,4 +119,26 @@ test("builds concrete blocked nextActions for first issue preconditions", () => 
 		"Configure tracker.owner/repository in rhapsody.config.ts or add a valid GitHub origin remote, then rerun `pnpm setup:create-first-issue -- --dry-run`.",
 		"Run `pnpm setup:configure-github -- --dry-run`, then persist the ProjectV2 number with `pnpm setup:configure-local -- --apply --yes --project-number <number>`.",
 	]);
+});
+
+test("maps GITHUB_TOKEN to GH_TOKEN for gh subprocesses", () => {
+	const previousGhToken = process.env.GH_TOKEN;
+	const previousGithubToken = process.env.GITHUB_TOKEN;
+	delete process.env.GH_TOKEN;
+	process.env.GITHUB_TOKEN = "token-for-test";
+	try {
+		expect(buildCommandEnv("gh").GH_TOKEN).toBe("token-for-test");
+		expect(buildCommandEnv("git").GH_TOKEN).toBeUndefined();
+	} finally {
+		if (previousGhToken === undefined) {
+			delete process.env.GH_TOKEN;
+		} else {
+			process.env.GH_TOKEN = previousGhToken;
+		}
+		if (previousGithubToken === undefined) {
+			delete process.env.GITHUB_TOKEN;
+		} else {
+			process.env.GITHUB_TOKEN = previousGithubToken;
+		}
+	}
 });

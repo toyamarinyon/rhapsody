@@ -146,6 +146,20 @@ function hasEnvKey(key: string, envLocalKeys: ReadonlySet<string>) {
 	return Boolean(process.env[key]?.trim()) || envLocalKeys.has(key);
 }
 
+function checkGitHubAuthWithToken(
+	envLocalKeys: ReadonlySet<string>,
+): AuthCheck {
+	if (hasEnvKey("GITHUB_TOKEN", envLocalKeys)) {
+		return {
+			name: "github",
+			ok: true,
+			detail: "GITHUB_TOKEN present",
+		};
+	}
+
+	return checkGitHubAuth();
+}
+
 function checkVercelAuth(envLocalKeys: ReadonlySet<string>): AuthCheck {
 	if (hasEnvKey("VERCEL_TOKEN", envLocalKeys)) {
 		return {
@@ -263,7 +277,7 @@ function main() {
 
 	const auth = [
 		commands.find((command) => command.name === "gh")?.available
-			? checkGitHubAuth()
+			? checkGitHubAuthWithToken(envLocalKeys)
 			: { name: "github", ok: false, detail: "gh is not available" },
 		commands.find((command) => command.name === "vercel")?.available
 			? checkVercelAuth(envLocalKeys)
