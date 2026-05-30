@@ -1,0 +1,7 @@
+Parent verification looks mostly good. Please fix one output correctness issue:
+
+In the no-`--use-root-password` path, the helper always says `Authenticated fetch is available...` even if ROOT_PASSWORD is missing. Make it conditional:
+- If ROOT_PASSWORD is available: needsUser can say authenticated fetch is available and rerun with --use-root-password.
+- If ROOT_PASSWORD is missing: needsUser should say set ROOT_PASSWORD before authenticated fetch; nextActions should mention setting ROOT_PASSWORD or using dashboard.
+
+Please rerun dry-run no-auth path and format/lint/typecheck.

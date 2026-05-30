@@ -1,0 +1,58 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "2dd73c9a80c9",
+  "session_id": "019e7699-c434-7fe2-af40-47b23783bf79",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-30T02:41:51.325188Z",
+  "branch": "codex-setup-verify-run-mvp",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".agents/skills/setup-rhapsody/SKILL.md",
+    "package.json",
+    "scripts/setup-rhapsody-verify-run.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.4-mini",
+  "turn_id": "5a055f903f4e",
+  "token_usage": {
+    "input_tokens": 111560,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1472768,
+    "output_tokens": 14029,
+    "api_call_count": 26
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-30T02:41:51.311407Z",
+    "agent_lines": 6,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 3,
+    "total_committed": 6,
+    "total_lines_changed": 10,
+    "agent_percentage": 60,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 684,
+      "user_lines_removed": 3,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".agents/skills/setup-rhapsody/SKILL.md": 26,
+        ".codex/agents/builder.toml": 1,
+        "package.json": 1,
+        "scripts/setup-rhapsody-verify-run.ts": 656
+      },
+      "user_removed_per_file": {
+        ".agents/skills/setup-rhapsody/SKILL.md": 2,
+        ".codex/agents/builder.toml": 1
+      }
+    }
+  ]
+}
