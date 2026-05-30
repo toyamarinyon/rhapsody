@@ -54,12 +54,17 @@ Treat setup as resumable phases:
    - if `ROOT_PASSWORD` is available and the operator opts in, verify authenticated `/api/v1/state`;
    - open `/dashboard`;
    - verify the preview is ready for the first issue handoff.
-7. `first-issue`
+7. `create-first-issue`
+   - create one smoke-test issue and add it to the configured ProjectV2 board;
+   - dry-run to confirm GitHub repository/project preconditions and planned mutations;
+   - apply only with `--apply --yes`;
+   - capture `issueNumber`/`issueUrl` for the subsequent manual handoff helper.
+8. `first-issue`
    - run the first issue handoff helper against the preview URL and issue number;
    - dry-run to confirm the manual run request before mutation;
    - apply only with `--use-root-password` and explicit confirmation;
    - verify the manual handoff response before moving on to scheduler or PR verification.
-8. `first-attempt-start`
+9. `first-attempt-start`
    - use the start-attempt helper with the manual run `runId`, `attemptId`, and the run's
      `claimToken`;
    - if `RHAPSODY_CLAIM_TOKEN` is not already available in process env or `.env.local`, derive it
@@ -71,7 +76,7 @@ Treat setup as resumable phases:
      preview URL and run ID;
    - use the verification output to decide whether to wait for the runner workflow, inspect the
      dashboard for attempt and event evidence, or look for the PR handoff.
-9. `verify-run`
+10. `verify-run`
    - run the read-only verification helper against the preview URL and run ID after
      `first-attempt-start`;
    - without `--use-root-password`, use it as a dry classification step that reports the endpoint
@@ -191,6 +196,18 @@ issue-to-run handoff and marks whether authenticated `/api/v1/state` checks are 
 Before triggering the first issue handoff, run:
 
 ```bash
+pnpm setup:create-first-issue -- --title "Rhapsody smoke test"
+```
+
+This helper is read-only by default. It prepares defaults and validates `gh`/ProjectV2 preconditions.
+
+```bash
+pnpm setup:create-first-issue -- --apply --yes --title "Rhapsody smoke test"
+```
+
+This apply mode creates a real issue and adds it to the configured ProjectV2.
+
+```bash
 pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-number <1>
 ```
 
@@ -266,13 +283,19 @@ pnpm setup:deploy-preview -- --apply --yes
 pnpm setup:smoke-test -- --url <https://your-preview-url.vercel.app>
 ```
 
-6. Create first run manually (dry run)
+6. Create first smoke-test issue and add it to ProjectV2
+
+```bash
+pnpm setup:create-first-issue -- --apply --yes --title "Rhapsody smoke test"
+```
+
+7. Create first run manually (dry run)
 
 ```bash
 pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-number <1>
 ```
 
-7. Create first run manually (apply)
+8. Create first run manually (apply)
 
 ```bash
 pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-number <1> --apply --yes --use-root-password
@@ -280,13 +303,13 @@ pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-nu
 
 Capture `runId` and `attemptId` from the response before continuing.
 
-8. Start the attempt (dry run)
+9. Start the attempt (dry run)
 
 ```bash
 pnpm setup:start-attempt -- --url <https://your-preview-url.vercel.app> --run-id <runId> --attempt-id <attemptId>
 ```
 
-9. Start the attempt (apply)
+10. Start the attempt (apply)
 
 ```bash
 pnpm setup:start-attempt -- --url <https://your-preview-url.vercel.app> --run-id <runId> --attempt-id <attemptId> --apply --yes --use-root-password
@@ -295,13 +318,13 @@ pnpm setup:start-attempt -- --url <https://your-preview-url.vercel.app> --run-id
 If `RHAPSODY_CLAIM_TOKEN` is missing, it is derived from authenticated `GET /api/v1/runs/:runId`
 during the same apply invocation.
 
-10. Verify run state (no auth)
+11. Verify run state (no auth)
 
 ```bash
 pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId>
 ```
 
-11. Verify run state with auth
+12. Verify run state with auth
 
 ```bash
 pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId> --use-root-password
