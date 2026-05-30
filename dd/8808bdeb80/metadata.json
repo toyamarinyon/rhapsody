@@ -1,0 +1,23 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "dd8808bdeb80",
+  "strategy": "manual-commit",
+  "branch": "codex-setup-apply-failure-next-actions",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/dd/8808bdeb80/0/metadata.json",
+      "transcript": "/dd/8808bdeb80/0/full.jsonl",
+      "content_hash": "/dd/8808bdeb80/0/content_hash.txt",
+      "prompt": "/dd/8808bdeb80/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 6229681,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 229414528,
+    "output_tokens": 299341,
+    "api_call_count": 1699
+  }
+}
