@@ -64,7 +64,7 @@ See [docs/SPEC.md](docs/SPEC.md) for the working product and engineering specifi
 
 Yes—if you can run the Rhapsody setup helpers and want an early-adopter onboarding path.
 
-Use the setup flow in `$setup-rhapsody` (or the equivalent scripts directly): `inspect`, `configure-local`, `configure-github`, `configure-deploy`, `deploy-preview`, `smoke-test`, then the first-issue handoff path.
+Use the setup flow in `$setup-rhapsody` (or the equivalent scripts directly): `plan`, `inspect`, `configure-local`, `configure-github`, `configure-deploy`, `deploy-preview`, `smoke-test`, then the first-issue handoff path.
 
 Turso/libSQL provisioning and Codex credential seeding remain operator-controlled:
 - create and provide Turso/libSQL values (`TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`) yourself.
@@ -96,6 +96,7 @@ If you started from the Vercel Template, use this path after deployment:
 
 1. Deploy your own Vercel project for this repository (use your own Vercel account and team).
 2. Run the setup flow against your fresh checkout and deployment target:
+   - `pnpm setup:plan`
    - `pnpm setup:inspect`
    - `pnpm setup:configure-local -- --dry-run`
    - `pnpm setup:configure-github -- --dry-run`
