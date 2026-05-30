@@ -624,6 +624,24 @@ async function main() {
 		);
 	}
 
+	if (result.classification === "network-error") {
+		nextActions.push(
+			"Confirm the preview URL is the deployed Rhapsody app, then inspect the Vercel deployment logs before rerunning the apply command.",
+		);
+	} else if (result.classification === "unauthorized") {
+		nextActions.push(
+			"Confirm ROOT_PASSWORD matches the preview deployment, then rerun with --apply --yes --use-root-password.",
+		);
+	} else if (result.classification === "validation-error") {
+		nextActions.push(
+			"Confirm the issue number exists in the configured GitHub repository, then rerun the first issue handoff.",
+		);
+	} else if (!ok && result.classification !== "existing-run") {
+		nextActions.push(
+			"Inspect the preview deployment logs and /dashboard run state before rerunning the first issue handoff.",
+		);
+	}
+
 	if (result.classification === "existing-run") {
 		nextActions.push(
 			"Open the existing run in the dashboard rather than creating a duplicate handoff.",
