@@ -188,6 +188,91 @@ If `ROOT_PASSWORD` is available and you want authenticated inspection, rerun wit
 pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId> --use-root-password
 ```
 
+## Preview First Run Runbook
+
+Minimal sequence from remote env readiness to first PR:
+
+1. Confirm deploy configuration readiness
+
+```bash
+pnpm setup:configure-deploy -- --dry-run
+```
+
+2. Apply preview/development Vercel env vars
+
+```bash
+pnpm setup:configure-deploy -- --apply --yes
+```
+
+3. Deploy preview readiness
+
+```bash
+pnpm setup:deploy-preview -- --dry-run
+```
+
+4. Deploy preview
+
+```bash
+pnpm setup:deploy-preview -- --apply --yes
+```
+
+5. Smoke test deployed preview
+
+```bash
+pnpm setup:smoke-test -- --url <https://your-preview-url.vercel.app>
+```
+
+6. Create first run manually (dry run)
+
+```bash
+pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-number <1>
+```
+
+7. Create first run manually (apply)
+
+```bash
+pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-number <1> --apply --yes --use-root-password
+```
+
+Capture `runId` and `attemptId` from the response before continuing.
+
+8. Start the attempt (dry run)
+
+```bash
+pnpm setup:start-attempt -- --url <https://your-preview-url.vercel.app> --run-id <runId> --attempt-id <attemptId>
+```
+
+9. Start the attempt (apply)
+
+```bash
+pnpm setup:start-attempt -- --url <https://your-preview-url.vercel.app> --run-id <runId> --attempt-id <attemptId> --apply --yes --use-root-password
+```
+
+If `RHAPSODY_CLAIM_TOKEN` is missing, it is derived from authenticated `GET /api/v1/runs/:runId`
+during the same apply invocation.
+
+10. Verify run state (no auth)
+
+```bash
+pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId>
+```
+
+11. Verify run state with auth
+
+```bash
+pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId> --use-root-password
+```
+
+Success signals for this path:
+- `setup:first-issue` returns `runId` and `attemptId`.
+- `setup:start-attempt` returns `runnerWorkflowRunId` or an idempotent/conflict signal that directs you to inspect dashboard evidence.
+- `setup:verify-run` outputs `runnerWorkflowRunId`, attempts, events, artifacts, and links; later runs should also show PR/handoff references when present.
+
+Blocked handling:
+- Missing Turso/Vercel/GitHub/Codex seed values → return to `setup:configure-local` or `setup:configure-github`, then resume.
+- Preview, auth, or network errors during reachability checks → re-run `setup:smoke-test` and `setup:deploy-preview` checks before retrying next step.
+- No claim token returned from run detail → verify `runId`, then rerun authenticated `setup:verify-run` to confirm run visibility.
+
 When using `pnpm setup:deploy-preview -- --apply --yes`, this phase is explicitly limited to:
 - `pnpm db:migrate`
 - `vercel deploy` to preview only (no `--prod`)
