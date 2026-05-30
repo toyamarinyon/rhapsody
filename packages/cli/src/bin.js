@@ -12,13 +12,16 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
+const SMOKE_TEST_TIMEOUT_MS = 12_000;
 const command = process.argv[2] ?? "help";
 const subcommand = process.argv[3];
 const flags = new Set(process.argv.slice(3));
 const cliArgs = process.argv.slice(3);
+let handledSetupCommand = false;
 
 if (command === "setup") {
 	if (subcommand === "check-projects") {
+		handledSetupCommand = true;
 		const parse = parseSetupCheckProjectsArgs(cliArgs);
 		if (!parse.ok) {
 			console.error(parse.error);
@@ -49,6 +52,7 @@ if (command === "setup") {
 		process.exit(readiness.ok ? 0 : 1);
 	}
 	if (subcommand === "plan") {
+		handledSetupCommand = true;
 		const parse = parseSetupPlanArgs(cliArgs);
 		if (!parse.ok) {
 			console.error(parse.error);
@@ -62,6 +66,7 @@ if (command === "setup") {
 		process.exit(planned.ok ? 0 : 0);
 	}
 	if (subcommand === "deploy-preview") {
+		handledSetupCommand = true;
 		const parse = parseDeployPreviewArgs(cliArgs);
 		if (!parse.ok) {
 			console.error(parse.error);
@@ -174,6 +179,7 @@ if (command === "setup") {
 		process.exit(ok ? 0 : 1);
 	}
 	if (subcommand === "wait-env") {
+		handledSetupCommand = true;
 		const parse = parseWaitEnvArgs(cliArgs);
 		if (!parse.ok) {
 			console.error(parse.error);
@@ -188,6 +194,7 @@ if (command === "setup") {
 		process.exit(result.ok ? 0 : 1);
 	}
 	if (subcommand === "provision-turso") {
+		handledSetupCommand = true;
 		const parse = parseProvisionTursoArgs(cliArgs);
 		if (!parse.ok) {
 			console.error(parse.error);
@@ -289,16 +296,36 @@ if (command === "setup") {
 		});
 		process.exit(result.ok ? 0 : 1);
 	}
+	if (subcommand === "smoke-test") {
+		handledSetupCommand = true;
+		const parse = parseSetupSmokeTestArgs(cliArgs);
+		if (!parse.ok) {
+			console.error(parse.error);
+			process.exit(1);
+		}
+		await runSetupSmokeTest({
+			url: parse.url,
+			json: parse.json,
+			useRootPassword: parse.useRootPassword,
+		}).catch((error) => {
+			console.error(error instanceof Error ? error.message : String(error));
+			process.exit(1);
+		});
+	}
 	if (subcommand === "status") {
+		handledSetupCommand = true;
 		printSetupStatus({ json: flags.has("--json") });
 		process.exit(0);
 	}
 	if (subcommand === "--help" || subcommand === "-h") {
+		handledSetupCommand = true;
 		printSetupHelp();
 		process.exit(0);
 	}
-	printSetupPreview();
-	process.exit(0);
+	if (!handledSetupCommand) {
+		printSetupPreview();
+		process.exit(0);
+	}
 }
 
 if (command === "help" || command === "--help" || command === "-h") {
@@ -330,6 +357,7 @@ function printSetupHelp() {
   rhapsody setup wait-env [--json] [--timeout <seconds>] [--interval <seconds>]
   rhapsody setup deploy-preview --dry-run [--json]
   rhapsody setup deploy-preview --yes [--json]
+  rhapsody setup smoke-test --url <preview-url> [--json] [--use-root-password]
   rhapsody setup provision-turso --dry-run [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]
   rhapsody setup provision-turso --yes [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]
 
@@ -382,6 +410,56 @@ function parseSetupCheckProjectsArgs(args) {
 	};
 }
 
+function parseSetupSmokeTestArgs(args) {
+	if (args.includes("--help") || args.includes("-h")) {
+		return {
+			ok: false,
+			error:
+				"Usage: rhapsody setup smoke-test --url <preview-url> [--json] [--use-root-password]",
+		};
+	}
+
+	let url = null;
+	for (let i = 0; i < args.length; i++) {
+		const arg = args[i];
+		if (arg === "smoke-test") {
+			continue;
+		}
+		if (arg === "--url") {
+			const value = args[i + 1];
+			if (!value || value.startsWith("--")) {
+				return { ok: false, error: "Missing value for --url." };
+			}
+			url = value;
+			i += 1;
+			continue;
+		}
+		if (arg.startsWith("--url=")) {
+			url = arg.slice("--url=".length);
+			continue;
+		}
+		if (arg === "--json" || arg === "--use-root-password") {
+			continue;
+		}
+		return { ok: false, error: `Unsupported argument: ${arg}` };
+	}
+
+	if (!url) {
+		return {
+			ok: false,
+			error:
+				"Missing required --url argument. Example: rhapsody setup smoke-test --url https://preview-url.vercel.app",
+		};
+	}
+
+	return {
+		ok: true,
+		url,
+		json: args.includes("--json"),
+		useRootPassword: args.includes("--use-root-password"),
+	};
+}
+
 function printSetupCheckProjects({ json, readiness }) {
 	if (json) {
 		console.log(JSON.stringify(readiness, null, 2));
@@ -425,6 +503,55 @@ function printSetupCheckProjects({ json, readiness }) {
 	for (const action of readiness.nextActions) {
 		console.log(`  - ${action}`);
 	}
+}
+
+function printSetupSmokeTest({ json, result }) {
+	if (json) {
+		console.log(
+			JSON.stringify(
+				{
+					ok: result.ok,
+					phase: result.phase,
+					baseUrl: result.baseUrl,
+					statePath: result.statePath,
+					checks: result.checks,
+					rootPassword: result.rootPassword,
+					blockers: result.blockers,
+					nextActions: result.nextActions,
+					elapsedMs: result.elapsedMs,
+				},
+				null,
+				2,
+			),
+		);
+		return;
+	}
+
+	console.log(`Rhapsody setup smoke-test`);
+	console.log(`Base URL: ${result.baseUrl}`);
+	console.log(`State path: ${result.statePath}`);
+	for (const check of result.checks) {
+		const status = check.status == null ? "n/a" : String(check.status);
+		console.log(
+			`- ${check.name}: ${check.classification} (${status}) ${
+				check.ok ? "ok" : "blocked"
+			}`,
+		);
+	}
+	console.log(
+		`Root password: requested=${result.rootPassword.requested}, available=${result.rootPassword.available}, source=${result.rootPassword.source}`,
+	);
+	console.log("\nNext actions:");
+	for (const action of result.nextActions) {
+		console.log(`  - ${action}`);
+	}
+	if (result.blockers.length > 0) {
+		console.log("\nBlockers:");
+		for (const blocker of result.blockers) {
+			console.log(`  - ${blocker}`);
+		}
+	}
+	console.log(`\nElapsed: ${result.elapsedMs}ms`);
 }
 
 function printProvisionTurso({ json, plan }) {
@@ -729,6 +856,268 @@ function parseIntegerSecondsFlag({ args, name, defaultValue, minValue = 0 }) {
 		ok: true,
 		value,
 	};
+}
+
+async function runSetupSmokeTest({ url, json, useRootPassword }) {
+	const statePath = getSetupStatePath();
+	const start = Date.now();
+	let baseUrlValue;
+	try {
+		baseUrlValue = normalizeBaseUrl(url);
+	} catch {
+		const result = {
+			ok: false,
+			phase: "smoke-test",
+			baseUrl: url,
+			statePath,
+			checks: [],
+			rootPassword: {
+				requested: useRootPassword,
+				available: false,
+				source: "missing",
+			},
+			blockers: ["Invalid --url value."],
+			nextActions: [
+				"Use --url with a valid absolute URL, for example: https://preview.vercel.app",
+			],
+			elapsedMs: Date.now() - start,
+		};
+		recordSetupState({
+			command: "smoke-test",
+			baseUrl: url,
+			checks: [],
+			rootPassword: {
+				requested: useRootPassword,
+				available: false,
+				source: "missing",
+			},
+			blockers: result.blockers,
+			nextActions: result.nextActions,
+			nextAction: "blocked",
+		});
+		printSetupSmokeTest({ json, result });
+		process.exit(1);
+		return;
+	}
+
+	const baseUrl = `${baseUrlValue}/`;
+	const loginUrl = `${baseUrlValue}/login`;
+	const dashboardUrl = `${baseUrlValue}/dashboard`;
+	const stateUrl = `${baseUrlValue}/api/v1/state`;
+
+	const password = resolveRootPasswordForSmoke();
+	const rootPassword = {
+		requested: useRootPassword,
+		available: Boolean(password),
+		source: password?.source ?? "missing",
+	};
+
+	const checks = [];
+	const baseCheck = await runSmokeCheck({ name: "base-url", url: baseUrl });
+	const loginCheck = await runSmokeCheck({ name: "login-path", url: loginUrl });
+	const dashboardCheck = await runSmokeCheck({
+		name: "dashboard-path",
+		url: dashboardUrl,
+	});
+	const stateCheck = await runSmokeCheck({ name: "state-path", url: stateUrl });
+	const authStateRequestedCheck =
+		useRootPassword && password
+			? await runSmokeCheck({
+					name: "state-path-authenticated",
+					url: stateUrl,
+					headers: {
+						Authorization: `Bearer ${password.value}`,
+					},
+				})
+			: null;
+	checks.push(baseCheck, loginCheck, dashboardCheck, stateCheck);
+	if (authStateRequestedCheck) {
+		checks.push(authStateRequestedCheck);
+	}
+
+	const loginOrDashboardReachable =
+		(loginCheck.ok && loginCheck.classification !== "network-error") ||
+		(dashboardCheck.ok && dashboardCheck.classification !== "network-error");
+	const blockers = [];
+	const nextActions = [];
+
+	if (baseCheck.classification === "network-error") {
+		blockers.push("Base URL is not reachable.");
+	}
+	if (!loginOrDashboardReachable) {
+		blockers.push("Both /login and /dashboard are unreachable.");
+	}
+	if (
+		stateCheck.classification === "network-error" ||
+		stateCheck.classification === "admin-auth-missing"
+	) {
+		blockers.push("/api/v1/state is not reachable or is missing admin auth.");
+	}
+	if (useRootPassword && !password) {
+		blockers.push(
+			"ROOT_PASSWORD was requested but not found in process env or apps/app/.env.local.",
+		);
+	}
+
+	if (blockers.length === 0) {
+		nextActions.push(
+			"Smoke test passed. Continue setup and move to the next phase.",
+		);
+	} else {
+		if (baseCheck.classification === "network-error") {
+			nextActions.push(
+				"Confirm the preview URL is accessible from this environment and rerun smoke-test.",
+			);
+		}
+		if (!loginOrDashboardReachable) {
+			nextActions.push(
+				"Confirm /login or /dashboard routes exist on the deployment and rerun smoke-test.",
+			);
+		}
+		if (
+			stateCheck.classification === "network-error" ||
+			stateCheck.classification === "admin-auth-missing"
+		) {
+			nextActions.push(
+				"Confirm /api/v1/state is deployed and rerun smoke-test.",
+			);
+		}
+		if (useRootPassword && !password) {
+			nextActions.push(
+				"Provide ROOT_PASSWORD in environment or apps/app/.env.local and rerun with --use-root-password.",
+			);
+		}
+	}
+	if (useRootPassword && password) {
+		nextActions.push(
+			"Authenticated state path check was attempted with --use-root-password.",
+		);
+	}
+
+	const result = {
+		ok: blockers.length === 0,
+		phase: "smoke-test",
+		baseUrl,
+		statePath,
+		checks: checks.map((check) => ({
+			name: check.name,
+			url: check.url,
+			status: check.status,
+			classification: check.classification,
+			ok: check.ok,
+		})),
+		rootPassword,
+		blockers,
+		nextActions,
+		elapsedMs: Date.now() - start,
+	};
+
+	recordSetupState({
+		command: "smoke-test",
+		baseUrl,
+		statePath,
+		checks: result.checks.map((check) => ({
+			name: check.name,
+			status: check.status,
+			classification: check.classification,
+		})),
+		rootPassword,
+		nextAction: result.ok ? "complete" : "blocked",
+		blockers,
+		nextActions,
+	});
+	printSetupSmokeTest({ json, result });
+	process.exit(result.ok ? 0 : 1);
+}
+
+async function runSmokeCheck({ name, url, headers }) {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), SMOKE_TEST_TIMEOUT_MS);
+	try {
+		const response = await fetch(url, {
+			method: "GET",
+			headers,
+			redirect: "manual",
+			signal: controller.signal,
+		});
+		return {
+			name,
+			url,
+			status: response.status,
+			classification: classifySmokeStatus(response.status),
+			ok: response.status < 500,
+		};
+	} catch {
+		return {
+			name,
+			url,
+			status: null,
+			classification: "network-error",
+			ok: false,
+		};
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
+function classifySmokeStatus(status) {
+	if (status >= 200 && status < 300) return "ok";
+	if (status >= 300 && status < 400) return "redirect";
+	if (status === 401) return "auth-required";
+	if (status === 403) return "forbidden";
+	if (status === 500) return "admin-auth-missing";
+	return `status-${status}`;
+}
+
+function normalizeBaseUrl(rawUrl) {
+	const parsed = new URL(rawUrl);
+	const pathname = parsed.pathname.replace(/\/+$/, "");
+	return `${parsed.protocol}//${parsed.host}${pathname}`;
+}
+
+function resolveRootPasswordForSmoke() {
+	const processPassword = process.env.ROOT_PASSWORD?.trim();
+	if (processPassword) {
+		return { value: processPassword, source: "process" };
+	}
+
+	const workspaceRoot = findWorkspaceRoot(process.cwd());
+	const envPath = path.join(workspaceRoot, "apps", "app", ".env.local");
+	if (!existsSync(envPath)) {
+		return null;
+	}
+	const filePassword = readRootPasswordFromEnv(envPath);
+	if (!filePassword) {
+		return null;
+	}
+	return { value: filePassword, source: ".env.local" };
+}
+
+function readRootPasswordFromEnv(filePath) {
+	const content = readFileSync(filePath, "utf8");
+	for (const line of content.split(/\r?\n/)) {
+		const normalized = line.trim();
+		if (!normalized || normalized.startsWith("#")) continue;
+		const exportNormalized = normalized.startsWith("export ")
+			? normalized.slice(7).trim()
+			: normalized;
+		const equalsIndex = exportNormalized.indexOf("=");
+		if (equalsIndex <= 0) continue;
+		if (exportNormalized.slice(0, equalsIndex).trim() !== "ROOT_PASSWORD") {
+			continue;
+		}
+		let value = exportNormalized.slice(equalsIndex + 1).trim();
+		if (
+			(value.startsWith('"') && value.endsWith('"')) ||
+			(value.startsWith("'") && value.endsWith("'"))
+		) {
+			value = value.slice(1, -1);
+		}
+		if (value.length > 0) {
+			return value;
+		}
+	}
+	return null;
 }
 
 function waitForEnv({ timeoutSeconds, intervalSeconds }) {
@@ -1076,8 +1465,7 @@ function buildSetupPlan({ status, region }) {
 		},
 		{
 			name: "Smoke test",
-			command:
-				"curl -fsS https://your-rhapsody-deployment-url.vercel.app/api/health",
+			command: "rhapsody setup smoke-test --url <preview-url>",
 			status: "ready",
 		},
 		{
