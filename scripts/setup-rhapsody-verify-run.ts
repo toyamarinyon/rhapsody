@@ -45,6 +45,8 @@ type Report = {
 			pullRequestEvidence?: {
 				artifactCount: number | null;
 				branchArtifactCount: number | null;
+				firstBranchUrl: string | null;
+				latestBranchUrl: string | null;
 				firstPullRequestUrl: string | null;
 				latestPullRequestUrl: string | null;
 				pullRequestNumber: string | null;
@@ -702,6 +704,8 @@ export function buildEvidenceSignals(detail: unknown): {
 	pullRequestEvidence: {
 		artifactCount: number | null;
 		branchArtifactCount: number | null;
+		firstBranchUrl: string | null;
+		latestBranchUrl: string | null;
 		firstPullRequestUrl: string | null;
 		latestPullRequestUrl: string | null;
 		pullRequestNumber: string | null;
@@ -726,6 +730,8 @@ export function buildEvidenceSignals(detail: unknown): {
 			pullRequestEvidence: {
 				artifactCount: null,
 				branchArtifactCount: null,
+				firstBranchUrl: null,
+				latestBranchUrl: null,
 				firstPullRequestUrl: null,
 				latestPullRequestUrl: null,
 				pullRequestNumber: null,
@@ -761,6 +767,7 @@ export function buildEvidenceSignals(detail: unknown): {
 		return kind === "branch";
 	});
 	const pullRequestUrls = getFirstOrLatestUrlFromArtifact(pullRequestArtifacts);
+	const branchUrls = getFirstOrLatestUrlFromArtifact(branchArtifacts);
 	const pullRequestNumber =
 		getFirstOrLatestPullRequestNumber(pullRequestArtifacts);
 	const eventTypes = eventsValue
@@ -832,6 +839,8 @@ export function buildEvidenceSignals(detail: unknown): {
 		pullRequestEvidence: {
 			artifactCount: pullRequestArtifacts.length,
 			branchArtifactCount: branchArtifacts.length,
+			firstBranchUrl: branchUrls.first,
+			latestBranchUrl: branchUrls.latest,
 			firstPullRequestUrl: pullRequestUrls.first,
 			latestPullRequestUrl: pullRequestUrls.latest,
 			pullRequestNumber,
@@ -851,6 +860,7 @@ function buildNextActionsFromEvidence(evidence: {
 	pullRequestMissingEventPresent: boolean;
 	pullRequestFailedEventPresent: boolean;
 	branchArtifactCount: number | null;
+	latestBranchUrl?: string | null;
 	runnerWorkflowRunId: string | null;
 }): string {
 	if (
@@ -859,14 +869,18 @@ function buildNextActionsFromEvidence(evidence: {
 	) {
 		const branchDetails =
 			evidence.branchArtifactCount && evidence.branchArtifactCount > 0
-				? " Branch artifact(s) were observed, so inspect the branch URL in the dashboard payloads."
+				? evidence.latestBranchUrl
+					? ` Branch artifact(s) were observed; inspect ${evidence.latestBranchUrl} before retrying PR handoff.`
+					: " Branch artifact(s) were observed, so inspect the branch URL in the dashboard payloads."
 				: "";
 		return `Inspect runner events and logs; handoff events indicate pull request creation is missing or failed.${branchDetails}`;
 	}
 
 	if (evidence.pullRequestEvidenceFound) {
 		const branchClause = evidence.branchArtifactCount
-			? " Also confirm the branch artifact URL to validate the coder branch exists."
+			? evidence.latestBranchUrl
+				? ` Also confirm the branch artifact URL ${evidence.latestBranchUrl} to validate the coder branch exists.`
+				: " Also confirm the branch artifact URL to validate the coder branch exists."
 			: "";
 		return `Open the PR URL(s) and dashboard to confirm handoff completion.${branchClause}`;
 	}
@@ -1245,6 +1259,7 @@ async function main() {
 					evidence.handoff?.pullRequestFailedEventPresent ?? false,
 				branchArtifactCount:
 					evidence.pullRequestEvidence?.branchArtifactCount ?? null,
+				latestBranchUrl: evidence.pullRequestEvidence?.latestBranchUrl ?? null,
 				runnerWorkflowRunId: evidence.runnerWorkflowRunId,
 			}),
 		);

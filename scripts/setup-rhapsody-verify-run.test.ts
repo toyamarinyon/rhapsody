@@ -57,6 +57,8 @@ test("extracts PR evidence, handoff flags, and next actions from run detail", ()
 	expect(evidence.pullRequestEvidence).toEqual({
 		artifactCount: 1,
 		branchArtifactCount: 1,
+		firstBranchUrl: "https://github.com/acme/repo/tree/feature-run",
+		latestBranchUrl: "https://github.com/acme/repo/tree/feature-run",
 		firstPullRequestUrl: "https://github.com/acme/repo/pull/12",
 		latestPullRequestUrl: "https://github.com/acme/repo/pull/12",
 		pullRequestNumber: "12",
@@ -75,11 +77,12 @@ test("extracts PR evidence, handoff flags, and next actions from run detail", ()
 		pullRequestFailedEventPresent:
 			evidence.handoff.pullRequestFailedEventPresent,
 		branchArtifactCount: 1,
+		latestBranchUrl: evidence.pullRequestEvidence.latestBranchUrl,
 		runnerWorkflowRunId: evidence.runnerWorkflowRunId,
 	});
 
 	expect(nextActions).toBe(
-		"Inspect runner events and logs; handoff events indicate pull request creation is missing or failed. Branch artifact(s) were observed, so inspect the branch URL in the dashboard payloads.",
+		"Inspect runner events and logs; handoff events indicate pull request creation is missing or failed. Branch artifact(s) were observed; inspect https://github.com/acme/repo/tree/feature-run before retrying PR handoff.",
 	);
 });
 
