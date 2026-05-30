@@ -21,17 +21,21 @@ Treat setup as resumable phases:
 1. `plan`
    - print the stable first-run setup map;
    - use the output to decide the next command without mutating local files or remote services.
-2. `inspect`
+2. `status`
+   - read local files and env key presence without printing secret values;
+   - recommend the next conservative command based on local setup progress;
+   - do not call network CLIs or mutate local or remote state.
+3. `inspect`
    - check `gh`, `vercel`, `pnpm`, and Node.js;
    - check GitHub and Vercel authentication;
    - infer Git remote, owner, repository, and current branch.
-3. `configure-local`
+4. `configure-local`
    - confirm target GitHub owner/repository and ProjectV2 settings;
    - generate or preserve local secrets;
    - update `rhapsody.config.ts` only after explaining the intended diff;
    - create `.rhapsody/INSTRUCTIONS.md` and `.rhapsody/config.toml` only when absent, or show a diff
      and ask before modifying existing files.
-4. `configure-github`
+5. `configure-github`
    - run the read-only GitHub Project bootstrap dry-run helper;
    - verify `gh` availability, auth, repository access, and whether local config already hints at
      the intended ProjectV2 target;
@@ -39,37 +43,37 @@ Treat setup as resumable phases:
      status field, and configured active/terminal status options;
    - keep this phase read-only so it can prepare for GitHub Project detection or creation without
      mutating remote state.
-5. `configure-deploy`
+6. `configure-deploy`
    - configure deploy-related local/remote settings only after presenting a plan;
    - ask the operator to create Turso/libSQL and provide `TURSO_DATABASE_URL` and
      `TURSO_AUTH_TOKEN`;
    - configure Vercel environment variables with values redacted.
-6. `deploy-preview`
+7. `deploy-preview`
    - run the deploy readiness dry-run helper before any apply or deploy step;
    - run `pnpm install` when needed;
    - run `pnpm db:migrate`;
    - deploy a Vercel preview by default;
    - ask before production env changes or production deployment.
-7. `smoke-test`
+8. `smoke-test`
    - after preview deployment, run the read-only smoke-test helper against the preview URL;
    - verify base URL, optional login/dashboard, and `/api/v1/state` endpoint behavior;
    - if `ROOT_PASSWORD` is available and the operator opts in, verify authenticated `/api/v1/state`;
    - open `/dashboard`;
    - verify the preview is ready for the first issue handoff.
-8. `seed-codex`
+9. `seed-codex`
    - run dry-run to confirm seed endpoint + health-check endpoint targets and next actions;
    - apply only with `--apply --yes --use-root-password` so seed and health checks stay explicit.
-9. `create-first-issue`
+10. `create-first-issue`
    - create one smoke-test issue and add it to the configured ProjectV2 board;
    - dry-run to confirm GitHub repository/project preconditions and planned mutations;
    - apply only with `--apply --yes`;
    - capture `issueNumber`/`issueUrl` for the subsequent manual handoff helper.
-10. `first-issue`
+11. `first-issue`
    - run the first issue handoff helper against the preview URL and issue number;
    - dry-run to confirm the manual run request before mutation;
    - apply only with `--use-root-password` and explicit confirmation;
    - verify the manual handoff response before moving on to scheduler or PR verification.
-11. `first-attempt-start`
+12. `first-attempt-start`
    - use the start-attempt helper with the manual run `runId`, `attemptId`, and the run's
      `claimToken`;
    - if `RHAPSODY_CLAIM_TOKEN` is not already available in process env or `.env.local`, derive it
@@ -81,7 +85,7 @@ Treat setup as resumable phases:
      preview URL and run ID;
    - use the verification output to decide whether to wait for the runner workflow, inspect the
      dashboard for attempt and event evidence, or look for the PR handoff.
-12. `verify-run`
+13. `verify-run`
    - run the read-only verification helper against the preview URL and run ID after
      `first-attempt-start`;
    - without `--use-root-password`, use it as a dry classification step that reports the endpoint
@@ -102,6 +106,15 @@ pnpm setup:plan
 ```
 
 Use its output to confirm the full phase order and the recommended next command.
+
+Then check local setup progress without calling network CLIs:
+
+```bash
+pnpm setup:status
+```
+
+Use its output to decide whether local configuration or deploy env dry-runs should run before
+authentication inspection.
 
 Then run the read-only inspection helper:
 
