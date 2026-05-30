@@ -1,0 +1,23 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "c12f9170b345",
+  "strategy": "manual-commit",
+  "branch": "codex-setup-create-first-issue",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/c1/2f9170b345/0/metadata.json",
+      "transcript": "/c1/2f9170b345/0/full.jsonl",
+      "content_hash": "/c1/2f9170b345/0/content_hash.txt",
+      "prompt": "/c1/2f9170b345/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 91499,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 4314752,
+    "output_tokens": 22591,
+    "api_call_count": 51
+  }
+}
