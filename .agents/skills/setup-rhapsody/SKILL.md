@@ -102,21 +102,18 @@ config and read-only remote inspection before any apply phase.
 Before any deploy-preview or remote env apply work, run the read-only deploy readiness helper:
 
 ```bash
-pnpm setup:configure-deploy -- --dry-run
+pnpm setup:deploy-preview -- --dry-run
 ```
 
-This helper does not deploy, migrate, or mutate Vercel env vars. Use its JSON output to confirm
+This helper does not deploy, migrate, or mutate any remote state. Use its JSON output to confirm
 Vercel CLI availability, Vercel auth, local project link state, and whether the deployment-critical
 env keys are present before any apply or deploy step.
 
-When using `pnpm setup:configure-deploy -- --apply --yes`, keep scope limited to:
-- Vercel environment variables only
-- target environments: `development` and `preview`
-- no production env changes
-- no deploys
-- no migrations
-- do not overwrite existing remote keys
-- no optional env vars (runtime required only; runner seed if provided)
+When using `pnpm setup:deploy-preview -- --apply --yes`, this phase is explicitly limited to:
+- `pnpm db:migrate`
+- `vercel deploy` to preview only (no `--prod`)
+- no production env changes and no GitHub Project mutations
+- no `INITIAL_CHATGPT_AUTH_JSON` upload and no raw secret output
 
 ## Safety Rules
 
