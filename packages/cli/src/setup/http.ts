@@ -3,15 +3,23 @@ import {
 	SMOKE_TEST_TIMEOUT_MS,
 	SmokeClassification,
 	StartAttemptClassification,
+	type FirstIssuePostResponse,
+	type JsonObject,
+	type RunClaimResponse,
+	type StartAttemptPostResponse,
 } from "./types.js";
 
-type JsonObject = Record<string, unknown>;
-
-function safeJson(value: unknown): JsonObject | null {
+function asJsonObject(value: unknown): JsonObject | null {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) {
 		return null;
 	}
 	return value as JsonObject;
+}
+
+export function normalizeBaseUrl(rawUrl: string): string {
+	const parsed = new URL(rawUrl);
+	const pathname = parsed.pathname.replace(/\/+$/, "");
+	return `${parsed.protocol}//${parsed.host}${pathname}`;
 }
 
 export function classifySmokeStatus(status: number): SmokeClassification {
@@ -20,18 +28,6 @@ export function classifySmokeStatus(status: number): SmokeClassification {
 	if (status === 401) return "auth-required";
 	if (status === 403) return "forbidden";
 	if (status >= 500) return "admin-auth-missing";
-	return `status-${status}`;
-}
-
-export function classifyPostRunStatus(
-	status: number | null,
-): FirstIssuePostClassification {
-	if (status === null) return "network-error";
-	if (status >= 200 && status < 300) return "ok";
-	if (status === 400) return "validation-error";
-	if (status === 401) return "unauthorized";
-	if (status === 409) return "existing-run";
-	if (status >= 500) return "server-error";
 	return `status-${status}`;
 }
 
@@ -47,7 +43,23 @@ export function classifyStartAttemptStatus(
 	return `status-${status}`;
 }
 
-export async function runSmokeCheck(params: {
+export function classifyPostRunStatus(
+	status: number | null,
+): FirstIssuePostClassification {
+	if (status === null) return "network-error";
+	if (status >= 200 && status < 300) return "ok";
+	if (status === 400) return "validation-error";
+	if (status === 401) return "unauthorized";
+	if (status === 409) return "existing-run";
+	if (status >= 500) return "server-error";
+	return `status-${status}`;
+}
+
+export async function runSmokeCheck({
+	name,
+	url,
+	headers = {},
+}: {
 	name: string;
 	url: string;
 	headers?: Record<string, string>;
@@ -61,24 +73,24 @@ export async function runSmokeCheck(params: {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), SMOKE_TEST_TIMEOUT_MS);
 	try {
-		const response = await fetch(params.url, {
+		const response = await fetch(url, {
 			method: "GET",
-			headers: params.headers,
+			headers,
 			redirect: "manual",
 			signal: controller.signal,
 		});
-		const classification = classifySmokeStatus(response.status);
+		const status = response.status;
 		return {
-			name: params.name,
-			url: params.url,
-			status: response.status,
-			classification,
-			ok: response.status >= 200 && response.status < 300,
+			name,
+			url,
+			status,
+			classification: classifySmokeStatus(status),
+			ok: status >= 200 && status < 300,
 		};
 	} catch {
 		return {
-			name: params.name,
-			url: params.url,
+			name,
+			url,
 			status: null,
 			classification: "network-error",
 			ok: false,
@@ -88,62 +100,227 @@ export async function runSmokeCheck(params: {
 	}
 }
 
-export async function postRun(params: {
+export async function fetchRunClaimToken({
+	endpoint,
+	token,
+}: {
 	endpoint: string;
 	token: string;
-	issueNumber: number;
-}) {
-	const response = await fetch(params.endpoint, {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${params.token}`,
-			"content-type": "application/json",
-		},
-		body: JSON.stringify({
-			issueNumber: params.issueNumber,
-			claimedBy: "setup-rhapsody",
-		}),
-	});
-	const responseData = safeJson(await response.json().catch(() => null));
-	const objectKeys = responseData ? Object.keys(responseData) : null;
-	return {
-		status: response.status,
-		classification: classifyPostRunStatus(response.status),
-		objectKeys,
-		contentType: response.headers.get("content-type"),
-		runId: responseData?.runId ? String(responseData.runId) : null,
-		attemptId: responseData?.attemptId ? String(responseData.attemptId) : null,
-	};
+}): Promise<RunClaimResponse> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), SMOKE_TEST_TIMEOUT_MS);
+	try {
+		const response = await fetch(endpoint, {
+			method: "GET",
+			headers: {
+				Authorization: `Bearer ${token}`,
+			},
+			redirect: "manual",
+			signal: controller.signal,
+		});
+		const contentType = response.headers.get("content-type");
+		let claimToken: string | null = null;
+		let objectKeys: string[] | null = null;
+		if (contentType?.includes("application/json")) {
+			try {
+				const parsed = await response.json();
+				const record = asJsonObject(parsed);
+				if (record) {
+					objectKeys = Object.keys(record);
+					const direct = record.claimToken;
+					if (typeof direct === "string" && direct.trim()) {
+						claimToken = direct;
+					} else if (
+						record.run &&
+						typeof record.run === "object" &&
+						!Array.isArray(record.run)
+					) {
+						const nested = (record.run as JsonObject).claimToken;
+						if (typeof nested === "string" && nested.trim()) {
+							claimToken = nested;
+						}
+					}
+				}
+			} catch (error) {
+				return {
+					status: response.status,
+					contentType,
+					classification: classifyStartAttemptStatus(response.status),
+					claimToken: null,
+					objectKeys: null,
+					error:
+						error instanceof Error ? error.message : "failed to parse JSON",
+				};
+			}
+		}
+
+		return {
+			status: response.status,
+			contentType,
+			classification: classifyStartAttemptStatus(response.status),
+			claimToken,
+			objectKeys,
+		};
+	} catch (error) {
+		return {
+			status: null,
+			contentType: null,
+			classification: "network-error",
+			claimToken: null,
+			objectKeys: null,
+			error: error instanceof Error ? error.message : String(error),
+		};
+	} finally {
+		clearTimeout(timeout);
+	}
 }
 
-export async function startAttempt(params: {
+export async function postStartAttempt({
+	endpoint,
+	token,
+	claimToken,
+}: {
 	endpoint: string;
 	token: string;
 	claimToken: string;
-	runId: string;
-	attemptId: string;
-}) {
-	const response = await fetch(
-		`${params.endpoint}/${params.runId}/attempts/${params.attemptId}/start`,
-		{
+}): Promise<StartAttemptPostResponse> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), SMOKE_TEST_TIMEOUT_MS);
+	try {
+		const response = await fetch(endpoint, {
 			method: "POST",
 			headers: {
-				Authorization: `Bearer ${params.token}`,
-				"x-rhapsody-claim-token": params.claimToken,
-				"content-type": "application/json",
+				Authorization: `Bearer ${token}`,
+				"Content-Type": "application/json",
 			},
-			body: JSON.stringify({ claimedBy: "setup-rhapsody" }),
-		},
-	);
-	const responseData = safeJson(await response.json().catch(() => null));
-	const objectKeys = responseData ? Object.keys(responseData) : null;
-	return {
-		status: response.status,
-		classification: classifyStartAttemptStatus(response.status),
-		contentType: response.headers.get("content-type"),
-		objectKeys,
-		runnerWorkflowRunId: responseData?.runnerWorkflowRunId
-			? String(responseData.runnerWorkflowRunId)
-			: null,
-	};
+			body: JSON.stringify({ claimToken }),
+			redirect: "manual",
+			signal: controller.signal,
+		});
+		const contentType = response.headers.get("content-type");
+		let objectKeys: string[] | null = null;
+		let runnerWorkflowRunId: string | null = null;
+		if (contentType?.includes("application/json")) {
+			try {
+				const parsed = await response.json();
+				const record = asJsonObject(parsed);
+				if (record) {
+					objectKeys = Object.keys(record);
+					const field = record.runnerWorkflowRunId;
+					if (typeof field === "string" && field.trim()) {
+						runnerWorkflowRunId = field;
+					}
+				}
+			} catch (error) {
+				return {
+					status: response.status,
+					contentType,
+					classification: classifyStartAttemptStatus(response.status),
+					objectKeys: null,
+					runnerWorkflowRunId: null,
+					error:
+						error instanceof Error ? error.message : "failed to parse JSON",
+				};
+			}
+		}
+		return {
+			status: response.status,
+			contentType,
+			classification: classifyStartAttemptStatus(response.status),
+			objectKeys,
+			runnerWorkflowRunId,
+		};
+	} catch (error) {
+		return {
+			status: null,
+			contentType: null,
+			classification: "network-error",
+			objectKeys: null,
+			runnerWorkflowRunId: null,
+			error: error instanceof Error ? error.message : String(error),
+		};
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
+export async function postRun({
+	endpoint,
+	token,
+	issueNumber,
+}: {
+	endpoint: string;
+	token: string;
+	issueNumber: number;
+}): Promise<FirstIssuePostResponse> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), SMOKE_TEST_TIMEOUT_MS);
+	try {
+		const response = await fetch(endpoint, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${token}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ issueNumber }),
+			redirect: "manual",
+			signal: controller.signal,
+		});
+		const contentType = response.headers.get("content-type");
+		let objectKeys: string[] | null = null;
+		let runId: string | null = null;
+		let attemptId: string | null = null;
+		if (contentType?.includes("application/json")) {
+			try {
+				const parsed = await response.json();
+				const record = asJsonObject(parsed);
+				if (record) {
+					objectKeys = Object.keys(record);
+					const runIdField = record.runId;
+					if (typeof runIdField === "string" && runIdField.trim()) {
+						runId = runIdField;
+					}
+					const attemptIdField = record.attemptId;
+					if (typeof attemptIdField === "string" && attemptIdField.trim()) {
+						attemptId = attemptIdField;
+					}
+				}
+			} catch (error) {
+				return {
+					status: response.status,
+					contentType,
+					classification: classifyPostRunStatus(response.status),
+					objectKeys: null,
+					runId: null,
+					attemptId: null,
+					error:
+						error instanceof Error ? error.message : "failed to parse JSON",
+				};
+			}
+		}
+		return {
+			status: response.status,
+			contentType,
+			classification: classifyPostRunStatus(response.status),
+			objectKeys,
+			runId,
+			attemptId,
+		};
+	} catch (error) {
+		return {
+			status: null,
+			contentType: null,
+			classification: "network-error",
+			objectKeys: null,
+			runId: null,
+			attemptId: null,
+			error: error instanceof Error ? error.message : String(error),
+		};
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
+export function toJsonObject(value: unknown): JsonObject | null {
+	return asJsonObject(value);
 }
