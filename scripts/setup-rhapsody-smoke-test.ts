@@ -212,7 +212,9 @@ export function buildBlockedNextActions(args: {
 		];
 	}
 
-	return ["Fix blockers and rerun `pnpm setup:smoke-test -- --url <url>`."];
+	return [
+		"Review the blocked endpoint checks above, fix the preview deployment or URL, then rerun `pnpm setup:smoke-test -- --url <preview-url>`.",
+	];
 }
 
 function summarizeNetworkError(error: unknown): string {
