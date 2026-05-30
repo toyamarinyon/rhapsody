@@ -956,7 +956,7 @@ function main() {
 				needsUser,
 				blocked: [],
 				nextActions: [
-					"Proceed to configure-remotes after project persistence.",
+					"Proceed to configure-github, then configure-deploy after project persistence.",
 				],
 			};
 			process.stdout.write(`${JSON.stringify(applyReport, null, 2)}\n`);
@@ -1113,7 +1113,9 @@ function main() {
 				: []),
 			...(needsUser.length > 0
 				? ["Provide the missing external inputs before remote configuration."]
-				: ["Proceed to configure-remotes when the operator is ready."]),
+				: [
+						"Proceed to configure-github, then configure-deploy when the operator is ready.",
+					]),
 		],
 	};
 

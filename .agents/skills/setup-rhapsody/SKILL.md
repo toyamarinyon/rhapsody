@@ -36,9 +36,8 @@ Treat setup as resumable phases:
      status field, and configured active/terminal status options;
    - keep this phase read-only so it can prepare for GitHub Project detection or creation without
      mutating remote state.
-4. `configure-remotes`
-   - create or verify GitHub ProjectV2 configuration only after presenting a plan;
-   - never delete, rename, or reorder existing ProjectV2 fields/statuses;
+4. `configure-deploy`
+   - configure deploy-related local/remote settings only after presenting a plan;
    - ask the operator to create Turso/libSQL and provide `TURSO_DATABASE_URL` and
      `TURSO_AUTH_TOKEN`;
    - configure Vercel environment variables with values redacted.
@@ -428,7 +427,7 @@ Keep updates concise and operational:
 Setup status:
 - inspect: done
 - configure-local: needs_user (TURSO_DATABASE_URL and TURSO_AUTH_TOKEN)
-- configure-remotes: blocked until Turso values are available
+- configure-deploy: blocked until Turso values are available
 
 Next action:
 Create a Turso/libSQL database, then provide TURSO_DATABASE_URL and TURSO_AUTH_TOKEN.
