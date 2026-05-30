@@ -5,13 +5,19 @@
 	"license": "MIT",
 	"type": "module",
 	"bin": {
-		"rhapsody": "./src/bin.js"
+		"rhapsody": "./dist/bin.js"
 	},
 	"files": [
-		"src"
+		"dist"
 	],
 	"scripts": {
-		"check": "node --check src/bin.js",
-		"smoke:setup-help": "node src/bin.js setup --help"
+		"check": "pnpm exec tsc --project tsconfig.json --noEmit && pnpm run build",
+		"build": "pnpm exec tsup --config tsup.config.ts",
+		"smoke:setup-help": "pnpm run build && node dist/bin.js setup --help"
+	},
+	"devDependencies": {
+		"@types/node": "^24.0.12",
+		"tsup": "^8.5.0",
+		"typescript": "^5.9.2"
 	}
 }
