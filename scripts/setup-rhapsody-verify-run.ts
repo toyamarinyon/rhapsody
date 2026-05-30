@@ -99,9 +99,57 @@ type RootPassword = { value: string; source: "process" | ".env.local" } | null;
 
 const REQUEST_TIMEOUT_MS = 12_000;
 
+type PartialArgs = {
+	url: string | null;
+	runId: string | null;
+	useRootPassword: boolean;
+};
+
 function emit(report: Report, exitCode = 0) {
 	process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 	process.exitCode = exitCode;
+}
+
+function extractPartialArgs(argv: string[]): PartialArgs {
+	const args = argv.slice(2);
+	if (args[0] === "--") {
+		args.shift();
+	}
+
+	let url: string | null = null;
+	let runId: string | null = null;
+	let useRootPassword = false;
+
+	for (let index = 0; index < args.length; index += 1) {
+		const arg = args[index];
+		if (arg === "--url") {
+			url = args[index + 1] ?? null;
+			index += 1;
+			continue;
+		}
+		if (arg.startsWith("--url=")) {
+			url = arg.slice("--url=".length);
+			continue;
+		}
+		if (arg === "--run-id") {
+			runId = args[index + 1] ?? null;
+			index += 1;
+			continue;
+		}
+		if (arg.startsWith("--run-id=")) {
+			runId = arg.slice("--run-id=".length);
+			continue;
+		}
+		if (arg === "--use-root-password") {
+			useRootPassword = true;
+		}
+	}
+
+	return {
+		url: url?.trim() ? url : null,
+		runId: runId?.trim() ? runId : null,
+		useRootPassword,
+	};
 }
 
 function parseArgs(argv: string[]): Args {
@@ -273,7 +321,7 @@ function parseArgs(argv: string[]): Args {
 	return { ok: true, url, runId, useRootPassword, wait, timeoutMs, intervalMs };
 }
 
-export { parseArgs };
+export { buildInvalidArgsReport, parseArgs };
 
 function delayMs(ms: number) {
 	return new Promise((resolve) => {
@@ -881,46 +929,72 @@ async function runWaitPoll(
 	}
 }
 
-function invalidArgsError(message: string) {
-	emit(
-		{
-			ok: false,
-			mode: "dry-run",
-			phase: "verify-run",
-			facts: {
-				input: {
-					providedUrl: null,
-					normalizedBaseUrl: null,
-					runId: null,
-					useRootPasswordRequested: false,
-				},
-				rootPassword: {
-					available: false,
-					source: "missing",
-					availableWithOptIn: false,
-				},
-				request: {
-					endpoint: null,
-					method: "GET",
-					auth: "skipped",
-				},
-			},
-			checks: [],
-			needsUser: ["Provide --url <https://...> and --run-id <id>."],
-			blocked: ["Unsupported or missing arguments."],
-			nextActions: [
+function buildInvalidArgsReport(message: string, argv: string[]): Report {
+	const partialArgs = extractPartialArgs(argv);
+	const normalizedBaseUrl = partialArgs.url
+		? (() => {
+				try {
+					return normalizeBaseUrl(partialArgs.url);
+				} catch {
+					return null;
+				}
+			})()
+		: null;
+	const endpoint =
+		normalizedBaseUrl && partialArgs.runId
+			? `${normalizedBaseUrl}/api/v1/runs/${partialArgs.runId}`
+			: null;
+	const needsUser = [];
+	if (!partialArgs.url || !partialArgs.runId) {
+		needsUser.push("Provide --url <https://...> and --run-id <id>.");
+	}
+
+	const nextActions = message.includes("--interval-ms must be less")
+		? [
+				"Rerun with --timeout-ms greater than --interval-ms, for example --timeout-ms 300000 --interval-ms 10000.",
+			]
+		: [
 				"Supported args: --url, --run-id, --wait, optional --timeout-ms/--interval-ms, and --use-root-password.",
-			],
-			error: message,
+			];
+
+	return {
+		ok: false,
+		mode: "dry-run",
+		phase: "verify-run",
+		facts: {
+			input: {
+				providedUrl: partialArgs.url,
+				normalizedBaseUrl,
+				runId: partialArgs.runId,
+				useRootPasswordRequested: partialArgs.useRootPassword,
+			},
+			rootPassword: {
+				available: false,
+				source: "missing",
+				availableWithOptIn: false,
+			},
+			request: {
+				endpoint,
+				method: "GET",
+				auth: partialArgs.useRootPassword ? "bearer" : "skipped",
+			},
 		},
-		1,
-	);
+		checks: [],
+		needsUser,
+		blocked: ["Unsupported or invalid arguments."],
+		nextActions,
+		error: message,
+	};
+}
+
+function invalidArgsError(message: string, argv: string[]) {
+	emit(buildInvalidArgsReport(message, argv), 1);
 }
 
 async function main() {
 	const parsed = parseArgs(process.argv);
 	if (!parsed.ok) {
-		invalidArgsError(parsed.error);
+		invalidArgsError(parsed.error, process.argv);
 		return;
 	}
 
