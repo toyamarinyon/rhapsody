@@ -1,0 +1,16 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "2c34c4f31517",
+  "strategy": "manual-commit",
+  "branch": "codex-github-auth-guidance",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/2c/34c4f31517/0/metadata.json",
+      "transcript": "/2c/34c4f31517/0/full.jsonl",
+      "content_hash": "/2c/34c4f31517/0/content_hash.txt",
+      "prompt": "/2c/34c4f31517/0/prompt.txt"
+    }
+  ]
+}
