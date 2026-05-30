@@ -542,10 +542,16 @@ async function main() {
 			"Set ROOT_PASSWORD in process env or .env.local before applying.",
 		);
 		blocked.push("ROOT_PASSWORD is missing.");
+		nextActions.push(
+			"Set ROOT_PASSWORD locally, then rerun the apply command with --use-root-password.",
+		);
 	}
 
 	if (!parsed.useRootPassword) {
 		blocked.push("Apply requires --use-root-password.");
+		nextActions.push(
+			"Rerun the same apply command with --use-root-password to authorize the manual handoff.",
+		);
 	}
 
 	if (blocked.length > 0) {
