@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
 	extractErrorSnippets,
+	buildSeedFailureNextActions,
 	buildSeedEndpoints,
 	normalizeBaseUrl,
 	parseArgs,
@@ -97,6 +98,24 @@ test("parses dry-run and apply arguments", () => {
 		ok: false,
 		error: "Unsupported argument: --unknown",
 	});
+});
+
+test("builds concrete seed failure next actions by classification", () => {
+	expect(buildSeedFailureNextActions("network-error", "seed")).toEqual([
+		"Confirm the preview URL is the deployed Rhapsody app, then inspect the Vercel deployment logs before rerunning the seed command.",
+	]);
+	expect(buildSeedFailureNextActions("unauthorized", "seed")).toEqual([
+		"Confirm ROOT_PASSWORD matches the preview deployment, then rerun with --apply --yes --use-root-password.",
+	]);
+	expect(buildSeedFailureNextActions("not-found", "seed")).toEqual([
+		"Confirm this preview includes the Codex credential admin endpoints, then redeploy before rerunning the seed command.",
+	]);
+	expect(buildSeedFailureNextActions("server-error", "health")).toEqual([
+		"Inspect the Vercel function logs for the Codex credential endpoint, then rerun after fixing the deployment or env issue.",
+	]);
+	expect(buildSeedFailureNextActions("status-418", "health")).toEqual([
+		"Seed succeeded but health check failed. Review health response and retry once fixed.",
+	]);
 });
 
 test("normalizes URLs and builds endpoints", () => {
