@@ -99,6 +99,7 @@ If you started from the Vercel Template, use this path after deployment:
      then persist the board number with `pnpm setup:configure-local -- --apply --yes --project-number <number>`
    - `pnpm setup:configure-github -- --apply --yes --create-status-field` (if your status field is missing)
    - `pnpm setup:configure-deploy -- --apply --yes`
+   - use `--include-codex-seed` only if you explicitly want to upload `INITIAL_CHATGPT_AUTH_JSON` to Vercel env.
 5. Deploy a preview build only (no production by default):
    - `pnpm setup:deploy-preview -- --apply --yes` (includes `pnpm db:migrate`)
 6. Smoke-test the preview with the output URL:
