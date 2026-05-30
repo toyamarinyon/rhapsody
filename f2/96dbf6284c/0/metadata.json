@@ -1,0 +1,40 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "f296dbf6284c",
+  "session_id": "019e6ee5-09b4-7430-a46a-58e27ddb4189",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-30T02:49:33.746581Z",
+  "branch": "codex-start-attempt-derive-claim-token",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "7c99352be4c0",
+  "token_usage": {
+    "input_tokens": 99407,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2743168,
+    "output_tokens": 22990,
+    "api_call_count": 53
+  },
+  "session_metrics": {
+    "turn_count": 34
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 185,
+      "user_lines_removed": 24,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".agents/skills/setup-rhapsody/SKILL.md": 14,
+        "scripts/setup-rhapsody-start-attempt.ts": 171
+      },
+      "user_removed_per_file": {
+        ".agents/skills/setup-rhapsody/SKILL.md": 9,
+        "scripts/setup-rhapsody-start-attempt.ts": 15
+      }
+    }
+  ]
+}
