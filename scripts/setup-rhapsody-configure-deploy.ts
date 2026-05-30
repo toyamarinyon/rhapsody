@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 type Check = {
@@ -123,6 +124,11 @@ type Report = {
 	error?: string;
 };
 
+export type ConfigureDeployParsedArgs = {
+	mode: Mode;
+	includeCodexSeed: boolean;
+};
+
 const GENERATED_SECRET_KEYS = [
 	"ROOT_PASSWORD",
 	"AUTH_SECRET",
@@ -171,6 +177,7 @@ const RUNTIME_AND_SEED_KEYS = [
 	...REQUIRED_RUNTIME_KEYS,
 	"INITIAL_CHATGPT_AUTH_JSON",
 ] as const;
+const INITIAL_CHATGPT_AUTH_JSON_KEY = "INITIAL_CHATGPT_AUTH_JSON";
 
 function run(
 	command: string,
@@ -185,31 +192,39 @@ function run(
 	});
 }
 
-function parseMode(argv: string[]) {
-	const flags = argv.slice(2);
-	if (flags.length === 0) {
-		return "dry-run" as const;
+export function parseConfigureDeployArgs(
+	argv: string[],
+): ConfigureDeployParsedArgs | null {
+	const flags = argv.slice(2).filter((entry) => entry !== "--");
+	const recognizedFlags = new Set([
+		"--dry-run",
+		"--apply",
+		"--yes",
+		"--include-codex-seed",
+	]);
+	if (flags.some((flag) => !recognizedFlags.has(flag))) {
+		return null;
 	}
 
-	if (flags.length === 1 && flags[0] === "--dry-run") {
-		return "dry-run" as const;
-	}
-
-	if (flags.length === 2 && flags[0] === "--" && flags[1] === "--dry-run") {
-		return "dry-run" as const;
-	}
+	const sawDryRun = flags.includes("--dry-run");
+	const sawApply = flags.includes("--apply");
+	const sawYes = flags.includes("--yes");
+	const includeCodexSeed = flags.includes("--include-codex-seed");
 
 	if (
-		(flags.length === 2 && flags[0] === "--apply" && flags[1] === "--yes") ||
-		(flags.length === 3 &&
-			flags[0] === "--" &&
-			flags[1] === "--apply" &&
-			flags[2] === "--yes")
+		(sawDryRun && sawApply) ||
+		(sawApply && !sawYes) ||
+		(sawYes && !sawApply)
 	) {
-		return "apply" as const;
+		return null;
 	}
 
-	return null;
+	const mode: Mode = sawApply ? "apply" : "dry-run";
+
+	return {
+		mode,
+		includeCodexSeed,
+	};
 }
 
 function emitUnsupportedArgsError() {
@@ -671,10 +686,11 @@ function buildChecks(args: {
 	];
 }
 
-function buildPlannedChanges(args: {
+export function buildPlannedChanges(args: {
 	remoteEnvPlan: Facts["remoteEnvPlan"];
 	repo: Facts["repo"];
 	mode: Mode;
+	includeCodexSeed: boolean;
 }) {
 	const { remoteEnvPlan, repo, mode } = args;
 	const configureableRuntimeKeys = Object.entries(remoteEnvPlan.requiredRuntime)
@@ -683,6 +699,11 @@ function buildPlannedChanges(args: {
 	const missingRuntimeKeys = Object.entries(remoteEnvPlan.requiredRuntime)
 		.filter(([, entry]) => !entry.available)
 		.map(([key]) => key);
+	const seedLine = remoteEnvPlan.runnerSeed.INITIAL_CHATGPT_AUTH_JSON.available
+		? args.includeCodexSeed
+			? "Runner seed INITIAL_CHATGPT_AUTH_JSON is available and will be included for first-run sandbox-codex setup."
+			: "Runner seed INITIAL_CHATGPT_AUTH_JSON is available but not included by default; add --include-codex-seed to include it."
+		: "Runner seed INITIAL_CHATGPT_AUTH_JSON is missing for first-run sandbox-codex setup.";
 	const envTargets = TARGET_ENVIRONMENTS.join(" or ");
 	return [
 		{
@@ -715,9 +736,7 @@ function buildPlannedChanges(args: {
 				missingRuntimeKeys.length > 0
 					? `Cannot configure missing values until provided: ${missingRuntimeKeys.join(", ")}.`
 					: "All required runtime env vars are sourceable.",
-				remoteEnvPlan.runnerSeed.INITIAL_CHATGPT_AUTH_JSON.available
-					? "Runner seed INITIAL_CHATGPT_AUTH_JSON is available for first-run sandbox-codex setup."
-					: "Runner seed INITIAL_CHATGPT_AUTH_JSON is missing for first-run sandbox-codex setup.",
+				seedLine,
 			].join(" "),
 			reason:
 				mode === "apply"
@@ -727,6 +746,10 @@ function buildPlannedChanges(args: {
 			wouldWrite: mode === "apply",
 		},
 	];
+}
+
+export function getConfigureDeployWriteKeys(includeCodexSeed: boolean) {
+	return includeCodexSeed ? RUNTIME_AND_SEED_KEYS : REQUIRED_RUNTIME_KEYS;
 }
 
 function buildAppliedChangeFromStatus(params: {
@@ -903,11 +926,12 @@ function buildAuth(args: {
 }
 
 function main() {
-	const mode = parseMode(process.argv);
-	if (!mode) {
+	const parsedArgs = parseConfigureDeployArgs(process.argv);
+	if (!parsedArgs) {
 		emitUnsupportedArgsError();
 		return;
 	}
+	const { mode, includeCodexSeed } = parsedArgs;
 
 	const cli = {
 		vercel: checkCommandAvailability("vercel"),
@@ -963,6 +987,7 @@ function main() {
 	});
 
 	const needsUser: string[] = [];
+	const seedNeedsUser: string[] = [];
 	const blocked: string[] = [];
 
 	if (!cli.vercel.available) {
@@ -1010,6 +1035,10 @@ function main() {
 		needsUser.push(
 			"Provide INITIAL_CHATGPT_AUTH_JSON if you want the first sandbox-codex run to be pre-seeded.",
 		);
+	} else if (!includeCodexSeed) {
+		seedNeedsUser.push(
+			"INITIAL_CHATGPT_AUTH_JSON is available but is not included in Vercel env writes by default; add --include-codex-seed to opt into upload.",
+		);
 	}
 
 	const runtimeRequiredMissing = Object.entries(remoteEnvPlan.requiredRuntime)
@@ -1020,6 +1049,7 @@ function main() {
 		remoteEnvPlan,
 		repo,
 		mode,
+		includeCodexSeed,
 	});
 
 	const baseReport: Report = {
@@ -1050,11 +1080,15 @@ function main() {
 				? [
 						"Collect the missing operator-provided values, then re-run the helper with --dry-run.",
 					]
-				: [
-						mode === "dry-run"
-							? "Apply mode is available with --apply --yes after prerequisites are satisfied."
-							: "Re-run dry-run to confirm no further remote state changes needed.",
-					]),
+				: seedNeedsUser.length > 0
+					? [
+							"Seed upload skipped by default; rerun with --include-codex-seed only if you intentionally want to upload INITIAL_CHATGPT_AUTH_JSON.",
+						]
+					: [
+							mode === "dry-run"
+								? "Apply mode is available with --apply --yes after prerequisites are satisfied."
+								: "Re-run dry-run to confirm no further remote state changes needed.",
+						]),
 		],
 	};
 
@@ -1118,6 +1152,7 @@ function main() {
 		preview: new Set<string>(),
 	} as Record<"development" | "preview", Set<string>>;
 	for (const envName of TARGET_ENVIRONMENTS) {
+		const keysToApply = getConfigureDeployWriteKeys(includeCodexSeed);
 		const existing = fetchExistingRemoteKeys({
 			environment: envName,
 			cliToken: resolvedCliToken,
@@ -1127,7 +1162,7 @@ function main() {
 			applyReport.blocked.push(
 				`Failed to read existing env vars from ${envName}: ${existing.error}`,
 			);
-			for (const key of RUNTIME_AND_SEED_KEYS) {
+			for (const key of keysToApply) {
 				appliedChanges.push(
 					buildAppliedChangeFromStatus({
 						key: `${key}`,
@@ -1144,8 +1179,9 @@ function main() {
 	}
 
 	for (const envName of TARGET_ENVIRONMENTS) {
-		for (const key of RUNTIME_AND_SEED_KEYS) {
-			const isRequiredRuntime = key !== "INITIAL_CHATGPT_AUTH_JSON";
+		const keysToApply = getConfigureDeployWriteKeys(includeCodexSeed);
+		for (const key of keysToApply) {
+			const isRequiredRuntime = key !== INITIAL_CHATGPT_AUTH_JSON_KEY;
 			const source = isRequiredRuntime
 				? remoteEnvPlan.requiredRuntime[key as RequiredRuntimeKey].source
 				: remoteEnvPlan.runnerSeed.INITIAL_CHATGPT_AUTH_JSON.source;
@@ -1243,15 +1279,6 @@ function main() {
 	);
 	applyReport.ok = applyReport.ok && allSuccess;
 	applyReport.blocked = [...new Set(applyReport.blocked)];
-	applyReport.needsUser = applyReport.needsUser.filter(
-		(entry) =>
-			!entry.includes("INITIAL_CHATGPT_AUTH_JSON") ||
-			appliedChanges.some(
-				(change) =>
-					change.key === "INITIAL_CHATGPT_AUTH_JSON" &&
-					change.status === "missing-source",
-			),
-	);
 
 	applyReport.nextActions = [
 		...(applyReport.blocked.length > 0
@@ -1268,4 +1295,6 @@ function main() {
 	process.exitCode = applyReport.ok ? 0 : 1;
 }
 
-main();
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
+	main();
+}

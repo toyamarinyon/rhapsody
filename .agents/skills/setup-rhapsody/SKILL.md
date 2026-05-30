@@ -266,6 +266,7 @@ pnpm setup:configure-deploy -- --dry-run
 ```bash
 pnpm setup:configure-deploy -- --apply --yes
 ```
+By default this does not upload `INITIAL_CHATGPT_AUTH_JSON`; add `--include-codex-seed` if you want that explicit upload.
 
 3. Deploy preview readiness
 
