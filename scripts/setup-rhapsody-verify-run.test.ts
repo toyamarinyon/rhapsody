@@ -74,11 +74,12 @@ test("extracts PR evidence, handoff flags, and next actions from run detail", ()
 			evidence.handoff.pullRequestMissingEventPresent,
 		pullRequestFailedEventPresent:
 			evidence.handoff.pullRequestFailedEventPresent,
+		branchArtifactCount: 1,
 		runnerWorkflowRunId: evidence.runnerWorkflowRunId,
 	});
 
 	expect(nextActions).toBe(
-		"Inspect runner events and logs; handoff events indicate pull request creation is missing or failed.",
+		"Inspect runner events and logs; handoff events indicate pull request creation is missing or failed. Branch artifact(s) were observed, so inspect the branch URL in the dashboard payloads.",
 	);
 });
 

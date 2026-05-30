@@ -852,17 +852,25 @@ function buildNextActionsFromEvidence(evidence: {
 	pullRequestEvidenceFound: boolean;
 	pullRequestMissingEventPresent: boolean;
 	pullRequestFailedEventPresent: boolean;
+	branchArtifactCount: number | null;
 	runnerWorkflowRunId: string | null;
 }): string {
 	if (
 		evidence.pullRequestMissingEventPresent ||
 		evidence.pullRequestFailedEventPresent
 	) {
-		return "Inspect runner events and logs; handoff events indicate pull request creation is missing or failed.";
+		const branchDetails =
+			evidence.branchArtifactCount && evidence.branchArtifactCount > 0
+				? " Branch artifact(s) were observed, so inspect the branch URL in the dashboard payloads."
+				: "";
+		return `Inspect runner events and logs; handoff events indicate pull request creation is missing or failed.${branchDetails}`;
 	}
 
 	if (evidence.pullRequestEvidenceFound) {
-		return "Open the PR URL(s) and dashboard to confirm handoff completion.";
+		const branchClause = evidence.branchArtifactCount
+			? " Also confirm the branch artifact URL to validate the coder branch exists."
+			: "";
+		return `Open the PR URL(s) and dashboard to confirm handoff completion.${branchClause}`;
 	}
 
 	if (evidence.runnerWorkflowRunId) {
@@ -1237,6 +1245,8 @@ async function main() {
 					evidence.handoff?.pullRequestMissingEventPresent ?? false,
 				pullRequestFailedEventPresent:
 					evidence.handoff?.pullRequestFailedEventPresent ?? false,
+				branchArtifactCount:
+					evidence.pullRequestEvidence?.branchArtifactCount ?? null,
 				runnerWorkflowRunId: evidence.runnerWorkflowRunId,
 			}),
 		);
