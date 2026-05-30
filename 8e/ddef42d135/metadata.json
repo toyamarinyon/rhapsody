@@ -1,0 +1,23 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "8eddef42d135",
+  "strategy": "manual-commit",
+  "branch": "codex-add-deploy-button-env-help",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/8e/ddef42d135/0/metadata.json",
+      "transcript": "/8e/ddef42d135/0/full.jsonl",
+      "content_hash": "/8e/ddef42d135/0/content_hash.txt",
+      "prompt": "/8e/ddef42d135/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 3653,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 173952,
+    "output_tokens": 1905,
+    "api_call_count": 7
+  }
+}
