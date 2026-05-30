@@ -1,0 +1,16 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "ef5d3d619d14",
+  "session_id": "019e6ee5-09b4-7430-a46a-58e27ddb4189",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-30T06:02:10.607003Z",
+  "branch": "codex-readme-first-issue-dry-runs",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "a9665b8d644a",
+  "session_metrics": {
+    "turn_count": 42
+  }
+}

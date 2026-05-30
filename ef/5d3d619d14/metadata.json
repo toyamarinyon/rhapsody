@@ -1,0 +1,16 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "ef5d3d619d14",
+  "strategy": "manual-commit",
+  "branch": "codex-readme-first-issue-dry-runs",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/ef/5d3d619d14/0/metadata.json",
+      "transcript": "/ef/5d3d619d14/0/full.jsonl",
+      "content_hash": "/ef/5d3d619d14/0/content_hash.txt",
+      "prompt": "/ef/5d3d619d14/0/prompt.txt"
+    }
+  ]
+}
