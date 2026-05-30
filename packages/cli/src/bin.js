@@ -251,6 +251,216 @@ if (command === "setup") {
 		});
 		process.exit(ok ? 0 : 1);
 	}
+	if (subcommand === "start-attempt") {
+		handledSetupCommand = true;
+		const parse = parseSetupStartAttemptArgs(cliArgs);
+		if (!parse.ok) {
+			console.error(parse.error);
+			process.exit(1);
+		}
+
+		const start = Date.now();
+		const statePath = getSetupStatePath();
+		let baseUrl = null;
+		let endpoint = null;
+		let runDetailEndpoint = null;
+		const payloadShape = { claimToken: "redacted" };
+		const blockers = [];
+		const needsUser = [];
+		const nextActions = [];
+
+		const rootPassword = resolveRootPasswordForSmoke();
+		const claimTokenLocal = resolveClaimTokenForSetup();
+
+		const rootPasswordMetadata = {
+			requested: parse.useRootPassword,
+			available: Boolean(rootPassword),
+			source: rootPassword?.source ?? "missing",
+		};
+		const claimTokenMetadata = {
+			available: Boolean(claimTokenLocal),
+			source: claimTokenLocal?.source ?? "missing",
+		};
+
+		try {
+			baseUrl = normalizeBaseUrl(parse.url);
+			endpoint = `${baseUrl}/api/v1/runs/${parse.runId}/attempts/${parse.attemptId}/start`;
+			runDetailEndpoint = `${baseUrl}/api/v1/runs/${parse.runId}`;
+		} catch {
+			blockers.push("The --url value must be a valid absolute URL.");
+			nextActions.push(
+				"Retry with a valid preview URL such as https://preview-url.vercel.app in dry-run mode.",
+			);
+		}
+
+		if (parse.mode === "dry-run") {
+			if (!parse.useRootPassword) {
+				needsUser.push("Pass --use-root-password to authorize apply mode.");
+				nextActions.push(
+					"Run with --apply --yes --use-root-password to execute the attempt start.",
+				);
+			}
+			recordSetupState({
+				command: "start-attempt",
+				mode: parse.mode,
+				baseUrl,
+				endpoint,
+				runId: parse.runId,
+				attemptId: parse.attemptId,
+				rootPassword: rootPasswordMetadata,
+				claimToken: claimTokenMetadata,
+				nextAction: blockers.length ? "blocked" : "ready",
+				blockers,
+				nextActions,
+			});
+			printSetupStartAttemptResult({
+				json: parse.json,
+				ok: blockers.length === 0,
+				mode: parse.mode,
+				baseUrl,
+				endpoint,
+				runId: parse.runId,
+				attemptId: parse.attemptId,
+				statePath,
+				rootPassword: rootPasswordMetadata,
+				claimToken: claimTokenMetadata,
+				payloadShape,
+				blockers,
+				needsUser,
+				nextActions,
+				elapsedMs: Date.now() - start,
+			});
+			process.exit(0);
+		}
+
+		if (!parse.apply || !parse.yes || !parse.useRootPassword) {
+			console.error(
+				"Apply mode requires --apply, --yes, and --use-root-password. Use neither for dry-run.",
+			);
+			process.exit(1);
+		}
+
+		if (!rootPassword) {
+			blockers.push(
+				"ROOT_PASSWORD is missing from process env or apps/app/.env.local.",
+			);
+			nextActions.push("Set ROOT_PASSWORD and rerun the same command.");
+		}
+
+		let resolvedClaimToken = claimTokenLocal?.value ?? null;
+		if (!resolvedClaimToken && rootPassword) {
+			const runLookup = await fetchRunClaimToken({
+				endpoint: runDetailEndpoint,
+				token: rootPassword.value,
+			});
+			if (runLookup.status !== 200 || !runLookup.claimToken) {
+				blockers.push(
+					runLookup.status === null
+						? "Failed to fetch run detail."
+						: runLookup.claimToken
+							? "Run detail response parsing failed."
+							: "Run detail did not include a claimToken.",
+				);
+				nextActions.push(
+					"Confirm the URL and run ID, then rerun with --apply --yes --use-root-password.",
+				);
+			} else {
+				resolvedClaimToken = runLookup.claimToken;
+				claimTokenMetadata.available = true;
+				claimTokenMetadata.source = "run-detail";
+			}
+		}
+
+		if (!resolvedClaimToken && !claimTokenLocal) {
+			needsUser.push(
+				"Set RHAPSODY_CLAIM_TOKEN in process env or apps/app/.env.local.",
+			);
+		}
+
+		let response = null;
+		if (blockers.length === 0 && endpoint && resolvedClaimToken) {
+			response = await postStartAttempt({
+				endpoint,
+				token: rootPassword.value,
+				claimToken: resolvedClaimToken,
+			});
+		}
+
+		const ok = response?.classification === "ok";
+		if (!ok && response) {
+			if (response.classification === "validation-error") {
+				blockers.push("Preview rejected the payload with 400 validation.");
+			} else if (response.classification === "unauthorized") {
+				blockers.push("Preview rejected ROOT_PASSWORD with 401.");
+			} else if (response.classification === "not-found") {
+				blockers.push("Run or attempt was not found.");
+			} else if (response.classification === "already-started") {
+				nextActions.push(
+					"The attempt already exists; inspect dashboard state.",
+				);
+			} else if (
+				response.classification === "network-error" ||
+				response.classification === "server-error"
+			) {
+				blockers.push("Request failed at the preview endpoint.");
+			} else {
+				blockers.push(`Request failed with ${response.classification}.`);
+			}
+		}
+
+		if (response && !ok) {
+			nextActions.push(
+				"Check the preview URL and run/attempt IDs, then retry with valid auth.",
+			);
+		}
+		if (ok) {
+			nextActions.push(
+				"Attempt start accepted. Verify the run in the dashboard and continue to monitoring.",
+			);
+		}
+
+		recordSetupState({
+			command: "start-attempt",
+			mode: parse.mode,
+			baseUrl,
+			endpoint,
+			runId: parse.runId,
+			attemptId: parse.attemptId,
+			rootPassword: rootPasswordMetadata,
+			claimToken: claimTokenMetadata,
+			response: response
+				? {
+						status: response.status,
+						classification: response.classification,
+						...(response.runnerWorkflowRunId
+							? { runnerWorkflowRunId: response.runnerWorkflowRunId }
+							: {}),
+					}
+				: null,
+			nextAction: ok ? "complete" : blockers.length ? "blocked" : "failed",
+			blockers,
+			nextActions,
+		});
+		printSetupStartAttemptResult({
+			json: parse.json,
+			ok,
+			mode: parse.mode,
+			baseUrl,
+			endpoint,
+			runId: parse.runId,
+			attemptId: parse.attemptId,
+			statePath,
+			rootPassword: rootPasswordMetadata,
+			claimToken: claimTokenMetadata,
+			payloadShape,
+			response,
+			blockers,
+			needsUser,
+			nextActions,
+			elapsedMs: Date.now() - start,
+		});
+		process.exit(ok ? 0 : 1);
+	}
 
 	if (subcommand === "check-projects") {
 		handledSetupCommand = true;
@@ -662,6 +872,8 @@ function printSetupHelp() {
   rhapsody setup deploy-preview --yes [--json]
   rhapsody setup first-issue --url <preview-url> --issue-number <n> [--json] [--use-root-password]
   rhapsody setup first-issue --url <preview-url> --issue-number <n> --apply --yes --use-root-password [--json]
+  rhapsody setup start-attempt --url <preview-url> --run-id <runId> --attempt-id <attemptId> [--json] [--use-root-password]
+  rhapsody setup start-attempt --url <preview-url> --run-id <runId> --attempt-id <attemptId> --apply --yes --use-root-password [--json]
   rhapsody setup smoke-test --url <preview-url> [--json] [--use-root-password]
   rhapsody setup provision-turso --dry-run [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]
   rhapsody setup provision-turso --yes [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]
@@ -945,6 +1157,120 @@ function parseSetupFirstIssueArgs(args) {
 	};
 }
 
+function parseSetupStartAttemptArgs(args) {
+	if (args.includes("--help") || args.includes("-h")) {
+		return {
+			ok: false,
+			error:
+				"Usage: rhapsody setup start-attempt --url <preview-url> --run-id <runId> --attempt-id <attemptId> [--json] [--use-root-password]\n       rhapsody setup start-attempt --url <preview-url> --run-id <runId> --attempt-id <attemptId> --apply --yes --use-root-password [--json]",
+		};
+	}
+
+	let url = null;
+	let runId = null;
+	let attemptId = null;
+	const apply = args.includes("--apply");
+	const yes = args.includes("--yes");
+	const useRootPassword = args.includes("--use-root-password");
+
+	for (let i = 0; i < args.length; i++) {
+		const arg = args[i];
+		if (arg === "start-attempt") {
+			continue;
+		}
+		if (arg === "--url") {
+			const value = args[i + 1];
+			if (!value || value.startsWith("--")) {
+				return { ok: false, error: "Missing value for --url." };
+			}
+			url = value;
+			i += 1;
+			continue;
+		}
+		if (arg.startsWith("--url=")) {
+			url = arg.slice("--url=".length);
+			continue;
+		}
+		if (arg === "--run-id") {
+			const value = args[i + 1];
+			if (!value || value.startsWith("--")) {
+				return { ok: false, error: "Missing value for --run-id." };
+			}
+			runId = value;
+			i += 1;
+			continue;
+		}
+		if (arg.startsWith("--run-id=")) {
+			runId = arg.slice("--run-id=".length);
+			continue;
+		}
+		if (arg === "--attempt-id") {
+			const value = args[i + 1];
+			if (!value || value.startsWith("--")) {
+				return { ok: false, error: "Missing value for --attempt-id." };
+			}
+			attemptId = value;
+			i += 1;
+			continue;
+		}
+		if (arg.startsWith("--attempt-id=")) {
+			attemptId = arg.slice("--attempt-id=".length);
+			continue;
+		}
+		if (
+			arg === "--apply" ||
+			arg === "--yes" ||
+			arg === "--json" ||
+			arg === "--use-root-password"
+		) {
+			continue;
+		}
+		return { ok: false, error: `Unsupported argument: ${arg}` };
+	}
+
+	if (!url) {
+		return {
+			ok: false,
+			error:
+				"Missing required --url argument. Example: rhapsody setup start-attempt --url https://preview-url.vercel.app --run-id 123 --attempt-id abc",
+		};
+	}
+	if (!runId) {
+		return {
+			ok: false,
+			error:
+				"Missing required --run-id argument. Example: rhapsody setup start-attempt --url https://preview-url.vercel.app --run-id 123 --attempt-id abc",
+		};
+	}
+	if (!attemptId) {
+		return {
+			ok: false,
+			error:
+				"Missing required --attempt-id argument. Example: rhapsody setup start-attempt --url https://preview-url.vercel.app --run-id 123 --attempt-id abc",
+		};
+	}
+
+	if (apply !== yes) {
+		return {
+			ok: false,
+			error:
+				"Apply mode requires both --apply and --yes. Use neither for dry-run.",
+		};
+	}
+
+	return {
+		ok: true,
+		url,
+		runId,
+		attemptId,
+		mode: apply ? "apply" : "dry-run",
+		apply,
+		yes,
+		useRootPassword,
+		json: args.includes("--json"),
+	};
+}
+
 function printSetupFirstIssueResult({
 	json,
 	ok,
@@ -1016,6 +1342,112 @@ function printSetupFirstIssueResult({
 		}
 		if (response.attemptId) {
 			console.log(`attemptId=${response.attemptId}`);
+		}
+		if (response.objectKeys) {
+			console.log(`response keys=${response.objectKeys.join(",")}`);
+		}
+	}
+	if (blockers.length > 0) {
+		console.log("\nBlockers:");
+		for (const blocker of blockers) {
+			console.log(`  - ${blocker}`);
+		}
+	}
+	if (needsUser.length > 0) {
+		console.log("\nNeeds user:");
+		for (const item of needsUser) {
+			console.log(`  - ${item}`);
+		}
+	}
+	if (nextActions.length > 0) {
+		console.log("\nNext actions:");
+		for (const action of nextActions) {
+			console.log(`  - ${action}`);
+		}
+	}
+	console.log(`Elapsed: ${elapsedMs}ms`);
+}
+
+function printSetupStartAttemptResult({
+	json,
+	ok,
+	mode,
+	baseUrl,
+	endpoint,
+	runId,
+	attemptId,
+	statePath,
+	rootPassword,
+	claimToken,
+	payloadShape,
+	response,
+	blockers,
+	needsUser,
+	nextActions,
+	elapsedMs,
+}) {
+	if (json) {
+		const payload = {
+			ok,
+			mode,
+			phase: "start-attempt",
+			baseUrl,
+			endpoint,
+			runId,
+			attemptId,
+			statePath,
+			rootPassword: {
+				requested: rootPassword.requested,
+				available: rootPassword.available,
+				source: rootPassword.source,
+			},
+			claimToken: {
+				available: claimToken.available,
+				source: claimToken.source,
+			},
+			payloadShape,
+			...(response
+				? {
+						response: {
+							status: response.status,
+							classification: response.classification,
+							...(response.runnerWorkflowRunId
+								? { runnerWorkflowRunId: response.runnerWorkflowRunId }
+								: {}),
+							...(response.objectKeys
+								? { objectKeys: response.objectKeys }
+								: {}),
+						},
+					}
+				: {}),
+			blockers,
+			nextActions,
+			needsUser,
+			elapsedMs,
+		};
+		console.log(JSON.stringify(payload, null, 2));
+		return;
+	}
+
+	console.log(`Rhapsody setup start-attempt (${mode})`);
+	console.log(`Base URL: ${baseUrl}`);
+	console.log(`Endpoint: ${endpoint}`);
+	console.log(`Run ID: ${runId}`);
+	console.log(`Attempt ID: ${attemptId}`);
+	console.log(`State path: ${statePath}`);
+	console.log(
+		`Root password requested=${rootPassword.requested} available=${rootPassword.available} source=${rootPassword.source}`,
+	);
+	console.log(
+		`Claim token available=${claimToken.available} source=${claimToken.source}`,
+	);
+	console.log(`Payload shape: ${JSON.stringify(payloadShape)}`);
+	if (response) {
+		console.log(
+			`Response status=${response.status} classification=${response.classification}`,
+		);
+		if (response.runnerWorkflowRunId) {
+			console.log(`runnerWorkflowRunId=${response.runnerWorkflowRunId}`);
 		}
 		if (response.objectKeys) {
 			console.log(`response keys=${response.objectKeys.join(",")}`);
@@ -1883,6 +2315,16 @@ function classifySmokeStatus(status) {
 	return `status-${status}`;
 }
 
+function classifyStartAttemptStatus(status) {
+	if (status >= 200 && status < 300) return "ok";
+	if (status === 400) return "validation-error";
+	if (status === 401) return "unauthorized";
+	if (status === 404) return "not-found";
+	if (status === 409) return "already-started";
+	if (status >= 500) return "server-error";
+	return `status-${status}`;
+}
+
 function normalizeBaseUrl(rawUrl) {
 	const parsed = new URL(rawUrl);
 	const pathname = parsed.pathname.replace(/\/+$/, "");
@@ -1908,6 +2350,11 @@ function resolveRootPasswordForSmoke() {
 }
 
 function readRootPasswordFromEnv(filePath) {
+	const value = readEnvValueFromEnvLocal(filePath, "ROOT_PASSWORD");
+	return value || null;
+}
+
+function readEnvValueFromEnvLocal(filePath, key) {
 	const content = readFileSync(filePath, "utf8");
 	for (const line of content.split(/\r?\n/)) {
 		const normalized = line.trim();
@@ -1917,7 +2364,7 @@ function readRootPasswordFromEnv(filePath) {
 			: normalized;
 		const equalsIndex = exportNormalized.indexOf("=");
 		if (equalsIndex <= 0) continue;
-		if (exportNormalized.slice(0, equalsIndex).trim() !== "ROOT_PASSWORD") {
+		if (exportNormalized.slice(0, equalsIndex).trim() !== key) {
 			continue;
 		}
 		let value = exportNormalized.slice(equalsIndex + 1).trim();
@@ -1932,6 +2379,157 @@ function readRootPasswordFromEnv(filePath) {
 		}
 	}
 	return null;
+}
+
+function resolveClaimTokenForSetup() {
+	const processToken = process.env.RHAPSODY_CLAIM_TOKEN?.trim();
+	if (processToken) {
+		return { value: processToken, source: "process" };
+	}
+
+	const workspaceRoot = findWorkspaceRoot(process.cwd());
+	const envPath = path.join(workspaceRoot, "apps", "app", ".env.local");
+	if (!existsSync(envPath)) {
+		return null;
+	}
+	const fileToken = readEnvValueFromEnvLocal(envPath, "RHAPSODY_CLAIM_TOKEN");
+	if (!fileToken) {
+		return null;
+	}
+	return { value: fileToken, source: ".env.local" };
+}
+
+async function fetchRunClaimToken({ endpoint, token }) {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), SMOKE_TEST_TIMEOUT_MS);
+	try {
+		const response = await fetch(endpoint, {
+			method: "GET",
+			headers: {
+				Authorization: `Bearer ${token}`,
+			},
+			redirect: "manual",
+			signal: controller.signal,
+		});
+
+		const contentType = response.headers.get("content-type");
+		let objectKeys = null;
+		let claimToken = null;
+		if (contentType?.includes("application/json")) {
+			try {
+				const parsed = await response.json();
+				if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+					objectKeys = Object.keys(parsed);
+					const record = parsed;
+					const direct = record.claimToken;
+					if (typeof direct === "string" && direct.trim()) {
+						claimToken = direct;
+					} else if (
+						record.run &&
+						typeof record.run === "object" &&
+						!Array.isArray(record.run) &&
+						typeof record.run.claimToken === "string" &&
+						record.run.claimToken.trim()
+					) {
+						claimToken = record.run.claimToken;
+					}
+				}
+			} catch (error) {
+				return {
+					status: response.status,
+					contentType,
+					classification: classifyStartAttemptStatus(response.status),
+					claimToken: null,
+					objectKeys: null,
+					error:
+						error instanceof Error ? error.message : "failed to parse JSON",
+				};
+			}
+		}
+
+		return {
+			status: response.status,
+			contentType,
+			classification: classifyStartAttemptStatus(response.status),
+			claimToken,
+			objectKeys,
+		};
+	} catch (error) {
+		return {
+			status: null,
+			contentType: null,
+			classification: "network-error",
+			claimToken: null,
+			objectKeys: null,
+			error: error instanceof Error ? error.message : String(error),
+		};
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
+async function postStartAttempt({ endpoint, token, claimToken }) {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), SMOKE_TEST_TIMEOUT_MS);
+	try {
+		const response = await fetch(endpoint, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${token}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ claimToken }),
+			redirect: "manual",
+			signal: controller.signal,
+		});
+
+		const contentType = response.headers.get("content-type");
+		let objectKeys = null;
+		let runnerWorkflowRunId = null;
+		if (contentType?.includes("application/json")) {
+			try {
+				const parsed = await response.json();
+				if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+					objectKeys = Object.keys(parsed);
+					if (
+						typeof parsed.runnerWorkflowRunId === "string" &&
+						parsed.runnerWorkflowRunId.trim()
+					) {
+						runnerWorkflowRunId = parsed.runnerWorkflowRunId;
+					}
+				}
+			} catch (error) {
+				return {
+					status: response.status,
+					contentType,
+					classification: classifyStartAttemptStatus(response.status),
+					objectKeys: null,
+					runnerWorkflowRunId: null,
+					error:
+						error instanceof Error ? error.message : "failed to parse JSON",
+				};
+			}
+		}
+
+		return {
+			status: response.status,
+			contentType,
+			classification: classifyStartAttemptStatus(response.status),
+			objectKeys,
+			runnerWorkflowRunId,
+		};
+	} catch (error) {
+		return {
+			status: null,
+			contentType: null,
+			classification: "network-error",
+			objectKeys: null,
+			runnerWorkflowRunId: null,
+			error: error instanceof Error ? error.message : String(error),
+		};
+	} finally {
+		clearTimeout(timeout);
+	}
 }
 
 function waitForEnv({ timeoutSeconds, intervalSeconds }) {
@@ -2283,9 +2881,9 @@ function buildSetupPlan({ status, region }) {
 			status: "ready",
 		},
 		{
-			name: "First issue handoff",
+			name: "Attempt start",
 			command:
-				"rhapsody setup first-issue --url <preview-url> --issue-number <n>",
+				"rhapsody setup start-attempt --url <preview-url> --run-id <runId> --attempt-id <attemptId>",
 			status: "ready",
 		},
 	];
