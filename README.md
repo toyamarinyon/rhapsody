@@ -84,6 +84,14 @@ Rhapsody keeps sensitive credentials in trusted server-side code. Sandboxed runs
 
 ## Vercel Template First-Run Onboarding
 
+Deploy it quickly from Vercel Template mode:
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Ftoyamarinyon%2Frhapsody&env=ROOT_PASSWORD%2CAUTH_SECRET%2CCRON_SECRET%2CTURSO_DATABASE_URL%2CTURSO_AUTH_TOKEN%2CGITHUB_TOKEN%2CMEDIATOR_SECRET%2CVERCEL_TOKEN%2CVERCEL_TEAM_ID%2CVERCEL_PROJECT_ID)
+
+This button creates/clones a Vercel project from this repo, and you still use `$setup-rhapsody` / setup helpers to complete GitHub Project setup, add Turso values, opt into Codex seed upload, run preview smoke tests, and perform the first issue handoff.
+
+Security note: never put secret values in this deploy URL; provide secrets only in Vercel setup flows or prompted deploy fields.
+
 If you started from the Vercel Template, use this path after deployment:
 
 1. Deploy your own Vercel project for this repository (use your own Vercel account and team).
