@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import * as credentials from "@/lib/codex/credentials";
-import { handleAuthTokenExchange } from "./route";
+import { handleAuthTokenExchange } from "./auth-token-exchange";
 
 describe("codex chatgpt proxy route", () => {
 	afterEach(() => {

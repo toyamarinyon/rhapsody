@@ -13,7 +13,7 @@ The goal is to make team-facing coding-agent operations feel familiar:
 - Vercel Sandbox isolates each Codex execution.
 - Rhapsody records claims, runs, attempts, events, decisions, branches, and pull requests.
 
-Rhapsody is intended to be distributed as a Vercel Template and currently works as a reference application you can deploy yourself. It is not a hosted SaaS. You deploy it into your own Vercel project and connect it to your own GitHub Project, repository, state store, and Codex credentials.
+Rhapsody is intended to be distributed as a setup CLI plus a Vercel-deployed app. It is not a hosted SaaS. You deploy it into your own Vercel project and connect it to your own GitHub Project, repository, state store, and Codex credentials.
 
 ## Why Rhapsody?
 
@@ -64,15 +64,22 @@ See [docs/SPEC.md](docs/SPEC.md) for the working product and engineering specifi
 
 Yes—if you can run the Rhapsody setup helpers and want an early-adopter onboarding path.
 
-Use the setup flow in `$setup-rhapsody` (or the equivalent scripts directly): `plan`, `status`, `inspect`, `configure-local`, `configure-github`, `configure-deploy`, `deploy-preview`, `smoke-test`, then the first-issue handoff path.
+Rhapsody is moving toward a setup CLI that wraps `gh`, the Vercel CLI, Vercel Marketplace provisioning, environment configuration, migration, deploy, and resumable checks. Until that CLI is complete, use the setup helper scripts directly: `plan`, `status`, `inspect`, `configure-local`, `configure-github`, `configure-deploy`, `deploy-preview`, `smoke-test`, then the first-issue handoff path.
 
-Turso/libSQL provisioning and Codex credential seeding remain operator-controlled:
-- create and provide Turso/libSQL values (`TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`) yourself.
+Turso/libSQL provisioning and Codex credential seeding remain operator-controlled in the current helper flow:
+- create and provide Turso/libSQL values (`TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`) yourself. The planned setup CLI will provision Turso through the Vercel Marketplace when possible.
 - supply `INITIAL_CHATGPT_AUTH_JSON` through the trusted seed flow only when you explicitly opt in.
 
 ## How It Works
 
-Rhapsody has three layers of configuration:
+Rhapsody is now organized as a pnpm workspace:
+
+```text
+apps/app       Next.js app, workflows, current setup helpers
+packages/*     setup CLI and shared packages as they are introduced
+```
+
+The deployed application has three layers of configuration:
 
 1. Deployment configuration in environment variables.
 2. Scheduler configuration in `rhapsody.config.ts`.
@@ -89,6 +96,8 @@ Deploy it quickly from Vercel Template mode:
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Ftoyamarinyon%2Frhapsody&env=ROOT_PASSWORD%2CAUTH_SECRET%2CCRON_SECRET%2CTURSO_DATABASE_URL%2CTURSO_AUTH_TOKEN%2CGITHUB_TOKEN%2CMEDIATOR_SECRET%2CVERCEL_TOKEN%2CVERCEL_TEAM_ID%2CVERCEL_PROJECT_ID&envDescription=Rhapsody%20needs%20server-side%20runtime%20secrets%20and%20service%20tokens.%20Use%20the%20README%20setup%20flow%20for%20generated%20secrets%2C%20Turso%2FlibSQL%2C%20GitHub%2C%20Vercel%2C%20and%20Codex%20seed%20guidance.&envLink=https%3A%2F%2Fgithub.com%2Ftoyamarinyon%2Frhapsody%23environment-variables)
 
 This button creates/clones a Vercel project from this repo, and you still use `$setup-rhapsody` / setup helpers to complete GitHub Project setup, add Turso values, opt into Codex seed upload, run preview smoke tests, and perform the first issue handoff.
+
+When configuring the Vercel project manually, set the project root directory to `apps/app`.
 
 Security note: never put secret values in this deploy URL; provide secrets only in Vercel setup flows or prompted deploy fields.
 
@@ -133,7 +142,7 @@ If you started from the Vercel Template, use this path after deployment:
    - `pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId> [--use-root-password]`
    - `pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId> --use-root-password --wait` (recommended final handoff check after `setup:start-attempt`)
 
-This path keeps to current MVP limits: no hosted auto-onboarding service, no automatic Turso provisioning, and no production auto-deploy.
+This path keeps to current MVP limits: no hosted auto-onboarding service, no automatic Turso provisioning in the helper flow, and no production auto-deploy.
 
 Use the `number` emitted by `setup:configure-github`, `facts.issue.number` emitted by `setup:create-first-issue`, and the `runId`/`attemptId` emitted by `setup:first-issue` in the following commands.
 
@@ -164,7 +173,7 @@ You need:
 
 ## Environment Variables
 
-Copy `.env.example` and fill in the values locally, then add the same values to your Vercel project.
+Copy `apps/app/.env.example` to `apps/app/.env.local` and fill in the values locally, then add the same values to your Vercel project.
 
 Required for the MVP:
 
@@ -293,6 +302,8 @@ Install dependencies:
 ```bash
 pnpm install
 ```
+
+The root `package.json` proxies the current app commands into `apps/app`, so the familiar commands still work from the repository root.
 
 Run migrations:
 

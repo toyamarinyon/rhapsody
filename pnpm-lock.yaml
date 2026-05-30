@@ -6,7 +6,9 @@ settings:
 
 importers:
 
-  .:
+  .: {}
+
+  apps/app:
     dependencies:
       '@libsql/client':
         specifier: ^0.17.3
@@ -78,6 +80,8 @@ importers:
       vitest:
         specifier: ^3.2.4
         version: 3.2.4(@types/node@20.19.41)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.3)
+
+  packages/cli: {}
 
 packages:
 

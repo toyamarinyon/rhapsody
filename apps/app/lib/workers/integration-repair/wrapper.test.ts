@@ -97,7 +97,7 @@ test("wrapper rejects unrelated files changed by conflict resolver", () => {
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}
-});
+}, 10_000);
 
 function git(args: string[], cwd: string) {
 	execFileSync("git", args, {

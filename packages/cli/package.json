@@ -1,0 +1,17 @@
+{
+	"name": "@toyamarinyon/rhapsody",
+	"version": "0.1.0",
+	"description": "Setup CLI for self-hosting Rhapsody on Vercel.",
+	"license": "MIT",
+	"type": "module",
+	"bin": {
+		"rhapsody": "./src/bin.js"
+	},
+	"files": [
+		"src"
+	],
+	"scripts": {
+		"check": "node --check src/bin.js",
+		"smoke:setup-help": "node src/bin.js setup --help"
+	}
+}
