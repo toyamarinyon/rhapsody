@@ -375,6 +375,49 @@ export function summarizeHealthResponse(args: {
 	return summary;
 }
 
+export function buildSeedFailureNextActions(
+	classification: string,
+	phase: "seed" | "health",
+): string[] {
+	if (classification === "network-error") {
+		return [
+			"Confirm the preview URL is the deployed Rhapsody app, then inspect the Vercel deployment logs before rerunning the seed command.",
+		];
+	}
+
+	if (classification === "unauthorized" || classification === "forbidden") {
+		return [
+			"Confirm ROOT_PASSWORD matches the preview deployment, then rerun with --apply --yes --use-root-password.",
+		];
+	}
+
+	if (classification === "not-found") {
+		return [
+			"Confirm this preview includes the Codex credential admin endpoints, then redeploy before rerunning the seed command.",
+		];
+	}
+
+	if (classification === "validation-error") {
+		return [
+			"Confirm the Codex credential environment variables are configured on the preview deployment, then rerun the seed command.",
+		];
+	}
+
+	if (classification === "server-error") {
+		return [
+			"Inspect the Vercel function logs for the Codex credential endpoint, then rerun after fixing the deployment or env issue.",
+		];
+	}
+
+	return phase === "seed"
+		? [
+				"Review the seed response summary and rerun with the same arguments once fixed.",
+			]
+		: [
+				"Seed succeeded but health check failed. Review health response and retry once fixed.",
+			];
+}
+
 function summarizeNetworkError(error: unknown): string {
 	return error instanceof Error
 		? `network error: ${error.message}`
@@ -763,7 +806,7 @@ async function main() {
 
 	if (response.seed.classification !== "ok") {
 		nextActions.push(
-			"Fix the seed request issue and rerun with the same arguments.",
+			...buildSeedFailureNextActions(response.seed.classification, "seed"),
 		);
 		emit(
 			baseReport({
@@ -806,9 +849,10 @@ async function main() {
 					? [
 							"Codex credentials appear healthy on this preview. Proceed with first-issue handoff.",
 						]
-					: [
-							"Seed succeeded but health check failed. Review health response and retry once fixed.",
-						],
+					: buildSeedFailureNextActions(
+							response.health.classification,
+							"health",
+						),
 			response,
 		}),
 		response.health.classification === "ok" ? 0 : 1,
