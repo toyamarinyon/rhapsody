@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 type CommandCheck = {
@@ -38,7 +39,7 @@ function summarizeCommandFailure(
 	return errnoError?.message ?? "Command execution failed";
 }
 
-function summarizeAuthResult(
+export function summarizeAuthResult(
 	result: ReturnType<typeof run>,
 	command: string,
 	timeoutMs: number,
@@ -54,13 +55,24 @@ function summarizeAuthResult(
 		return errnoError?.message ?? "Authentication check failed";
 	}
 
-	const output = (result.stdout || result.stderr || "").trim();
+	const output = (result.stderr || result.stdout || "").trim();
 
 	if (!output) {
 		return result.status === 0 ? "authenticated" : `exit ${result.status}`;
 	}
 
-	return output.split("\n")[0] ?? output;
+	const lines = output
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter(Boolean);
+	if (result.status !== 0) {
+		const diagnostic = lines.find(
+			(line) => !/^[\w.-]+$/.test(line) || line.includes(" "),
+		);
+		return diagnostic ?? lines[0] ?? output;
+	}
+
+	return lines[0] ?? output;
 }
 
 function checkCommand(
@@ -240,38 +252,44 @@ function buildNextActions(args: { needsUser: string[] }) {
 	];
 }
 
-const envLocalKeys = parseEnvFileKeys(path.join(process.cwd(), ".env.local"));
-const commands = [
-	checkCommand("gh"),
-	checkCommand("vercel", ["--version"]),
-	checkCommand("pnpm", ["--version"]),
-	checkCommand("node", ["--version"]),
-];
+function main() {
+	const envLocalKeys = parseEnvFileKeys(path.join(process.cwd(), ".env.local"));
+	const commands = [
+		checkCommand("gh"),
+		checkCommand("vercel", ["--version"]),
+		checkCommand("pnpm", ["--version"]),
+		checkCommand("node", ["--version"]),
+	];
 
-const auth = [
-	commands.find((command) => command.name === "gh")?.available
-		? checkGitHubAuth()
-		: { name: "github", ok: false, detail: "gh is not available" },
-	commands.find((command) => command.name === "vercel")?.available
-		? checkVercelAuth(envLocalKeys)
-		: { name: "vercel", ok: false, detail: "vercel is not available" },
-];
-const needsUser = buildNeedsUser({ commands, auth });
+	const auth = [
+		commands.find((command) => command.name === "gh")?.available
+			? checkGitHubAuth()
+			: { name: "github", ok: false, detail: "gh is not available" },
+		commands.find((command) => command.name === "vercel")?.available
+			? checkVercelAuth(envLocalKeys)
+			: { name: "vercel", ok: false, detail: "vercel is not available" },
+	];
+	const needsUser = buildNeedsUser({ commands, auth });
 
-const report = {
-	ok:
-		commands.every((command) => command.available) &&
-		auth.every((item) => item.ok),
-	phase: "inspect",
-	commands,
-	auth,
-	git: readGitContext(),
-	needsUser,
-	nextActions: buildNextActions({ needsUser }),
-};
+	const report = {
+		ok:
+			commands.every((command) => command.available) &&
+			auth.every((item) => item.ok),
+		phase: "inspect",
+		commands,
+		auth,
+		git: readGitContext(),
+		needsUser,
+		nextActions: buildNextActions({ needsUser }),
+	};
 
-console.log(JSON.stringify(report, null, 2));
+	console.log(JSON.stringify(report, null, 2));
 
-if (!report.ok) {
-	process.exitCode = 1;
+	if (!report.ok) {
+		process.exitCode = 1;
+	}
+}
+
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
+	main();
 }
