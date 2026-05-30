@@ -1,0 +1,25 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "dd689d3bb99e",
+  "session_id": "019e6ee5-09b4-7430-a46a-58e27ddb4189",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-30T06:14:00.113979Z",
+  "branch": "codex-start-attempt-claim-token-report",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "639eaf3ecc60",
+  "session_metrics": {
+    "turn_count": 43
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
