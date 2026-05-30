@@ -1,0 +1,23 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "5a9dbed1f5ee",
+  "session_id": "019e6ee5-09b4-7430-a46a-58e27ddb4189",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-30T03:45:55.371302Z",
+  "branch": "codex-fix-setup-inspect-invocation",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "18d555a0a762",
+  "token_usage": {
+    "input_tokens": 32118,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1066112,
+    "output_tokens": 8139,
+    "api_call_count": 24
+  },
+  "session_metrics": {
+    "turn_count": 36
+  }
+}
