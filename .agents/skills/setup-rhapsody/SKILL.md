@@ -267,6 +267,7 @@ Success signals for this path:
 - `setup:first-issue` returns `runId` and `attemptId`.
 - `setup:start-attempt` returns `runnerWorkflowRunId` or an idempotent/conflict signal that directs you to inspect dashboard evidence.
 - `setup:verify-run` outputs `runnerWorkflowRunId`, attempts, events, artifacts, and links; later runs should also show PR/handoff references when present.
+- `setup:verify-run` with auth outputs explicit PR handoff signals: pull request artifact count, branch artifact count, pull request URL/number from artifact metadata, and pull_request_ready/pull_request_missing/pull_request_failed event presence.
 
 Blocked handling:
 - Missing Turso/Vercel/GitHub/Codex seed values → return to `setup:configure-local` or `setup:configure-github`, then resume.
