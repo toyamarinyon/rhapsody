@@ -79,12 +79,43 @@ type ParsedArgs =
 	| { ok: false; error: string };
 
 type SecretValue = { value: string; source: "process" | ".env.local" } | null;
+type ClaimTokenSource = "process" | ".env.local" | "run-detail" | "missing";
 
 const REQUEST_TIMEOUT_MS = 12_000;
 
 function emit(report: Report, exitCode = 0) {
 	process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 	process.exitCode = exitCode;
+}
+
+function buildClaimTokenCheck(input: {
+	available: boolean;
+	source: ClaimTokenSource;
+	rootPasswordAvailable: boolean;
+}): Check {
+	if (input.available) {
+		return {
+			name: "claim-token",
+			ok: true,
+			detail: `available from ${input.source}`,
+		};
+	}
+
+	if (input.rootPasswordAvailable) {
+		return {
+			name: "claim-token",
+			ok: true,
+			detail:
+				"missing locally; apply mode can derive it from authenticated run detail with --use-root-password",
+		};
+	}
+
+	return {
+		name: "claim-token",
+		ok: false,
+		detail:
+			"missing locally; set ROOT_PASSWORD or RHAPSODY_CLAIM_TOKEN before applying",
+	};
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -544,8 +575,7 @@ async function main() {
 	const rootPasswordSource = rootPassword?.source ?? "missing";
 	const rootPasswordAvailable = Boolean(rootPassword);
 	const claimToken = resolveClaimToken();
-	let claimTokenSource: "process" | ".env.local" | "run-detail" | "missing" =
-		claimToken?.source ?? "missing";
+	let claimTokenSource: ClaimTokenSource = claimToken?.source ?? "missing";
 	let claimTokenAvailable = Boolean(claimToken);
 	let resolvedClaimToken = claimToken?.value ?? null;
 	const normalizedBaseUrl = (() => {
@@ -618,14 +648,13 @@ async function main() {
 			? `available from ${rootPasswordSource}`
 			: "missing",
 	});
-	checks.push({
-		name: "claim-token",
-		ok: claimTokenAvailable,
-		detail:
-			claimTokenSource === "missing"
-				? "missing"
-				: `available from ${claimTokenSource}`,
-	});
+	checks.push(
+		buildClaimTokenCheck({
+			available: claimTokenAvailable,
+			source: claimTokenSource,
+			rootPasswordAvailable,
+		}),
+	);
 
 	plannedChanges.push({
 		kind: "attempt-start",
