@@ -812,9 +812,19 @@ async function main() {
 						: "Run detail fetch failed with an unexpected status.";
 
 			blocked.push(reason);
-			nextActions.push(
-				"Confirm the run ID and preview URL, then rerun with --apply --yes --use-root-password after the run detail endpoint returns a claim token.",
-			);
+			if (claimLookup.classification === "network-error") {
+				nextActions.push(
+					"Confirm the preview URL and run ID, then inspect the Vercel deployment logs before rerunning the apply command.",
+				);
+			} else if (claimLookup.classification === "unauthorized") {
+				nextActions.push(
+					"Confirm ROOT_PASSWORD matches the preview deployment, then rerun with --apply --yes --use-root-password.",
+				);
+			} else {
+				nextActions.push(
+					"Confirm the run ID and preview URL, then rerun with --apply --yes --use-root-password after the run detail endpoint returns a claim token.",
+				);
+			}
 
 			emit(
 				baseReport({
@@ -901,6 +911,23 @@ async function main() {
 						: result.classification === "network-error"
 							? "The preview API was not reachable."
 							: "The preview returned a non-success response.",
+		);
+	}
+	if (result.classification === "network-error") {
+		nextActions.push(
+			"Confirm the preview URL is reachable, then inspect the Vercel deployment logs before rerunning the attempt start.",
+		);
+	} else if (result.classification === "unauthorized") {
+		nextActions.push(
+			"Confirm ROOT_PASSWORD matches the preview deployment, then rerun with --apply --yes --use-root-password.",
+		);
+	} else if (result.classification === "validation-error") {
+		nextActions.push(
+			"Confirm the run ID, attempt ID, and claim token belong to the same run before rerunning the attempt start.",
+		);
+	} else if (!ok && result.classification !== "conflict") {
+		nextActions.push(
+			"Inspect the preview deployment logs and /dashboard attempt state before rerunning the attempt start.",
 		);
 	}
 
