@@ -172,6 +172,42 @@ function classifyStatus(status: number): string {
 	return `status-${status}`;
 }
 
+function buildBlockedNextActions(args: {
+	baseCheck: Check;
+	stateCheck: Check;
+	loginOrDashboard: Check;
+}): string[] {
+	if (
+		args.baseCheck.classification === "network-error" &&
+		args.stateCheck.classification === "network-error" &&
+		args.loginOrDashboard.classification === "unreachable-path"
+	) {
+		return [
+			"Confirm the preview URL is the deployed Rhapsody app, then inspect the Vercel deployment logs before rerunning setup:smoke-test.",
+		];
+	}
+
+	if (args.baseCheck.classification === "network-error") {
+		return [
+			"Confirm the preview URL is reachable from this environment, then rerun setup:smoke-test.",
+		];
+	}
+
+	if (args.stateCheck.classification === "network-error") {
+		return [
+			"Confirm /api/v1/state is deployed and inspect Vercel function logs before rerunning setup:smoke-test.",
+		];
+	}
+
+	if (args.loginOrDashboard.classification === "unreachable-path") {
+		return [
+			"Confirm /login or /dashboard routes are present in the preview deployment before rerunning setup:smoke-test.",
+		];
+	}
+
+	return ["Fix blockers and rerun `pnpm setup:smoke-test -- --url <url>`."];
+}
+
 function summarizeNetworkError(error: unknown): string {
 	const message = error instanceof Error ? error.message : String(error);
 	return `network error: ${message}`;
@@ -549,7 +585,11 @@ async function main() {
 			nextActions.length > 0
 				? nextActions
 				: blocked.length > 0
-					? ["Fix blockers and rerun `pnpm setup:smoke-test -- --url <url>`."]
+					? buildBlockedNextActions({
+							baseCheck,
+							stateCheck,
+							loginOrDashboard,
+						})
 					: rootPassword
 						? ["Proceed to manual scheduler and issue run handoff."]
 						: [
