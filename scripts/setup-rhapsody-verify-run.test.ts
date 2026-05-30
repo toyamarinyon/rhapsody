@@ -2,6 +2,8 @@ import { expect, test } from "vitest";
 import {
 	buildEvidenceSignals,
 	buildNextActionsFromEvidence,
+	evaluateWaitDecision,
+	parseArgs,
 } from "@/scripts/setup-rhapsody-verify-run";
 
 test("extracts PR evidence, handoff flags, and next actions from run detail", () => {
@@ -76,4 +78,104 @@ test("extracts PR evidence, handoff flags, and next actions from run detail", ()
 	expect(nextActions).toBe(
 		"Inspect runner events and logs; handoff events indicate pull request creation is missing or failed.",
 	);
+});
+
+test("parses verify-run args with default values", () => {
+	const result = parseArgs([
+		"node",
+		"scripts/setup-rhapsody-verify-run.ts",
+		"--url",
+		"https://example.test",
+		"--run-id",
+		"run_abc",
+	]);
+
+	expect(result).toEqual({
+		ok: true,
+		url: "https://example.test",
+		runId: "run_abc",
+		useRootPassword: false,
+		wait: false,
+		timeoutMs: 300_000,
+		intervalMs: 10_000,
+	});
+});
+
+test("requires --use-root-password for wait mode", () => {
+	const result = parseArgs([
+		"node",
+		"scripts/setup-rhapsody-verify-run.ts",
+		"--url",
+		"https://example.test",
+		"--run-id",
+		"run_abc",
+		"--wait",
+	]);
+
+	expect(result).toEqual({
+		ok: false,
+		error: "--wait requires --use-root-password.",
+	});
+});
+
+test("enforces wait argument constraints", () => {
+	const missingRequiredRunAuth = parseArgs([
+		"node",
+		"scripts/setup-rhapsody-verify-run.ts",
+		"--url",
+		"https://example.test",
+		"--wait",
+		"--use-root-password",
+		"--interval-ms",
+		"abc",
+		"--run-id",
+		"run_abc",
+	]);
+
+	expect(missingRequiredRunAuth).toEqual({
+		ok: false,
+		error: "--interval-ms must be a positive integer.",
+	});
+
+	const invalidCombination = parseArgs([
+		"node",
+		"scripts/setup-rhapsody-verify-run.ts",
+		"--url",
+		"https://example.test",
+		"--run-id",
+		"run_abc",
+		"--interval-ms",
+		"1000",
+	]);
+
+	expect(invalidCombination).toEqual({
+		ok: false,
+		error: "`--timeout-ms` and `--interval-ms` require `--wait` to be enabled.",
+	});
+});
+
+test("evaluateWaitDecision chooses terminal outcomes", () => {
+	const evidence1 = evaluateWaitDecision({
+		pullRequestEvidenceFound: false,
+		pullRequestMissingEventPresent: true,
+		pullRequestFailedEventPresent: false,
+	});
+	expect(evidence1).toEqual({ kind: "pull-request-missing", terminal: true });
+
+	const evidence2 = evaluateWaitDecision({
+		pullRequestEvidenceFound: true,
+		pullRequestMissingEventPresent: false,
+		pullRequestFailedEventPresent: false,
+	});
+	expect(evidence2).toEqual({
+		kind: "handoff-evidence-found",
+		terminal: true,
+	});
+
+	const evidence3 = evaluateWaitDecision({
+		pullRequestEvidenceFound: false,
+		pullRequestMissingEventPresent: false,
+		pullRequestFailedEventPresent: false,
+	});
+	expect(evidence3).toEqual({ kind: "continue", terminal: false });
 });

@@ -86,8 +86,10 @@ Treat setup as resumable phases:
      and whether an authenticated fetch is available;
    - with `--use-root-password`, fetch `GET /api/v1/runs/:runId` and inspect the run, attempt,
      workflow, artifact, link, and event signals without printing raw bodies or secrets;
-   - use the result to decide whether the setup flow should wait, inspect the dashboard, or look
-     for PR handoff evidence.
+   - use the result to decide whether the setup flow should inspect the dashboard, or look for PR
+     handoff evidence;
+   - for final setup confirmation after `setup:start-attempt`, prefer
+     `--use-root-password --wait` with tuned timeout/interval to poll until handoff success or failure;
 
 ## Inspect Phase
 
@@ -346,6 +348,12 @@ pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <r
 
 ```bash
 pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId> --use-root-password
+```
+
+For the final setup pass (first issue -> PR handoff), use wait mode:
+
+```bash
+pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId> --use-root-password --wait
 ```
 
 Success signals for this path:
