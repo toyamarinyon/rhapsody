@@ -207,8 +207,10 @@ pnpm setup:create-first-issue -- --apply --yes --title "Rhapsody smoke test"
 
 This apply mode creates a real issue and adds it to the configured ProjectV2.
 
+Capture `facts.issue.number` (or `issueNumber` if that is the output shape) from `setup:create-first-issue` and pass it as `<issueNumber>` to `setup:first-issue`.
+
 ```bash
-pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-number <1>
+pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-number <issueNumber>
 ```
 
 This helper is read-only in dry-run mode. It prepares the manual first issue handoff against
@@ -292,13 +294,13 @@ pnpm setup:create-first-issue -- --apply --yes --title "Rhapsody smoke test"
 7. Create first run manually (dry run)
 
 ```bash
-pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-number <1>
+pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-number <issueNumber>
 ```
 
 8. Create first run manually (apply)
 
 ```bash
-pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-number <1> --apply --yes --use-root-password
+pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-number <issueNumber> --apply --yes --use-root-password
 ```
 
 Capture `runId` and `attemptId` from the response before continuing.
