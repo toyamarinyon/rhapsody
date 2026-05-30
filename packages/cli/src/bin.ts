@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-// @ts-nocheck
-
 import {
 	copyFileSync,
 	unlinkSync,
@@ -12,6 +10,319 @@ import {
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+
+type JsonValue =
+	| string
+	| number
+	| boolean
+	| null
+	| JsonValue[]
+	| { [key: string]: JsonValue };
+type JsonRecord = Record<string, JsonValue>;
+type JsonObject = Record<string, unknown>;
+
+type ParseResult<TData> = ({ ok: true } & TData) | { ok: false; error: string };
+
+function isParseFailure<TData>(
+	value: ParseResult<TData>,
+): value is { ok: false; error: string } {
+	return value.ok === false;
+}
+
+type CommandMode = "apply" | "dry-run";
+
+type RootPasswordSource = "process" | ".env.local" | "missing";
+type ClaimTokenSource = "process" | ".env.local" | "run-detail" | "missing";
+type Region = "iad1" | "cle1" | "pdx1" | "dub1" | "bom1" | "hnd1";
+type VercelTokenLookup = string | null;
+
+type EnvSnapshot = Record<string, string>;
+
+type SmokeClassification =
+	| "ok"
+	| "network-error"
+	| "redirect"
+	| "status-3xx"
+	| `status-${number}`
+	| "admin-auth-missing"
+	| "auth-required"
+	| "forbidden";
+
+type FirstIssuePostClassification =
+	| "ok"
+	| "validation-error"
+	| "unauthorized"
+	| "existing-run"
+	| "network-error"
+	| "server-error"
+	| `status-${number}`;
+
+type StartAttemptClassification =
+	| "ok"
+	| "validation-error"
+	| "unauthorized"
+	| "not-found"
+	| "already-started"
+	| "network-error"
+	| "server-error"
+	| `status-${number}`;
+
+type PostResponseBase = {
+	status: number | null;
+	contentType: string | null;
+	classification: string | `status-${number}`;
+	objectKeys: string[] | null;
+	error?: string;
+};
+
+type FirstIssuePostResponse = PostResponseBase & {
+	classification: FirstIssuePostClassification;
+	runId: string | null;
+	attemptId: string | null;
+};
+
+type StartAttemptPostResponse = PostResponseBase & {
+	classification: StartAttemptClassification;
+	runnerWorkflowRunId: string | null;
+};
+
+type RunClaimResponse = PostResponseBase & {
+	classification: StartAttemptClassification;
+	claimToken: string | null;
+};
+
+type SyncCommandResult = {
+	ok: boolean;
+	stdout: string;
+	stderr: string;
+};
+
+type RunResult = {
+	ok: boolean;
+	exitCode: number;
+	signal: string | null;
+};
+
+type SecretResolution<TSource extends string> = {
+	value: string;
+	source: TSource;
+};
+
+type ParseSetupCheckProjectsResult = ParseResult<{ json: boolean }>;
+
+type ParseSetupSmokeTestResult = ParseResult<{
+	url: string;
+	json: boolean;
+	useRootPassword: boolean;
+}>;
+
+type ParseSetupCreateFirstIssueResult = ParseResult<{
+	mode: CommandMode;
+	yes: boolean;
+	dryRun: boolean;
+	title: string;
+	body: string;
+	json: boolean;
+}>;
+type ParseSetupCreateFirstIssueSuccess = Extract<
+	ParseSetupCreateFirstIssueResult,
+	{ ok: true }
+>;
+
+type ParseSetupFirstIssueResult = ParseResult<{
+	url: string;
+	issueNumber: number;
+	mode: CommandMode;
+	apply: boolean;
+	yes: boolean;
+	useRootPassword: boolean;
+	json: boolean;
+}>;
+
+type ParseSetupStartAttemptResult = ParseResult<{
+	url: string;
+	runId: string;
+	attemptId: string;
+	mode: CommandMode;
+	apply: boolean;
+	yes: boolean;
+	useRootPassword: boolean;
+	json: boolean;
+}>;
+
+type ParseSetupPlanResult = ParseResult<{
+	json: boolean;
+	region: Region;
+}>;
+
+type ParseSetupDeployPreviewResult = ParseResult<{
+	json: boolean;
+	dryRun: boolean;
+	yes: boolean;
+}>;
+
+type ParseSetupProvisionTursoResult = ParseResult<{
+	json: boolean;
+	region: Region;
+	dryRun: boolean;
+	yes: boolean;
+}>;
+
+type ParseSetupWaitEnvResult = ParseResult<{
+	json: boolean;
+	timeoutSeconds: number;
+	intervalSeconds: number;
+}>;
+
+type SetupPlanPhase = {
+	name: string;
+	command: string;
+	status: "ready" | "blocked";
+};
+
+type SetupPlanResult = {
+	ok: boolean;
+	region: Region;
+	phases: SetupPlanPhase[];
+	commands: string[];
+	nextActions: string[];
+};
+
+type DeployPreviewPlanResult = {
+	ok: boolean;
+	appRoot: string;
+	statePath: string;
+	blockers: string[];
+	plannedCommands: string[];
+	commandPlan: Array<{ name: string; argv: string[] }>;
+	nextActions: string[];
+	command?: string;
+	mode?: CommandMode;
+	applyConfirmationRequired?: boolean;
+	applyConfirmationProvided?: boolean;
+	region?: Region;
+	linkDir?: string;
+	wouldWriteProjectJson?: boolean;
+	expectedEnvKeys?: string[];
+};
+
+type CreateFirstIssuePlanResult = {
+	ok: boolean;
+	mode: CommandMode;
+	statePath: string;
+	repository: string | null;
+	title: string;
+	bodyPreview: string;
+	plannedCommand: string;
+	commandArgv: string[];
+	blockers: string[];
+	nextActions: string[];
+	issue: { number: number; url: string } | null;
+};
+
+type CreateFirstIssueApplyResult = {
+	ok: boolean;
+	issue: { number: number; url: string } | null;
+	blockers: string[];
+	nextActions: string[];
+};
+
+type WaitEnvResult = {
+	ok: boolean;
+	requiredEnvKeys: string[];
+	presentEnvKeys: string[];
+	missingEnvKeys: string[];
+	timeoutSeconds: number;
+	intervalSeconds: number;
+	elapsedMs: number;
+	statePath: string;
+	nextActions: string[];
+};
+
+type ParsedIssueCreateOutput =
+	| {
+			ok: false;
+			error: string;
+	  }
+	| {
+			ok: true;
+			issueUrl: string;
+			issueNumber: number;
+	  };
+
+type SetupStateFile = {
+	lastUpdatedAt?: string | null;
+	commandState?: {
+		command?: string | null;
+		nextAction?: string | null;
+		[x: string]: unknown;
+	};
+};
+
+type FirstIssueRootPasswordState = {
+	requested: boolean;
+	available: boolean;
+	source: RootPasswordSource;
+};
+
+type ClaimTokenState = {
+	available: boolean;
+	source: ClaimTokenSource;
+};
+
+type FirstIssueInput = {
+	json: boolean;
+	ok: boolean;
+	mode: CommandMode;
+	baseUrl: string | null;
+	endpoint: string | null;
+	issueNumber: number;
+	statePath: string;
+	rootPassword: FirstIssueRootPasswordState;
+	payloadShape: JsonRecord;
+	response?: FirstIssuePostResponse | null;
+	blockers: string[];
+	needsUser: string[];
+	nextActions: string[];
+	elapsedMs: number;
+};
+
+type StartAttemptInput = {
+	json: boolean;
+	ok: boolean;
+	mode: CommandMode;
+	baseUrl: string | null;
+	endpoint: string | null;
+	runId: string;
+	attemptId: string;
+	statePath: string;
+	rootPassword: FirstIssueRootPasswordState;
+	claimToken: ClaimTokenState;
+	payloadShape: JsonRecord;
+	response?: StartAttemptPostResponse | null;
+	blockers: string[];
+	needsUser: string[];
+	nextActions: string[];
+	elapsedMs: number;
+};
+
+type SetupSmokeResult = {
+	ok: boolean;
+	phase: "smoke-test";
+	baseUrl: string;
+	statePath: string;
+	checks: Array<{
+		name: string;
+		url: string;
+		status: number | null;
+		classification: SmokeClassification | `status-${number}`;
+		ok: boolean;
+	}>;
+	rootPassword: FirstIssueRootPasswordState;
+	blockers: string[];
+	nextActions: string[];
+	elapsedMs: number;
+};
 
 const SMOKE_TEST_TIMEOUT_MS = 12_000;
 const command = process.argv[2] ?? "help";
@@ -28,7 +339,7 @@ if (command === "setup") {
 	if (subcommand === "first-issue") {
 		handledSetupCommand = true;
 		const parse = parseSetupFirstIssueArgs(cliArgs);
-		if (!parse.ok) {
+		if (parse.ok === false) {
 			console.error(parse.error);
 			process.exit(1);
 		}
@@ -36,15 +347,15 @@ if (command === "setup") {
 		const start = Date.now();
 		const statePath = getSetupStatePath();
 		const issueNumber = parse.issueNumber;
-		let baseUrl = null;
-		let endpoint = null;
-		const payloadShape = {
+		let baseUrl: string | null = null;
+		let endpoint: string | null = null;
+		const payloadShape: JsonRecord = {
 			issueNumber: "positive integer",
 			claimedBy: "setup-rhapsody",
 		};
-		const blockers = [];
-		const needsUser = [];
-		const nextActions = [];
+		const blockers: string[] = [];
+		const needsUser: string[] = [];
+		const nextActions: string[] = [];
 
 		try {
 			baseUrl = normalizeBaseUrl(parse.url);
@@ -165,13 +476,15 @@ if (command === "setup") {
 			nextActions.push("Set ROOT_PASSWORD and rerun the same command.");
 		}
 
-		let response = null;
+		let response: FirstIssuePostResponse | null = null;
 		if (blockers.length === 0) {
-			response = await postRun({
-				endpoint,
-				token: rootPassword.value,
-				issueNumber,
-			});
+			if (endpoint && rootPassword) {
+				response = await postRun({
+					endpoint,
+					token: rootPassword.value,
+					issueNumber,
+				});
+			}
 		}
 
 		const ok = response?.classification === "ok";
@@ -255,20 +568,20 @@ if (command === "setup") {
 	if (subcommand === "start-attempt") {
 		handledSetupCommand = true;
 		const parse = parseSetupStartAttemptArgs(cliArgs);
-		if (!parse.ok) {
+		if (parse.ok === false) {
 			console.error(parse.error);
 			process.exit(1);
 		}
 
 		const start = Date.now();
 		const statePath = getSetupStatePath();
-		let baseUrl = null;
-		let endpoint = null;
-		let runDetailEndpoint = null;
-		const payloadShape = { claimToken: "redacted" };
-		const blockers = [];
-		const needsUser = [];
-		const nextActions = [];
+		let baseUrl: string | null = null;
+		let endpoint: string | null = null;
+		let runDetailEndpoint: string | null = null;
+		const payloadShape: JsonRecord = { claimToken: "redacted" };
+		const blockers: string[] = [];
+		const needsUser: string[] = [];
+		const nextActions: string[] = [];
 
 		const rootPassword = resolveRootPasswordForSmoke();
 		const claimTokenLocal = resolveClaimTokenForSetup();
@@ -349,7 +662,7 @@ if (command === "setup") {
 		}
 
 		let resolvedClaimToken = claimTokenLocal?.value ?? null;
-		if (!resolvedClaimToken && rootPassword) {
+		if (!resolvedClaimToken && rootPassword && runDetailEndpoint) {
 			const runLookup = await fetchRunClaimToken({
 				endpoint: runDetailEndpoint,
 				token: rootPassword.value,
@@ -378,8 +691,13 @@ if (command === "setup") {
 			);
 		}
 
-		let response = null;
-		if (blockers.length === 0 && endpoint && resolvedClaimToken) {
+		let response: StartAttemptPostResponse | null = null;
+		if (
+			blockers.length === 0 &&
+			endpoint &&
+			resolvedClaimToken &&
+			rootPassword
+		) {
 			response = await postStartAttempt({
 				endpoint,
 				token: rootPassword.value,
@@ -466,7 +784,7 @@ if (command === "setup") {
 	if (subcommand === "check-projects") {
 		handledSetupCommand = true;
 		const parse = parseSetupCheckProjectsArgs(cliArgs);
-		if (!parse.ok) {
+		if (parse.ok === false) {
 			console.error(parse.error);
 			process.exit(1);
 		}
@@ -497,13 +815,13 @@ if (command === "setup") {
 	if (subcommand === "create-first-issue") {
 		handledSetupCommand = true;
 		const parse = parseSetupCreateFirstIssueArgs(cliArgs);
-		if (!parse.ok) {
+		if (parse.ok === false) {
 			console.error(parse.error);
 			process.exit(1);
 		}
 
 		const plan = buildCreateFirstIssuePlan({
-			parse,
+			parse: parse as ParseSetupCreateFirstIssueSuccess,
 			statePath: getSetupStatePath(),
 		});
 		if (plan.mode === "dry-run") {
@@ -566,7 +884,7 @@ if (command === "setup") {
 	if (subcommand === "plan") {
 		handledSetupCommand = true;
 		const parse = parseSetupPlanArgs(cliArgs);
-		if (!parse.ok) {
+		if (parse.ok === false) {
 			console.error(parse.error);
 			process.exit(1);
 		}
@@ -580,7 +898,7 @@ if (command === "setup") {
 	if (subcommand === "deploy-preview") {
 		handledSetupCommand = true;
 		const parse = parseDeployPreviewArgs(cliArgs);
-		if (!parse.ok) {
+		if (parse.ok === false) {
 			console.error(parse.error);
 			process.exit(1);
 		}
@@ -693,7 +1011,7 @@ if (command === "setup") {
 	if (subcommand === "wait-env") {
 		handledSetupCommand = true;
 		const parse = parseWaitEnvArgs(cliArgs);
-		if (!parse.ok) {
+		if (parse.ok === false) {
 			console.error(parse.error);
 			process.exit(1);
 		}
@@ -708,7 +1026,7 @@ if (command === "setup") {
 	if (subcommand === "provision-turso") {
 		handledSetupCommand = true;
 		const parse = parseProvisionTursoArgs(cliArgs);
-		if (!parse.ok) {
+		if (parse.ok === false) {
 			console.error(parse.error);
 			process.exit(1);
 		}
@@ -811,7 +1129,7 @@ if (command === "setup") {
 	if (subcommand === "smoke-test") {
 		handledSetupCommand = true;
 		const parse = parseSetupSmokeTestArgs(cliArgs);
-		if (!parse.ok) {
+		if (parse.ok === false) {
 			console.error(parse.error);
 			process.exit(1);
 		}
@@ -893,7 +1211,13 @@ Planned phases:
 `);
 }
 
-function printSetupPlan({ json, plan }) {
+function printSetupPlan({
+	json,
+	plan,
+}: {
+	json: boolean;
+	plan: SetupPlanResult;
+}) {
 	if (json) {
 		console.log(JSON.stringify(plan, null, 2));
 		return;
@@ -915,7 +1239,9 @@ Region: ${plan.region}`);
 	}
 }
 
-function parseSetupCheckProjectsArgs(args) {
+function parseSetupCheckProjectsArgs(
+	args: string[],
+): ParseSetupCheckProjectsResult {
 	if (args.includes("--help") || args.includes("-h")) {
 		return {
 			ok: false,
@@ -928,7 +1254,7 @@ function parseSetupCheckProjectsArgs(args) {
 	};
 }
 
-function parseSetupSmokeTestArgs(args) {
+function parseSetupSmokeTestArgs(args: string[]): ParseSetupSmokeTestResult {
 	if (args.includes("--help") || args.includes("-h")) {
 		return {
 			ok: false,
@@ -978,7 +1304,9 @@ function parseSetupSmokeTestArgs(args) {
 	};
 }
 
-function parseSetupCreateFirstIssueArgs(args) {
+function parseSetupCreateFirstIssueArgs(
+	args: string[],
+): ParseSetupCreateFirstIssueResult {
 	if (args.includes("--help") || args.includes("-h")) {
 		return {
 			ok: false,
@@ -987,7 +1315,7 @@ function parseSetupCreateFirstIssueArgs(args) {
 		};
 	}
 
-	let mode = "dry-run";
+	let mode: CommandMode = "dry-run";
 	let yes = false;
 	let dryRun = false;
 	let title = DEFAULT_FIRST_ISSUE_TITLE;
@@ -1060,7 +1388,7 @@ function parseSetupCreateFirstIssueArgs(args) {
 	};
 }
 
-function parseSetupFirstIssueArgs(args) {
+function parseSetupFirstIssueArgs(args: string[]): ParseSetupFirstIssueResult {
 	if (args.includes("--help") || args.includes("-h")) {
 		return {
 			ok: false,
@@ -1158,7 +1486,9 @@ function parseSetupFirstIssueArgs(args) {
 	};
 }
 
-function parseSetupStartAttemptArgs(args) {
+function parseSetupStartAttemptArgs(
+	args: string[],
+): ParseSetupStartAttemptResult {
 	if (args.includes("--help") || args.includes("-h")) {
 		return {
 			ok: false,
@@ -1287,7 +1617,7 @@ function printSetupFirstIssueResult({
 	needsUser,
 	nextActions,
 	elapsedMs,
-}) {
+}: FirstIssueInput & { issueNumber: number }) {
 	if (json) {
 		const payload = {
 			ok,
@@ -1386,7 +1716,7 @@ function printSetupStartAttemptResult({
 	needsUser,
 	nextActions,
 	elapsedMs,
-}) {
+}: StartAttemptInput & { attemptId: string; runId: string }) {
 	if (json) {
 		const payload = {
 			ok,
@@ -1475,7 +1805,13 @@ function printSetupStartAttemptResult({
 	console.log(`Elapsed: ${elapsedMs}ms`);
 }
 
-function printSetupCheckProjects({ json, readiness }) {
+function printSetupCheckProjects({
+	json,
+	readiness,
+}: {
+	json: boolean;
+	readiness: ReturnType<typeof collectProjectReadiness>;
+}) {
 	if (json) {
 		console.log(JSON.stringify(readiness, null, 2));
 		return;
@@ -1520,7 +1856,13 @@ function printSetupCheckProjects({ json, readiness }) {
 	}
 }
 
-function printSetupSmokeTest({ json, result }) {
+function printSetupSmokeTest({
+	json,
+	result,
+}: {
+	json: boolean;
+	result: SetupSmokeResult;
+}) {
 	if (json) {
 		console.log(
 			JSON.stringify(
@@ -1569,7 +1911,24 @@ function printSetupSmokeTest({ json, result }) {
 	console.log(`\nElapsed: ${result.elapsedMs}ms`);
 }
 
-function printCreateFirstIssueResult({ json, plan }) {
+function printCreateFirstIssueResult({
+	json,
+	plan,
+}: {
+	json: boolean;
+	plan: {
+		ok: boolean;
+		mode: CommandMode;
+		statePath: string;
+		repository: string | null;
+		title: string;
+		bodyPreview: string;
+		plannedCommand: string;
+		blockers: string[];
+		nextActions: string[];
+		issue?: { number: number; url: string } | null;
+	};
+}) {
 	if (json) {
 		console.log(
 			JSON.stringify(
@@ -1615,7 +1974,13 @@ function printCreateFirstIssueResult({ json, plan }) {
 	}
 }
 
-function printProvisionTurso({ json, plan }) {
+function printProvisionTurso({
+	json,
+	plan,
+}: {
+	json: boolean;
+	plan: ReturnType<typeof buildProvisionTursoPlan>;
+}) {
 	if (json) {
 		console.log(JSON.stringify(plan, null, 2));
 		return;
@@ -1648,19 +2013,50 @@ Region: ${plan.region}`);
 	}
 }
 
-function printDeployPreviewPlan({ json, mode, plan }) {
+function printDeployPreviewPlan({
+	json,
+	mode,
+	plan,
+}: {
+	json: boolean;
+	mode: CommandMode;
+	plan: DeployPreviewPlanResult & {
+		appRoot: string;
+		statePath: string;
+		plannedCommands: string[];
+		appliedSteps?: Array<{
+			command: string;
+			exitCode: number;
+			signal?: string | null;
+		}>;
+	};
+}) {
+	const printedPlan = plan;
 	if (json) {
-		const payload = {
-			ok: plan.ok,
+		const payload: {
+			ok: boolean;
+			mode: CommandMode;
+			appRoot: string;
+			statePath: string;
+			plannedCommands: string[];
+			blockers: string[];
+			nextActions: string[];
+			appliedSteps?: Array<{
+				command: string;
+				exitCode: number;
+				signal?: string | null;
+			}>;
+		} = {
+			ok: printedPlan.ok,
 			mode,
-			appRoot: plan.appRoot,
-			statePath: plan.statePath,
-			plannedCommands: plan.plannedCommands,
-			blockers: plan.blockers,
-			nextActions: plan.nextActions,
+			appRoot: printedPlan.appRoot,
+			statePath: printedPlan.statePath,
+			plannedCommands: printedPlan.plannedCommands,
+			blockers: printedPlan.blockers,
+			nextActions: printedPlan.nextActions,
 		};
 		if (mode === "apply") {
-			payload.appliedSteps = plan.appliedSteps ?? [];
+			payload.appliedSteps = printedPlan.appliedSteps ?? [];
 		}
 		console.log(JSON.stringify(payload, null, 2));
 		return;
@@ -1695,7 +2091,13 @@ function printDeployPreviewPlan({ json, mode, plan }) {
 	}
 }
 
-function printWaitEnvResult({ json, result }) {
+function printWaitEnvResult({
+	json,
+	result,
+}: {
+	json: boolean;
+	result: WaitEnvResult;
+}) {
 	if (json) {
 		console.log(JSON.stringify(result, null, 2));
 		return;
@@ -1728,10 +2130,10 @@ For the current helper flow, run:
 `);
 }
 
-function parseSetupPlanArgs(args) {
+function parseSetupPlanArgs(args: string[]): ParseSetupPlanResult {
 	const parsedRegion = parseRegionFlag(args);
-	if (!parsedRegion.ok) {
-		return parsedRegion;
+	if (isParseFailure(parsedRegion)) {
+		return { ok: false, error: parsedRegion.error };
 	}
 
 	return {
@@ -1741,11 +2143,17 @@ function parseSetupPlanArgs(args) {
 	};
 }
 
-function buildCreateFirstIssuePlan({ parse, statePath }) {
+function buildCreateFirstIssuePlan({
+	parse,
+	statePath,
+}: {
+	parse: ParseSetupCreateFirstIssueSuccess;
+	statePath: string;
+}): CreateFirstIssuePlanResult {
 	const title = parse.title?.trim() ?? DEFAULT_FIRST_ISSUE_TITLE;
 	const body = parse.body?.trim() ?? DEFAULT_FIRST_ISSUE_BODY;
 	const repository = getCreateFirstIssueRepository();
-	const blockers = [];
+	const blockers: string[] = [];
 	const mode = parse.mode;
 	const commandArgv = [
 		"gh",
@@ -1758,7 +2166,7 @@ function buildCreateFirstIssuePlan({ parse, statePath }) {
 		"--body",
 		body,
 	];
-	const nextActions = [];
+	const nextActions: string[] = [];
 	const bodyPreview = createBodyPreview(body);
 	const commandTarget = repository ?? "<owner/repo>";
 	const plannedCommand = `gh issue create --repo ${commandTarget} --title ${quoteForCommandPreview(
@@ -1805,10 +2213,12 @@ function buildCreateFirstIssuePlan({ parse, statePath }) {
 	};
 }
 
-function parseProvisionTursoArgs(args) {
+function parseProvisionTursoArgs(
+	args: string[],
+): ParseSetupProvisionTursoResult {
 	const parsedRegion = parseRegionFlag(args);
-	if (!parsedRegion.ok) {
-		return parsedRegion;
+	if (isParseFailure(parsedRegion)) {
+		return { ok: false, error: parsedRegion.error };
 	}
 
 	const dryRun = args.includes("--dry-run");
@@ -1829,7 +2239,7 @@ function parseProvisionTursoArgs(args) {
 	};
 }
 
-function parseDeployPreviewArgs(args) {
+function parseDeployPreviewArgs(args: string[]): ParseSetupDeployPreviewResult {
 	if (args.includes("--help") || args.includes("-h")) {
 		return {
 			ok: false,
@@ -1846,7 +2256,7 @@ function parseDeployPreviewArgs(args) {
 	};
 }
 
-function parseRegionFlag(args) {
+function parseRegionFlag(args: string[]): ParseResult<{ region: Region }> {
 	const allowedRegions = new Set([
 		"iad1",
 		"cle1",
@@ -1855,7 +2265,7 @@ function parseRegionFlag(args) {
 		"bom1",
 		"hnd1",
 	]);
-	let region = "hnd1";
+	let region: Region = "hnd1";
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i];
 		if (arg === "--json") continue;
@@ -1875,7 +2285,7 @@ function parseRegionFlag(args) {
 					error: `Invalid region: ${value}. Valid regions: iad1, cle1, pdx1, dub1, bom1, hnd1.`,
 				};
 			}
-			region = value;
+			region = value as Region;
 			continue;
 		}
 		if (arg.startsWith("--region=")) {
@@ -1886,7 +2296,7 @@ function parseRegionFlag(args) {
 					error: `Invalid region: ${value}. Valid regions: iad1, cle1, pdx1, dub1, bom1, hnd1.`,
 				};
 			}
-			region = value;
+			region = value as Region;
 			continue;
 		}
 	}
@@ -1897,14 +2307,14 @@ function parseRegionFlag(args) {
 	};
 }
 
-function parseWaitEnvArgs(args) {
+function parseWaitEnvArgs(args: string[]): ParseSetupWaitEnvResult {
 	const timeoutResult = parseTimeoutFlag(args);
-	if (!timeoutResult.ok) {
-		return timeoutResult;
+	if (isParseFailure(timeoutResult)) {
+		return { ok: false, error: timeoutResult.error };
 	}
 	const intervalResult = parseIntervalFlag(args);
-	if (!intervalResult.ok) {
-		return intervalResult;
+	if (isParseFailure(intervalResult)) {
+		return { ok: false, error: intervalResult.error };
 	}
 	if (args.includes("--help") || args.includes("-h")) {
 		return {
@@ -1921,7 +2331,7 @@ function parseWaitEnvArgs(args) {
 	};
 }
 
-function parseTimeoutFlag(args) {
+function parseTimeoutFlag(args: string[]): ParseResult<{ value: number }> {
 	return parseIntegerSecondsFlag({
 		args,
 		name: "--timeout",
@@ -1929,7 +2339,7 @@ function parseTimeoutFlag(args) {
 	});
 }
 
-function parseIntervalFlag(args) {
+function parseIntervalFlag(args: string[]): ParseResult<{ value: number }> {
 	return parseIntegerSecondsFlag({
 		args,
 		name: "--interval",
@@ -1938,8 +2348,18 @@ function parseIntervalFlag(args) {
 	});
 }
 
-function parseIntegerSecondsFlag({ args, name, defaultValue, minValue = 0 }) {
-	let valueRaw = null;
+function parseIntegerSecondsFlag({
+	args,
+	name,
+	defaultValue,
+	minValue = 0,
+}: {
+	args: string[];
+	name: string;
+	defaultValue: number;
+	minValue?: number;
+}): ParseResult<{ value: number }> {
+	let valueRaw: string | null = null;
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i];
 		if (arg === name) {
@@ -1983,12 +2403,16 @@ function parseIntegerSecondsFlag({ args, name, defaultValue, minValue = 0 }) {
 	};
 }
 
-function getCreateFirstIssueRepository() {
+function getCreateFirstIssueRepository(): string | null {
 	const remoteUrl = readGitRemoteOriginUrl();
 	return normalizeGitRemoteTarget(remoteUrl);
 }
 
-function collectCreateFirstIssueGhChecks({ repository }) {
+function collectCreateFirstIssueGhChecks({
+	repository,
+}: {
+	repository: string | null;
+}): string[] {
 	const blockers = [];
 	const ghVersion = run(["gh", "--version"]);
 	const ghToken = run(["gh", "auth", "token"]);
@@ -2015,21 +2439,23 @@ function collectCreateFirstIssueGhChecks({ repository }) {
 	return blockers;
 }
 
-function createBodyPreview(value) {
+function createBodyPreview(value: string): string {
 	if (value.length <= BODY_PREVIEW_MAX) {
 		return value;
 	}
 	return `${value.slice(0, BODY_PREVIEW_MAX)}...`;
 }
 
-function quoteForCommandPreview(value) {
+function quoteForCommandPreview(value: string): string {
 	if (value.includes(" ") || value.includes('"') || value.includes("'")) {
 		return `"${value.replace(/"/g, '\\"')}"`;
 	}
 	return value;
 }
 
-function runCreateFirstIssueApply(plan) {
+function runCreateFirstIssueApply(
+	plan: CreateFirstIssuePlanResult,
+): CreateFirstIssueApplyResult {
 	const result = run(plan.commandArgv);
 	if (!result.ok) {
 		const reason = result.stderr.trim() || result.stdout.trim();
@@ -2071,7 +2497,9 @@ function runCreateFirstIssueApply(plan) {
 	};
 }
 
-function parseIssueCreateCommandOutput(stdout) {
+function parseIssueCreateCommandOutput(
+	stdout: string,
+): ParsedIssueCreateOutput {
 	const matched = stdout
 		.trim()
 		.split(/\r?\n/)
@@ -2085,13 +2513,14 @@ function parseIssueCreateCommandOutput(stdout) {
 		};
 	}
 	const issueNumberMatch = matched.match(/\/issues\/(\d+)(?:$|[/?#])/);
-	if (!issueNumberMatch?.[1]) {
+	const issueNumberText = issueNumberMatch?.[1];
+	if (!issueNumberText) {
 		return {
 			ok: false,
 			error: "gh issue create returned an unexpected issue URL.",
 		};
 	}
-	const issueNumber = Number.parseInt(issueNumberMatch[1], 10);
+	const issueNumber = Number.parseInt(issueNumberText, 10);
 	if (!Number.isInteger(issueNumber)) {
 		return {
 			ok: false,
@@ -2105,14 +2534,22 @@ function parseIssueCreateCommandOutput(stdout) {
 	};
 }
 
-async function runSetupSmokeTest({ url, json, useRootPassword }) {
+async function runSetupSmokeTest({
+	url,
+	json,
+	useRootPassword,
+}: {
+	url: string;
+	json: boolean;
+	useRootPassword: boolean;
+}) {
 	const statePath = getSetupStatePath();
 	const start = Date.now();
-	let baseUrlValue;
+	let baseUrlValue: string;
 	try {
 		baseUrlValue = normalizeBaseUrl(url);
 	} catch {
-		const result = {
+		const result: SetupSmokeResult = {
 			ok: false,
 			phase: "smoke-test",
 			baseUrl: url,
@@ -2159,7 +2596,13 @@ async function runSetupSmokeTest({ url, json, useRootPassword }) {
 		source: password?.source ?? "missing",
 	};
 
-	const checks = [];
+	const checks: Array<{
+		name: string;
+		url: string;
+		status: number | null;
+		classification: SmokeClassification;
+		ok: boolean;
+	}> = [];
 	const baseCheck = await runSmokeCheck({ name: "base-url", url: baseUrl });
 	const loginCheck = await runSmokeCheck({ name: "login-path", url: loginUrl });
 	const dashboardCheck = await runSmokeCheck({
@@ -2185,8 +2628,8 @@ async function runSetupSmokeTest({ url, json, useRootPassword }) {
 	const loginOrDashboardReachable =
 		(loginCheck.ok && loginCheck.classification !== "network-error") ||
 		(dashboardCheck.ok && dashboardCheck.classification !== "network-error");
-	const blockers = [];
-	const nextActions = [];
+	const blockers: string[] = [];
+	const nextActions: string[] = [];
 
 	if (baseCheck.classification === "network-error") {
 		blockers.push("Base URL is not reachable.");
@@ -2241,7 +2684,7 @@ async function runSetupSmokeTest({ url, json, useRootPassword }) {
 		);
 	}
 
-	const result = {
+	const result: SetupSmokeResult = {
 		ok: blockers.length === 0,
 		phase: "smoke-test",
 		baseUrl,
@@ -2277,7 +2720,21 @@ async function runSetupSmokeTest({ url, json, useRootPassword }) {
 	process.exit(result.ok ? 0 : 1);
 }
 
-async function runSmokeCheck({ name, url, headers }) {
+async function runSmokeCheck({
+	name,
+	url,
+	headers = {},
+}: {
+	name: string;
+	url: string;
+	headers?: Record<string, string>;
+}): Promise<{
+	name: string;
+	url: string;
+	status: number | null;
+	classification: SmokeClassification;
+	ok: boolean;
+}> {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), SMOKE_TEST_TIMEOUT_MS);
 	try {
@@ -2307,7 +2764,7 @@ async function runSmokeCheck({ name, url, headers }) {
 	}
 }
 
-function classifySmokeStatus(status) {
+function classifySmokeStatus(status: number): SmokeClassification {
 	if (status >= 200 && status < 300) return "ok";
 	if (status >= 300 && status < 400) return "redirect";
 	if (status === 401) return "auth-required";
@@ -2316,7 +2773,9 @@ function classifySmokeStatus(status) {
 	return `status-${status}`;
 }
 
-function classifyStartAttemptStatus(status) {
+function classifyStartAttemptStatus(
+	status: number,
+): StartAttemptClassification {
 	if (status >= 200 && status < 300) return "ok";
 	if (status === 400) return "validation-error";
 	if (status === 401) return "unauthorized";
@@ -2326,13 +2785,19 @@ function classifyStartAttemptStatus(status) {
 	return `status-${status}`;
 }
 
-function normalizeBaseUrl(rawUrl) {
+function normalizeBaseUrl(rawUrl: string) {
 	const parsed = new URL(rawUrl);
 	const pathname = parsed.pathname.replace(/\/+$/, "");
 	return `${parsed.protocol}//${parsed.host}${pathname}`;
 }
 
-function resolveRootPasswordForSmoke() {
+function parseVercelCandidate(value: unknown): { token?: unknown } | null {
+	return value !== null && typeof value === "object"
+		? (value as { token?: unknown })
+		: null;
+}
+
+function resolveRootPasswordForSmoke(): SecretResolution<RootPasswordSource> | null {
 	const processPassword = process.env.ROOT_PASSWORD?.trim();
 	if (processPassword) {
 		return { value: processPassword, source: "process" };
@@ -2350,12 +2815,15 @@ function resolveRootPasswordForSmoke() {
 	return { value: filePassword, source: ".env.local" };
 }
 
-function readRootPasswordFromEnv(filePath) {
+function readRootPasswordFromEnv(filePath: string): string | null {
 	const value = readEnvValueFromEnvLocal(filePath, "ROOT_PASSWORD");
 	return value || null;
 }
 
-function readEnvValueFromEnvLocal(filePath, key) {
+function readEnvValueFromEnvLocal(
+	filePath: string,
+	key: string,
+): string | null {
 	const content = readFileSync(filePath, "utf8");
 	for (const line of content.split(/\r?\n/)) {
 		const normalized = line.trim();
@@ -2382,7 +2850,7 @@ function readEnvValueFromEnvLocal(filePath, key) {
 	return null;
 }
 
-function resolveClaimTokenForSetup() {
+function resolveClaimTokenForSetup(): SecretResolution<ClaimTokenSource> | null {
 	const processToken = process.env.RHAPSODY_CLAIM_TOKEN?.trim();
 	if (processToken) {
 		return { value: processToken, source: "process" };
@@ -2400,7 +2868,20 @@ function resolveClaimTokenForSetup() {
 	return { value: fileToken, source: ".env.local" };
 }
 
-async function fetchRunClaimToken({ endpoint, token }) {
+function toJsonObject(value: unknown): JsonObject | null {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return null;
+	}
+	return value as JsonObject;
+}
+
+async function fetchRunClaimToken({
+	endpoint,
+	token,
+}: {
+	endpoint: string;
+	token: string;
+}): Promise<RunClaimResponse> {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), SMOKE_TEST_TIMEOUT_MS);
 	try {
@@ -2419,20 +2900,25 @@ async function fetchRunClaimToken({ endpoint, token }) {
 		if (contentType?.includes("application/json")) {
 			try {
 				const parsed = await response.json();
-				if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-					objectKeys = Object.keys(parsed);
-					const record = parsed;
+				const record = toJsonObject(parsed);
+				if (record) {
+					objectKeys = Object.keys(record);
 					const direct = record.claimToken;
 					if (typeof direct === "string" && direct.trim()) {
 						claimToken = direct;
 					} else if (
 						record.run &&
 						typeof record.run === "object" &&
-						!Array.isArray(record.run) &&
-						typeof record.run.claimToken === "string" &&
-						record.run.claimToken.trim()
+						!Array.isArray(record.run)
 					) {
-						claimToken = record.run.claimToken;
+						const runRecord = record.run as JsonObject;
+						const nestedClaimToken = runRecord.claimToken;
+						if (
+							typeof nestedClaimToken === "string" &&
+							nestedClaimToken.trim()
+						) {
+							claimToken = nestedClaimToken;
+						}
 					}
 				}
 			} catch (error) {
@@ -2469,7 +2955,15 @@ async function fetchRunClaimToken({ endpoint, token }) {
 	}
 }
 
-async function postStartAttempt({ endpoint, token, claimToken }) {
+async function postStartAttempt({
+	endpoint,
+	token,
+	claimToken,
+}: {
+	endpoint: string;
+	token: string;
+	claimToken: string;
+}): Promise<StartAttemptPostResponse> {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), SMOKE_TEST_TIMEOUT_MS);
 	try {
@@ -2485,18 +2979,17 @@ async function postStartAttempt({ endpoint, token, claimToken }) {
 		});
 
 		const contentType = response.headers.get("content-type");
-		let objectKeys = null;
-		let runnerWorkflowRunId = null;
+		let objectKeys: string[] | null = null;
+		let runnerWorkflowRunId: string | null = null;
 		if (contentType?.includes("application/json")) {
 			try {
 				const parsed = await response.json();
-				if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-					objectKeys = Object.keys(parsed);
-					if (
-						typeof parsed.runnerWorkflowRunId === "string" &&
-						parsed.runnerWorkflowRunId.trim()
-					) {
-						runnerWorkflowRunId = parsed.runnerWorkflowRunId;
+				const record = toJsonObject(parsed);
+				if (record) {
+					objectKeys = Object.keys(record);
+					const runIdField = record.runnerWorkflowRunId;
+					if (typeof runIdField === "string" && runIdField.trim()) {
+						runnerWorkflowRunId = runIdField;
 					}
 				}
 			} catch (error) {
@@ -2533,16 +3026,113 @@ async function postStartAttempt({ endpoint, token, claimToken }) {
 	}
 }
 
-function waitForEnv({ timeoutSeconds, intervalSeconds }) {
+function classifyPostRunStatus(
+	status: number | null,
+): FirstIssuePostClassification {
+	if (status === null) return "network-error";
+	if (status >= 200 && status < 300) return "ok";
+	if (status === 400) return "validation-error";
+	if (status === 401) return "unauthorized";
+	if (status === 409) return "existing-run";
+	if (status >= 500) return "server-error";
+	return `status-${status}`;
+}
+
+async function postRun({
+	endpoint,
+	token,
+	issueNumber,
+}: {
+	endpoint: string;
+	token: string;
+	issueNumber: number;
+}): Promise<FirstIssuePostResponse> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), SMOKE_TEST_TIMEOUT_MS);
+	try {
+		const response = await fetch(endpoint, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${token}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ issueNumber }),
+			redirect: "manual",
+			signal: controller.signal,
+		});
+
+		const contentType = response.headers.get("content-type");
+		let objectKeys: string[] | null = null;
+		let runId: string | null = null;
+		let attemptId: string | null = null;
+		if (contentType?.includes("application/json")) {
+			try {
+				const parsed = await response.json();
+				const record = toJsonObject(parsed);
+				if (record) {
+					objectKeys = Object.keys(record);
+					const runIdField = record.runId;
+					if (typeof runIdField === "string" && runIdField.trim()) {
+						runId = runIdField;
+					}
+					const attemptIdField = record.attemptId;
+					if (typeof attemptIdField === "string" && attemptIdField.trim()) {
+						attemptId = attemptIdField;
+					}
+				}
+			} catch (error) {
+				return {
+					status: response.status,
+					contentType,
+					classification: classifyPostRunStatus(response.status),
+					objectKeys: null,
+					runId: null,
+					attemptId: null,
+					error:
+						error instanceof Error ? error.message : "failed to parse JSON",
+				};
+			}
+		}
+
+		return {
+			status: response.status,
+			contentType,
+			classification: classifyPostRunStatus(response.status),
+			objectKeys,
+			runId,
+			attemptId,
+		};
+	} catch (error) {
+		return {
+			status: null,
+			contentType: null,
+			classification: "network-error",
+			objectKeys: null,
+			runId: null,
+			attemptId: null,
+			error: error instanceof Error ? error.message : String(error),
+		};
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
+function waitForEnv({
+	timeoutSeconds,
+	intervalSeconds,
+}: {
+	timeoutSeconds: number;
+	intervalSeconds: number;
+}): WaitEnvResult {
 	const start = Date.now();
 	const timeoutMs = timeoutSeconds * 1000;
 	const intervalMs = intervalSeconds * 1000;
-	const requiredEnvKeys = ["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"];
+	const requiredEnvKeys: string[] = ["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"];
 	const statePath = getSetupStatePath();
 
-	let presentEnvKeys = [];
-	let missingEnvKeys = [...requiredEnvKeys];
-	let nextActions = [];
+	let presentEnvKeys: string[] = [];
+	let missingEnvKeys: string[] = [...requiredEnvKeys];
+	let nextActions: string[] = [];
 	while (true) {
 		const status = collectSetupStatus();
 		const observed = gatherEnvStatus({
@@ -2593,7 +3183,11 @@ function waitForEnv({ timeoutSeconds, intervalSeconds }) {
 	}
 }
 
-function buildDeployPreviewPlan({ status }) {
+function buildDeployPreviewPlan({
+	status,
+}: {
+	status: ReturnType<typeof collectSetupStatus>;
+}): DeployPreviewPlanResult {
 	const statePath = getSetupStatePath();
 	const vercelToken = getVercelTokenForDeployPreview(status.paths.appRoot);
 	const blockers = collectDeployPreviewBlockers(status);
@@ -2628,8 +3222,10 @@ function buildDeployPreviewPlan({ status }) {
 	};
 }
 
-function collectDeployPreviewBlockers(status) {
-	const blockers = [];
+function collectDeployPreviewBlockers(
+	status: ReturnType<typeof collectSetupStatus>,
+) {
+	const blockers: string[] = [];
 	if (!status.paths.appExists) {
 		blockers.push("Run this command from the Rhapsody repository root.");
 	}
@@ -2659,7 +3255,9 @@ function collectDeployPreviewBlockers(status) {
 	return blockers;
 }
 
-function getVercelTokenForDeployPreview(appRoot) {
+function getVercelTokenForDeployPreview(
+	appRoot: string | null,
+): VercelTokenLookup {
 	if (process.env.VERCEL_TOKEN) {
 		return process.env.VERCEL_TOKEN;
 	}
@@ -2672,7 +3270,16 @@ function getVercelTokenForDeployPreview(appRoot) {
 	return readVercelTokenFromDisk();
 }
 
-function gatherEnvStatus({ status, requiredEnvKeys }) {
+function gatherEnvStatus({
+	status,
+	requiredEnvKeys,
+}: {
+	status: ReturnType<typeof collectSetupStatus>;
+	requiredEnvKeys: string[];
+}): {
+	presentEnvKeys: string[];
+	missingEnvKeys: string[];
+} {
 	const localPath = path.join(status.paths.appRoot, ".env.local");
 	const env = readDotEnv(localPath);
 	const mergedEnv = { ...env };
@@ -2685,8 +3292,8 @@ function gatherEnvStatus({ status, requiredEnvKeys }) {
 			}
 		}
 	}
-	const presentEnvKeys = [];
-	const missingEnvKeys = [];
+	const presentEnvKeys: string[] = [];
+	const missingEnvKeys: string[] = [];
 	for (const key of requiredEnvKeys) {
 		if (mergedEnv[key]) {
 			presentEnvKeys.push(key);
@@ -2697,7 +3304,9 @@ function gatherEnvStatus({ status, requiredEnvKeys }) {
 	return { presentEnvKeys, missingEnvKeys };
 }
 
-function maybeReadVercelEnv(status) {
+function maybeReadVercelEnv(
+	status: ReturnType<typeof collectSetupStatus>,
+): Record<string, string> {
 	if (
 		!status.tools.vercel.installed ||
 		!status.tools.vercel.tokenPresent ||
@@ -2727,7 +3336,21 @@ function maybeReadVercelEnv(status) {
 	return pulledEnv;
 }
 
-function buildProvisionTursoPlan({ region }) {
+function buildProvisionTursoPlan({ region }: { region: Region }): {
+	ok: boolean;
+	mode: CommandMode;
+	region: Region;
+	linkDir: string;
+	wouldWriteProjectJson: boolean;
+	statePath: string;
+	applyConfirmationRequired: boolean;
+	applyConfirmationProvided: boolean;
+	applyReady: boolean;
+	command: string;
+	commandArgv: string[];
+	expectedEnvKeys: string[];
+	nextActions: string[];
+} {
 	const statePath = getSetupStatePath();
 	const command =
 		"npx -y vercel@53 integration add tursocloud --name rhapsody-db --plan starter -m region=" +
@@ -2776,7 +3399,15 @@ function buildProvisionTursoPlan({ region }) {
 	};
 }
 
-function stateSnapshot(linkDir, wouldWriteProjectJson) {
+function stateSnapshot(
+	linkDir: string,
+	wouldWriteProjectJson: boolean,
+): {
+	linkDir: string;
+	linkDirExists: boolean;
+	wouldWriteProjectJson: boolean;
+	preparedProjectJson: boolean;
+} {
 	return {
 		linkDir,
 		linkDirExists: existsSync(linkDir),
@@ -2828,7 +3459,13 @@ function inferTursoLinkContext() {
 	};
 }
 
-function buildSetupPlan({ status, region }) {
+function buildSetupPlan({
+	status,
+	region,
+}: {
+	status: ReturnType<typeof collectSetupStatus>;
+	region: Region;
+}): SetupPlanResult {
 	const tursoCommand =
 		"npx -y vercel@53 integration add tursocloud --name rhapsody-db --plan starter -m region=" +
 		region +
@@ -2895,14 +3532,14 @@ function buildSetupPlan({ status, region }) {
 		phases: phases.map((phase) => ({
 			name: phase.name,
 			command: phase.command,
-			status: phase.status,
+			status: phase.status === "blocked" ? "blocked" : "ready",
 		})),
 		commands: phases.map((phase) => phase.command),
 		nextActions: status.nextActions,
 	};
 }
 
-function printSetupStatus({ json }) {
+function printSetupStatus({ json }: { json: boolean }) {
 	const status = collectSetupStatus();
 	if (json) {
 		console.log(JSON.stringify(status, null, 2));
@@ -2948,7 +3585,7 @@ function collectSetupStatus() {
 	const vercelVersion = run(["vercel", "--version"]);
 	const vercelToken =
 		process.env.VERCEL_TOKEN ?? env.VERCEL_TOKEN ?? readVercelTokenFromDisk();
-	const vercelProject = readJson(vercelProjectPath);
+	const vercelProject = toJsonObject(readJson(vercelProjectPath));
 	const nextActions = [];
 
 	if (!existsSync(appRoot)) {
@@ -3025,9 +3662,15 @@ function collectSetupStatus() {
 			setupState: {
 				path: setupStatePath,
 				exists: existsSync(setupStatePath),
-				lastUpdatedAt: setupState.lastUpdatedAt ?? null,
-				lastCommand: setupState.commandState?.command ?? null,
-				nextAction: setupState.commandState?.nextAction ?? null,
+				lastUpdatedAt: (setupState.lastUpdatedAt as string | null) ?? null,
+				lastCommand:
+					typeof setupState.commandState?.["command"] === "string"
+						? setupState.commandState["command"]
+						: null,
+				nextAction:
+					typeof setupState.commandState?.["nextAction"] === "string"
+						? setupState.commandState["nextAction"]
+						: null,
 			},
 		},
 		nextActions,
@@ -3040,10 +3683,10 @@ function collectProjectReadiness() {
 	const statePath = getSetupStatePath();
 	const env = readDotEnv(path.join(appRoot, ".env.local"));
 	const vercelProjectPath = path.join(appRoot, ".vercel", "project.json");
-	const vercelProject = readJson(vercelProjectPath);
+	const vercelProject = toJsonObject(readJson(vercelProjectPath));
 	const vercelToken =
 		process.env.VERCEL_TOKEN ?? env.VERCEL_TOKEN ?? readVercelTokenFromDisk();
-	const blockers = [];
+	const blockers: string[] = [];
 
 	const ghVersion = run(["gh", "--version"]);
 	const ghToken = run(["gh", "auth", "token"]);
@@ -3051,7 +3694,15 @@ function collectProjectReadiness() {
 	const remoteUrl = readGitRemoteOriginUrl();
 	const repoTarget = normalizeGitRemoteTarget(remoteUrl);
 
-	const github = {
+	const github: {
+		installed: boolean;
+		version: string | null;
+		authTokenPresent: boolean;
+		remoteUrl: string | null;
+		repository: string | null;
+		repoReadable: boolean;
+		repoSummary: string | null;
+	} = {
 		installed: ghVersion.ok,
 		version: firstLine(ghVersion.stdout),
 		authTokenPresent: ghToken.ok && ghToken.stdout.trim().length > 0,
@@ -3072,13 +3723,20 @@ function collectProjectReadiness() {
 		]);
 		if (repoResult.ok) {
 			try {
-				const repo = JSON.parse(repoResult.stdout);
+				const repo = JSON.parse(repoResult.stdout) as {
+					nameWithOwner?: unknown;
+					url?: unknown;
+					defaultBranchRef?: { name?: unknown };
+				};
 				github.repoReadable = true;
-				github.repository = repo.nameWithOwner ?? null;
+				github.repository =
+					typeof repo.nameWithOwner === "string" ? repo.nameWithOwner : null;
 				github.repoSummary = [
 					repo.nameWithOwner,
 					repo.url,
-					repo.defaultBranchRef?.name,
+					typeof repo.defaultBranchRef?.name === "string"
+						? repo.defaultBranchRef.name
+						: null,
 				]
 					.filter(Boolean)
 					.join(" | ");
@@ -3176,7 +3834,7 @@ function readGitRemoteOriginUrl() {
 	return result.ok ? result.stdout.trim() : null;
 }
 
-function normalizeGitRemoteTarget(remote) {
+function normalizeGitRemoteTarget(remote: string | null) {
 	const trimmed = remote?.trim();
 	if (!trimmed) return null;
 	if (trimmed.startsWith("http")) {
@@ -3192,11 +3850,11 @@ function normalizeGitRemoteTarget(remote) {
 	return trimmed;
 }
 
-function normalizeGithubOwnerRepo(value) {
+function normalizeGithubOwnerRepo(value: string) {
 	return value.replace(/\.git$/, "");
 }
 
-function recordWaitEnvSetupState(result) {
+function recordWaitEnvSetupState(result: WaitEnvResult) {
 	recordSetupState({
 		command: "wait-env",
 		nextAction: result.ok ? "complete" : "waiting-for-env",
@@ -3209,7 +3867,7 @@ function recordWaitEnvSetupState(result) {
 	});
 }
 
-function findWorkspaceRoot(start) {
+function findWorkspaceRoot(start: string): string {
 	let current = start;
 	while (true) {
 		if (
@@ -3240,11 +3898,24 @@ function getSetupStatePath() {
 	);
 }
 
-function readSetupState(statePath) {
-	return readJson(statePath) ?? {};
+function readSetupState(statePath: string): SetupStateFile {
+	const value = readJson(statePath);
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return {};
+	}
+	const stateRecord = value as Record<string, unknown>;
+	const commandState = toJsonObject(stateRecord.commandState);
+	return {
+		lastUpdatedAt:
+			stateRecord.lastUpdatedAt === null ||
+			typeof stateRecord.lastUpdatedAt === "string"
+				? stateRecord.lastUpdatedAt
+				: undefined,
+		commandState: commandState ?? undefined,
+	};
 }
 
-function recordSetupState(payload) {
+function recordSetupState(payload: Record<string, unknown>) {
 	const statePath = getSetupStatePath();
 	const previous = readSetupState(statePath);
 	const timestamp = new Date().toISOString();
@@ -3261,7 +3932,13 @@ function recordSetupState(payload) {
 	writeFileSync(statePath, JSON.stringify(next, null, 2) + "\n", "utf8");
 }
 
-function prepareTursoLinkDirectory({ linkDir, projectJsonPath }) {
+function prepareTursoLinkDirectory({
+	linkDir,
+	projectJsonPath,
+}: {
+	linkDir: string;
+	projectJsonPath: string;
+}) {
 	let linkDirExisted = true;
 	if (!existsSync(linkDir)) {
 		mkdirSync(linkDir, { recursive: true });
@@ -3283,7 +3960,13 @@ function prepareTursoLinkDirectory({ linkDir, projectJsonPath }) {
 	};
 }
 
-function runProvisionTursoApply({ commandArgv, cwd }) {
+function runProvisionTursoApply({
+	commandArgv,
+	cwd,
+}: {
+	commandArgv: string[];
+	cwd: string;
+}) {
 	const result = spawnSync(commandArgv[0], commandArgv.slice(1), {
 		cwd,
 		stdio: "inherit",
@@ -3296,7 +3979,7 @@ function runProvisionTursoApply({ commandArgv, cwd }) {
 	};
 }
 
-function runCommandFromApp({ cwd, argv }) {
+function runCommandFromApp({ cwd, argv }: { cwd: string; argv: string[] }) {
 	const result = spawnSync(argv[0], argv.slice(1), {
 		cwd,
 		stdio: "inherit",
@@ -3309,9 +3992,9 @@ function runCommandFromApp({ cwd, argv }) {
 	};
 }
 
-function readDotEnv(filePath) {
+function readDotEnv(filePath: string): Record<string, string> {
 	if (!existsSync(filePath)) return {};
-	const result = {};
+	const result: Record<string, string> = {};
 	for (const line of readFileSync(filePath, "utf8").split(/\r?\n/)) {
 		const trimmed = line.trim();
 		if (!trimmed || trimmed.startsWith("#")) continue;
@@ -3343,13 +4026,17 @@ function readVercelTokenFromDisk() {
 	];
 	for (const candidate of candidates) {
 		const data = readJson(candidate);
-		if (typeof data?.token === "string" && data.token.length > 0)
-			return data.token;
+		if (typeof data === "object" && data !== null) {
+			const token = (data as { token?: unknown }).token;
+			if (typeof token === "string" && token.length > 0) {
+				return token;
+			}
+		}
 	}
 	return null;
 }
 
-function readJson(filePath) {
+function readJson(filePath: string): unknown {
 	try {
 		return JSON.parse(readFileSync(filePath, "utf8"));
 	} catch {
@@ -3357,7 +4044,10 @@ function readJson(filePath) {
 	}
 }
 
-function run(command, options = {}) {
+function run(
+	command: string[],
+	options: { cwd?: string } = {},
+): SyncCommandResult {
 	const result = spawnSync(command[0], command.slice(1), {
 		encoding: "utf8",
 		cwd: options.cwd,
@@ -3371,7 +4061,7 @@ function run(command, options = {}) {
 }
 
 const sleepSyncState = { waitArray: new Int32Array(new SharedArrayBuffer(4)) };
-function sleepSync(ms) {
+function sleepSync(ms: number) {
 	if (ms <= 0) return;
 	const end = Date.now() + ms;
 	while (Date.now() < end) {
@@ -3380,7 +4070,7 @@ function sleepSync(ms) {
 	}
 }
 
-function firstLine(value) {
+function firstLine(value: string): string | null {
 	return (
 		value
 			.split(/\r?\n/)
@@ -3389,6 +4079,6 @@ function firstLine(value) {
 	);
 }
 
-function label(value) {
+function label(value: boolean): "yes" | "no" {
 	return value ? "yes" : "no";
 }
