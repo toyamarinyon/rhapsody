@@ -1,0 +1,26 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "2d477daf448d",
+  "strategy": "manual-commit",
+  "branch": "codex-setup-create-first-issue-args-actions",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "scripts/setup-rhapsody-create-first-issue.test.ts",
+    "scripts/setup-rhapsody-create-first-issue.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2d/477daf448d/0/metadata.json",
+      "transcript": "/2d/477daf448d/0/full.jsonl",
+      "content_hash": "/2d/477daf448d/0/content_hash.txt",
+      "prompt": "/2d/477daf448d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 6292055,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 231165824,
+    "output_tokens": 303462,
+    "api_call_count": 1729
+  }
+}
