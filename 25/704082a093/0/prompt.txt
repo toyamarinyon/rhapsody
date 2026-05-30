@@ -1,0 +1,100 @@
+Implement the next reviewable increment for Rhapsody setup: a preview deploy phase MVP.
+
+Context/goal:
+- The parent goal is an end-to-end `$setup-rhapsody` path from prerequisites to first issue -> PR.
+- PR #148 just merged a safe `setup:configure-deploy -- --apply --yes` Vercel env apply phase.
+- This increment should come after env apply: add a small, explicit preview deployment helper, not production deploy.
+- Repo content is English-only. Do not touch `.codex/agents/builder.toml` if it is modified.
+
+Task:
+1. Add a package script, likely `setup:deploy-preview`, backed by a new TypeScript script in `scripts/`.
+2. The helper should support exactly:
+   - no args / `--dry-run` => read-only JSON report
+   - `--apply --yes` => performs preview deploy flow
+   - reject all other args with JSON-only unsupported-args output
+3. Scope of apply mode:
+   - preview deployment only (`vercel deploy`, no `--prod`)
+   - run `pnpm db:migrate` before preview deploy only when apply mode is requested and deploy prerequisites pass
+   - no production env changes, no production deployment, no GitHub Project mutations
+   - use `VERCEL_TOKEN` from process first, `.env.local` second if present; pass `--token` to Vercel CLI when available
+   - do not print secret values or raw `.vercel/project.json` org/project IDs
+4. Dry-run should report structured facts/checks/plannedChanges/needsUser/blocked/nextActions similar to existing setup helpers. It should verify at least:
+   - `vercel` CLI available
+   - `pnpm` available
+   - Vercel auth available via token or `vercel whoami`
+   - `.vercel/project.json` exists and has org/project IDs present as booleans only
+   - `package.json` exists
+   - `db:migrate` script exists
+   - required local/env values for migration/deploy are sourceable and non-empty (`TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and Vercel token/auth as appropriate)
+5. Apply output should remain JSON. Include applied steps with status, but do not include raw stdout/stderr if it might contain secrets. A short sanitized summary is okay. Include preview URL when Vercel deploy returns one.
+6. Update `.agents/skills/setup-rhapsody/SKILL.md` to describe this new phase and safety boundaries.
+7. Add focused tests if there is an existing pattern for setup scripts; otherwise rely on format/lint/typecheck and command-level smoke checks.
+
+Design guidance:
+- Prefer reusing patterns from `scripts/setup-rhapsody-configure-deploy.ts` without doing a large shared refactor in this PR.
+- Keep the code straightforward and reviewable, even with some local duplication.
+- Make the output agent-readable JSON, but clear enough for human review.
+
+Verification to run before final:
+- `pnpm setup:deploy-preview -- --dry-run` (it may exit nonzero due missing auth/env in local workspace; JSON shape matters)
+- `pnpm setup:deploy-preview -- --apply --yes --production` should reject unsupported args as JSON
+- `pnpm format:check .agents/skills/setup-rhapsody/SKILL.md scripts/<new-script>.ts package.json`
+- `pnpm lint`
+- `pnpm typecheck`
+
+When done, report changed files and verification results. Do not create PR/commit; parent will review and do git operations.
+
+---
+
+Thanks. Please fix these before I can take the PR:
+
+1. Critical: apply mode currently does:
+   `const report = { ok: reportData.ok, ... }` then later `report.ok = true; if (!report.ok) ...`
+   This means prerequisites are ignored and apply can run `pnpm db:migrate` even when dry-run would be blocked. Preserve the original prerequisite result. In apply mode, if prerequisites are not met, emit JSON with appliedChanges showing blocked/missing steps and exit 1 before migration/deploy.
+
+2. Auth/token semantics: Vercel deploy can proceed with either `VERCEL_TOKEN` or an authenticated CLI session. The current `vercel-token` check is false whenever no token exists, even if `vercel whoami` succeeded. Please rename/reframe this to deploy auth/token availability so JSON does not ask for VERCEL_TOKEN when an authenticated Vercel session is already enough.
+
+3. Keep stdout/stderr sanitized. Current failure details are okay, but make sure unsupported args and apply blocked outputs do not include raw command output or secret values.
+
+4. Minor: `TARGET_COMMAND` says `vercel deploy preview`, but the command is `vercel deploy`; call it `vercel deploy` or describe preview in detail, not as an extra CLI arg.
+
+Please rerun:
+- `pnpm setup:deploy-preview -- --dry-run`
+- `pnpm setup:deploy-preview -- --apply --yes --production`
+- `pnpm format:check .agents/skills/setup-rhapsody/SKILL.md scripts/setup-rhapsody-deploy-preview.ts package.json`
+- `pnpm lint`
+- `pnpm typecheck`
+
+Report changed files and results again.
+
+---
+
+One more required fix:
+
+`buildReport` currently puts missing migration env (`TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`) only in `needsUser`, not `blocked`. Since `ok` is `blocked.length === 0`, apply mode can still run `pnpm db:migrate` when Turso env is missing as long as Vercel auth is okay. Please make missing migration credentials block apply/dry-run readiness.
+
+Also, `.vercel/project.json` with missing/empty `orgId` or `projectId` should block deploy readiness. The report can still expose only booleans, but apply should not deploy without both IDs present.
+
+Please update:
+- blocked messages for missing migration credentials
+- blocked messages for incomplete Vercel link state
+- appliedChanges in blocked apply mode should include clear missing-source entries for migration keys and blocked entries for incomplete Vercel link if relevant
+
+Rerun the same verification list.
+
+---
+
+Parent verification confirms apply now blocks before migration/deploy, good.
+
+Please do one output-quality fix before PR:
+
+1. Do not duplicate auth blockers. Currently output has both:
+   - "Vercel auth is unavailable."
+   - "Vercel auth or token is unavailable."
+   Keep a single blocker, preferably "Vercel auth is unavailable. Provide VERCEL_TOKEN or authenticate with Vercel." The `vercel-auth-or-token` check can remain if useful, but `blocked` should not duplicate.
+
+2. `nextActions` currently says `Apply mode is available with --apply --yes.` even when `blocked.length > 0`. If blocked, it should only tell the operator to resolve blockers and rerun dry-run. Only say apply is available when `blocked.length === 0` and mode is dry-run.
+
+3. In dry-run output, missing auth should probably also appear in `needsUser` with the same concise action, unless you intentionally keep it only in blocked. Either is okay, but avoid contradiction.
+
+Rerun command smoke checks and format/lint/typecheck.
