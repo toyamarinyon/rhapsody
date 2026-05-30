@@ -198,6 +198,24 @@ pnpm setup:smoke-test -- --url <https://your-preview-url.vercel.app>
 This helper is read-only. It verifies preview reachability and API smoke behavior before the first
 issue-to-run handoff and marks whether authenticated `/api/v1/state` checks are possible.
 
+After smoke-test, seed deployed Codex credentials against the preview:
+
+```bash
+pnpm setup:seed-codex -- --url <https://your-preview-url.vercel.app>
+```
+
+Dry-run is read-only and confirms the `seed-from-env` and health-check endpoint targets on the deployed
+environment.
+
+Apply only with:
+
+```bash
+pnpm setup:seed-codex -- --url <https://your-preview-url.vercel.app> --apply --yes --use-root-password
+```
+
+The helper uses `seed-from-env` + `health-check` endpoints, and should never print or copy raw
+`INITIAL_CHATGPT_AUTH_JSON` locally.
+
 Before triggering the first issue handoff, run:
 
 ```bash
