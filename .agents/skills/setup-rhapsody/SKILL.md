@@ -49,10 +49,12 @@ Treat setup as resumable phases:
    - deploy a Vercel preview by default;
    - ask before production env changes or production deployment.
 6. `smoke-test`
-   - guide the operator to create or choose one GitHub issue;
-   - place it in the configured active Project status;
+   - after preview deployment, run the read-only smoke-test helper against the preview URL;
+   - verify base URL, optional login/dashboard, and `/api/v1/state` endpoint behavior;
+   - if `ROOT_PASSWORD` is available and the operator opts in, verify authenticated `/api/v1/state`;
    - open `/dashboard`;
-   - trigger or wait for scheduler tick;
+   - place one issue in the configured active Project status;
+   - guide to trigger or wait for a scheduler tick;
    - verify run, attempt, branch, and pull request or handoff artifact evidence.
 
 ## Inspect Phase
@@ -108,6 +110,15 @@ pnpm setup:deploy-preview -- --dry-run
 This helper does not deploy, migrate, or mutate any remote state. Use its JSON output to confirm
 Vercel CLI availability, Vercel auth, local project link state, and whether the deployment-critical
 env keys are present before any apply or deploy step.
+
+After deploy-preview succeeds, run:
+
+```bash
+pnpm setup:smoke-test -- --url <https://your-preview-url.vercel.app>
+```
+
+This helper is read-only. It verifies preview reachability and API smoke behavior before the first
+issue-to-run handoff and marks whether authenticated `/api/v1/state` checks are possible.
 
 When using `pnpm setup:deploy-preview -- --apply --yes`, this phase is explicitly limited to:
 - `pnpm db:migrate`
