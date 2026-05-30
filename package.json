@@ -12,6 +12,7 @@
 		"setup:configure-github": "node --import tsx scripts/setup-rhapsody-configure-github.ts",
 		"setup:configure-deploy": "node --import tsx scripts/setup-rhapsody-configure-deploy.ts",
 		"setup:deploy-preview": "node --import tsx scripts/setup-rhapsody-deploy-preview.ts",
+		"setup:smoke-test": "node --import tsx scripts/setup-rhapsody-smoke-test.ts",
 		"lint": "eslint",
 		"test": "vitest",
 		"format:check": "biome format .",
