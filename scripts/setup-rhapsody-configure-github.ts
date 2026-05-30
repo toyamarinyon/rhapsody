@@ -1128,8 +1128,14 @@ function main() {
 
 	if (!ghAvailability.available) {
 		blocked.push("gh CLI is not available.");
+		needsUser.push(
+			"Install the GitHub CLI (`gh`) before GitHub Project setup.",
+		);
 	} else if (!ghAuth.ok) {
 		blocked.push("gh auth status failed.");
+		needsUser.push(
+			"Run `gh auth login` with repository and ProjectV2 access, then rerun `pnpm setup:configure-github -- --dry-run`.",
+		);
 	}
 
 	if (
@@ -1390,9 +1396,19 @@ function main() {
 
 	const nextActions: string[] = [];
 	if (blocked.length > 0) {
-		nextActions.push(
-			"Resolve the blocked CLI or auth issue, then rerun `pnpm setup:configure-github -- --dry-run`.",
-		);
+		if (!ghAvailability.available) {
+			nextActions.push(
+				"Install the GitHub CLI (`gh`), then rerun `pnpm setup:configure-github -- --dry-run`.",
+			);
+		} else if (!ghAuth.ok) {
+			nextActions.push(
+				"Run `gh auth login` with repository and ProjectV2 access, then rerun `pnpm setup:configure-github -- --dry-run`.",
+			);
+		} else {
+			nextActions.push(
+				"Resolve the blocked CLI or auth issue, then rerun `pnpm setup:configure-github -- --dry-run`.",
+			);
+		}
 	}
 	if (createdProject) {
 		nextActions.push(
@@ -1408,7 +1424,7 @@ function main() {
 			"Created the configured ProjectV2 status field. Verify configured active/terminal statuses are selectable in the board.",
 		);
 	}
-	if (needsUser.length > 0) {
+	if (blocked.length === 0 && needsUser.length > 0) {
 		nextActions.push(
 			"Provide the GitHub ProjectV2 identifier or update the local config so the target board can be identified.",
 		);
