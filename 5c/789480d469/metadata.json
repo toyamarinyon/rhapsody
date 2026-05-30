@@ -1,0 +1,16 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "5c789480d469",
+  "strategy": "manual-commit",
+  "branch": "codex-configure-local-env-readiness",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/5c/789480d469/0/metadata.json",
+      "transcript": "/5c/789480d469/0/full.jsonl",
+      "content_hash": "/5c/789480d469/0/content_hash.txt",
+      "prompt": "/5c/789480d469/0/prompt.txt"
+    }
+  ]
+}
