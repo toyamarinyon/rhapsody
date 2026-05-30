@@ -11,6 +11,13 @@ type Check = {
 
 type Mode = "dry-run" | "apply";
 
+export function buildConfigureDeployUnsupportedNextActions(): string[] {
+	return [
+		"Run `pnpm setup:configure-deploy -- --dry-run` to inspect deploy environment readiness.",
+		"Run `pnpm setup:configure-deploy -- --apply --yes` only after the dry-run blockers are resolved.",
+	];
+}
+
 type PlannedChange = {
 	kind: string;
 	target: string;
@@ -302,9 +309,11 @@ function emitUnsupportedArgsError() {
 		},
 		checks: [],
 		plannedChanges: [],
-		needsUser: [],
-		blocked: [],
-		nextActions: [],
+		needsUser: [
+			"Use no args or --dry-run for inspection, or exact --apply --yes for remote env writes.",
+		],
+		blocked: ["Unsupported or missing arguments."],
+		nextActions: buildConfigureDeployUnsupportedNextActions(),
 	};
 
 	process.stdout.write(
