@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 type Check = {
 	name: string;
@@ -172,7 +173,7 @@ function classifyStatus(status: number): string {
 	return `status-${status}`;
 }
 
-function buildBlockedNextActions(args: {
+export function buildBlockedNextActions(args: {
 	baseCheck: Check;
 	stateCheck: Check;
 	loginOrDashboard: Check;
@@ -196,6 +197,12 @@ function buildBlockedNextActions(args: {
 	if (args.stateCheck.classification === "network-error") {
 		return [
 			"Confirm /api/v1/state is deployed and inspect Vercel function logs before rerunning setup:smoke-test.",
+		];
+	}
+
+	if (args.stateCheck.classification === "admin-auth-missing") {
+		return [
+			"Confirm ROOT_PASSWORD is configured in the preview deployment environment, redeploy if needed, then rerun `pnpm setup:smoke-test -- --url <preview-url> --use-root-password`.",
 		];
 	}
 
@@ -536,6 +543,11 @@ async function main() {
 			"State endpoint request is not reachable from this environment.",
 		);
 	}
+	if (stateCheck.classification === "admin-auth-missing") {
+		blocked.push(
+			"State endpoint returned 500; preview deployment may be missing ROOT_PASSWORD.",
+		);
+	}
 
 	const stateBehavior =
 		stateCheck.status === 401
@@ -611,4 +623,6 @@ async function main() {
 	emit(report, report.ok ? 0 : 1);
 }
 
-void main();
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
+	void main();
+}
