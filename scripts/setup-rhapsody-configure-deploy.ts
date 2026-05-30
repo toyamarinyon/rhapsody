@@ -1032,8 +1032,8 @@ function main() {
 	}
 
 	if (!remoteEnvPlan.runnerSeed.INITIAL_CHATGPT_AUTH_JSON.available) {
-		needsUser.push(
-			"Provide INITIAL_CHATGPT_AUTH_JSON if you want the first sandbox-codex run to be pre-seeded.",
+		seedNeedsUser.push(
+			"INITIAL_CHATGPT_AUTH_JSON is missing; provide it later only when you intentionally run the Codex seed flow.",
 		);
 	} else if (!includeCodexSeed) {
 		seedNeedsUser.push(
@@ -1082,7 +1082,9 @@ function main() {
 					]
 				: seedNeedsUser.length > 0
 					? [
-							"Seed upload skipped by default; rerun with --include-codex-seed only if you intentionally want to upload INITIAL_CHATGPT_AUTH_JSON.",
+							mode === "dry-run"
+								? "Apply mode is available with --apply --yes for required runtime env; handle INITIAL_CHATGPT_AUTH_JSON later through the explicit Codex seed flow."
+								: "Required runtime env is configured; handle INITIAL_CHATGPT_AUTH_JSON later through the explicit Codex seed flow.",
 						]
 					: [
 							mode === "dry-run"
