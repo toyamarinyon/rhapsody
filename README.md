@@ -148,6 +148,7 @@ You need:
 - A GitHub repository to run agents against.
 - A GitHub ProjectV2 board that contains the work items.
 - A GitHub token with repository access and ProjectV2 read/write access.
+- A Vercel API token for token-based setup and Sandbox operations.
 - A Turso/libSQL database.
 - Codex credentials from a local ChatGPT login.
 - Node.js and pnpm for local development.
@@ -166,7 +167,7 @@ Required for the MVP:
 | `TURSO_AUTH_TOKEN` | libSQL auth token. |
 | `GITHUB_TOKEN` | Server-side GitHub credential for repository and ProjectV2 access. |
 | `MEDIATOR_SECRET` | Shared secret for sandbox-to-Rhapsody mediator calls. |
-| `VERCEL_TOKEN` | Vercel API token used for Sandbox operations. |
+| `VERCEL_TOKEN` | Vercel API token used for setup helpers, remote env configuration, preview deploys, and Sandbox operations. |
 | `VERCEL_TEAM_ID` | Vercel team scope for Sandbox operations. |
 | `VERCEL_PROJECT_ID` | Vercel project scope for Sandbox operations. |
 

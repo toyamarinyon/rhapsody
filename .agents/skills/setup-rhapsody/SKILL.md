@@ -27,7 +27,8 @@ Treat setup as resumable phases:
    - do not call network CLIs or mutate local or remote state.
 3. `inspect`
    - check `gh`, `vercel`, `pnpm`, and Node.js;
-   - check GitHub and Vercel authentication;
+   - check GitHub authentication and Vercel authentication; treat `VERCEL_TOKEN` in process env or
+     `.env.local` as valid Vercel auth for setup helpers;
    - infer Git remote, owner, repository, and current branch.
 4. `configure-local`
    - confirm target GitHub owner/repository and ProjectV2 settings;
@@ -122,8 +123,9 @@ Then run the read-only inspection helper:
 pnpm setup:inspect
 ```
 
-Use its output to decide the next step. If a required CLI is missing or unauthenticated, stop and ask
-the operator to install or log in before continuing.
+Use its output to decide the next step. If a required CLI is missing or GitHub is unauthenticated,
+stop and ask the operator to install the CLI or run `gh auth login`. For Vercel, either an
+authenticated CLI session or `VERCEL_TOKEN` is enough for token-based setup.
 
 For the first local configuration pass, run the dry-run helper next:
 
