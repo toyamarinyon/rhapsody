@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
 	buildPartialIssueProjectActions,
+	buildUnsupportedArgsReport,
 	parseArgs,
 	parseIssueCreateUrl,
 } from "@/scripts/setup-rhapsody-create-first-issue";
@@ -84,6 +85,20 @@ test("builds partial-success follow-up actions when project item-add fails", () 
 		nextActions: [
 			"Run the issue handoff manually using the existing issue number #77 and URL https://github.com/example/test/issues/77.",
 			"Then run: pnpm setup:first-issue -- --url <preview-url> --issue-number 77.",
+		],
+	});
+});
+
+test("builds a concrete nextActions list when arguments are unsupported", () => {
+	expect(buildUnsupportedArgsReport("Unsupported arguments.")).toMatchObject({
+		ok: false,
+		nextActions: [
+			'Run "pnpm setup:create-first-issue -- --title <title> --body <body>" for a dry-run check.',
+			'Run "pnpm setup:create-first-issue -- --apply --yes --title <title>" to create an issue.',
+		],
+		blocked: ["Unsupported or missing arguments."],
+		needsUser: [
+			"Use --title <title>, optional --body <body>, optional --apply --yes to run.",
 		],
 	});
 });

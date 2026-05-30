@@ -618,61 +618,65 @@ function buildReport(args: {
 	};
 }
 
-function unsupportedArgsError(message: string) {
-	emit(
-		{
-			ok: false,
-			mode: "dry-run",
-			phase: "create-first-issue",
-			facts: {
-				input: {
-					providedTitle: null,
-					providedBody: null,
-					resolvedTitle: DEFAULT_TITLE,
-					resolvedBody: DEFAULT_BODY,
-					applyRequested: false,
-					yesFlagPresent: false,
-				},
-				cli: {
-					gh: { available: false, version: null },
-					auth: { ok: false, summary: "unsupported arguments" },
-				},
-				repo: {
-					owner: null,
-					repository: null,
-					nameWithOwner: null,
-				},
-				config: {
-					path: "rhapsody.config.ts",
-					exists: existsSync("rhapsody.config.ts"),
-					projectNumber: null,
-					projectOwner: null,
-					projectRepository: null,
-				},
-				issue: {
-					title: DEFAULT_TITLE,
-					body: DEFAULT_BODY,
-					number: null,
-					url: null,
-					addToProjectResult: {
-						attempted: false,
-						success: null,
-						summary: null,
-						projectItemId: null,
-					},
+export function buildUnsupportedArgsReport(message: string): Report {
+	return {
+		ok: false,
+		mode: "dry-run",
+		phase: "create-first-issue",
+		facts: {
+			input: {
+				providedTitle: null,
+				providedBody: null,
+				resolvedTitle: DEFAULT_TITLE,
+				resolvedBody: DEFAULT_BODY,
+				applyRequested: false,
+				yesFlagPresent: false,
+			},
+			cli: {
+				gh: { available: false, version: null },
+				auth: { ok: false, summary: "unsupported arguments" },
+			},
+			repo: {
+				owner: null,
+				repository: null,
+				nameWithOwner: null,
+			},
+			config: {
+				path: "rhapsody.config.ts",
+				exists: existsSync("rhapsody.config.ts"),
+				projectNumber: null,
+				projectOwner: null,
+				projectRepository: null,
+			},
+			issue: {
+				title: DEFAULT_TITLE,
+				body: DEFAULT_BODY,
+				number: null,
+				url: null,
+				addToProjectResult: {
+					attempted: false,
+					success: null,
+					summary: null,
+					projectItemId: null,
 				},
 			},
-			checks: [],
-			plannedChanges: [],
-			needsUser: [
-				"Use --title <title>, optional --body <body>, optional --apply --yes to run.",
-			],
-			blocked: ["Unsupported or missing arguments."],
-			nextActions: [],
-			error: message,
 		},
-		1,
-	);
+		checks: [],
+		plannedChanges: [],
+		needsUser: [
+			"Use --title <title>, optional --body <body>, optional --apply --yes to run.",
+		],
+		blocked: ["Unsupported or missing arguments."],
+		nextActions: [
+			'Run "pnpm setup:create-first-issue -- --title <title> --body <body>" for a dry-run check.',
+			'Run "pnpm setup:create-first-issue -- --apply --yes --title <title>" to create an issue.',
+		],
+		error: message,
+	};
+}
+
+function unsupportedArgsError(message: string) {
+	emit(buildUnsupportedArgsReport(message), 1);
 }
 
 function resolveRepositoryConfig(args: {
