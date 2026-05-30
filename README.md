@@ -113,6 +113,7 @@ If you started from the Vercel Template, use this path after deployment:
    - `pnpm setup:start-attempt -- --url <https://your-preview-url.vercel.app> --run-id <runId> --attempt-id <attemptId> --apply --yes --use-root-password`
 9. Verify PR handoff evidence:
    - `pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId> [--use-root-password]`
+   - `pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId> --use-root-password --wait` (recommended final handoff check after `setup:start-attempt`)
 
 This path keeps to current MVP limits: no hosted auto-onboarding service, no automatic Turso provisioning, and no production auto-deploy.
 
