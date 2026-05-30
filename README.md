@@ -104,11 +104,14 @@ If you started from the Vercel Template, use this path after deployment:
    - `pnpm setup:deploy-preview -- --apply --yes` (includes `pnpm db:migrate`)
 6. Smoke-test the preview with the output URL:
    - `pnpm setup:smoke-test -- --url <https://your-preview-url.vercel.app>`
-7. Create and hand off a first issue:
+7. Seed Codex credentials on the deployed preview (safe dry-run, then apply):
+   - `pnpm setup:seed-codex -- --url <https://your-preview-url.vercel.app>`
+   - `pnpm setup:seed-codex -- --url <https://your-preview-url.vercel.app> --apply --yes --use-root-password`
+8. Create and hand off a first issue:
    - `pnpm setup:create-first-issue -- --apply --yes --title "Rhapsody smoke test"`
    - `pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-number <issueNumber> --apply --yes --use-root-password`
    - `pnpm setup:start-attempt -- --url <https://your-preview-url.vercel.app> --run-id <runId> --attempt-id <attemptId> --apply --yes --use-root-password`
-8. Verify PR handoff evidence:
+9. Verify PR handoff evidence:
    - `pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId> [--use-root-password]`
 
 This path keeps to current MVP limits: no hosted auto-onboarding service, no automatic Turso provisioning, and no production auto-deploy.
@@ -251,8 +254,14 @@ For the MVP, operators seed the initial ChatGPT auth JSON from a local Codex log
 1. Log in to Codex locally.
 2. Copy the contents of `~/.codex/auth.json`.
 3. Set `INITIAL_CHATGPT_AUTH_JSON` in the trusted Rhapsody environment.
-4. Call `POST /api/v1/admin/codex-chatgpt-credentials/seed-from-env` with `Authorization: Bearer <ROOT_PASSWORD>`.
-5. Remove the seed value after the current credentials have been stored and refresh health is confirmed.
+4. Run helper `setup:seed-codex` against the preview in dry-run first, then apply:
+
+```bash
+pnpm setup:seed-codex -- --url <https://your-preview-url.vercel.app>
+pnpm setup:seed-codex -- --url <https://your-preview-url.vercel.app> --apply --yes --use-root-password
+```
+
+5. If successful, confirm the helper shows seeded + health check success and remove `INITIAL_CHATGPT_AUTH_JSON` from local environment after a successful seed.
 
 This area is intentionally security-sensitive. Review [docs/SPEC.md](docs/SPEC.md) and the credential-related ADRs before exposing a deployment beyond trusted operators.
 
