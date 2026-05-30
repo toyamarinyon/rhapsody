@@ -67,6 +67,24 @@ type Report = {
 	error?: string;
 };
 
+type ParsedMode =
+	| {
+			mode: "dry-run";
+			projectNumber?: number;
+	  }
+	| {
+			mode: "apply";
+			projectNumber?: number;
+	  };
+
+type TrackerEditPlan = {
+	kind: "replace" | "insert" | "blocked";
+	content: string | null;
+	wouldWrite: boolean;
+	action: string;
+	blockedReason: string | null;
+};
+
 const GENERATED_SECRET_KEYS = [
 	"ROOT_PASSWORD",
 	"AUTH_SECRET",
@@ -88,23 +106,221 @@ function run(command: string, args: string[]) {
 	return spawnSync(command, args, { encoding: "utf8" });
 }
 
-function parseMode(argv: string[]) {
+function normalizeFlags(argv: string[]) {
 	const flags = argv.slice(2);
-	if (flags.length === 0 || (flags.length === 1 && flags[0] === "--")) {
-		return "dry-run" as const;
+	return flags.length > 0 && flags[0] === "--" ? flags.slice(1) : flags;
+}
+
+function parseMode(argv: string[]): ParsedMode | null {
+	const flags = normalizeFlags(argv);
+	const args = flags;
+	if (args.length === 0) {
+		return { mode: "dry-run" } as const;
 	}
 
-	if (flags.length === 2 && flags[0] === "--" && flags[1] === "--dry-run") {
-		return "dry-run" as const;
+	if (args.length === 1 && args[0] === "--dry-run") {
+		return { mode: "dry-run" } as const;
 	}
 
 	if (
-		flags.length === 3 &&
-		flags[0] === "--" &&
-		flags[1] === "--apply" &&
-		flags[2] === "--yes"
+		args.length === 3 &&
+		args[0] === "--dry-run" &&
+		args[1] === "--project-number" &&
+		/^\d+$/.test(args[2] ?? "")
 	) {
-		return "apply" as const;
+		const parsedNumber = Number(args[2]);
+		if (Number.isInteger(parsedNumber) && parsedNumber > 0) {
+			return {
+				mode: "dry-run",
+				projectNumber: parsedNumber,
+			} as const;
+		}
+	}
+
+	const [apply, yes, projectNumberFlag, projectNumberValue] = args;
+	if (apply !== "--apply" || yes !== "--yes") {
+		return null;
+	}
+
+	if (args.length === 2) {
+		return { mode: "apply" } as const;
+	}
+
+	if (
+		args.length === 4 &&
+		projectNumberFlag === "--project-number" &&
+		/^\d+$/.test(projectNumberValue ?? "")
+	) {
+		const parsedNumber = Number(projectNumberValue);
+		if (Number.isInteger(parsedNumber) && parsedNumber > 0) {
+			return {
+				mode: "apply",
+				projectNumber: parsedNumber,
+			} as const;
+		}
+	}
+
+	return null;
+}
+
+function buildTrackerEditPlan(
+	content: string,
+	projectNumber: number,
+): TrackerEditPlan {
+	const tracker = extractTrackerBlock(content);
+	if (!tracker) {
+		return {
+			kind: "blocked",
+			content,
+			wouldWrite: false,
+			action: "No change",
+			blockedReason:
+				"Could not locate tracker block in rhapsody.config.ts; refusing to perform a brittle edit.",
+		};
+	}
+
+	const match = tracker.blockContent.match(
+		/^(\s*)projectNumber\s*:\s*(\d+)\s*,?\s*$/m,
+	);
+	if (match) {
+		const replacementLine = `${match[1]}projectNumber: ${projectNumber},`;
+		const updatedBlockContent = tracker.blockContent.replace(
+			/^(\s*)projectNumber\s*:\s*(\d+)\s*,?\s*$/m,
+			replacementLine,
+		);
+		const updated = `${content.slice(0, tracker.blockStart + 1)}${updatedBlockContent}${content.slice(tracker.blockEnd)}`;
+		return {
+			kind: "replace",
+			content: updated,
+			wouldWrite: true,
+			action:
+				"Replaced tracker.projectNumber with the provided project number in rhapsody.config.ts.",
+			blockedReason: null,
+		};
+	}
+
+	const insertMatch = findTrackerInsertOffset(tracker.blockContent);
+	if (!insertMatch) {
+		return {
+			kind: "blocked",
+			content,
+			wouldWrite: false,
+			action: "No change",
+			blockedReason:
+				"Could not safely determine where to insert tracker.projectNumber in rhapsody.config.ts.",
+		};
+	}
+
+	const insertOffset = insertMatch.offset;
+	const insertLine = `${insertMatch.indent}projectNumber: ${projectNumber},\n`;
+	const updatedBlockContent =
+		insertOffset === 0
+			? `${insertLine}${tracker.blockContent}`
+			: `${tracker.blockContent.slice(0, insertOffset)}${insertLine}${tracker.blockContent.slice(insertOffset)}`;
+
+	const updated = `${content.slice(0, tracker.blockStart + 1)}${updatedBlockContent}${content.slice(tracker.blockEnd)}`;
+
+	return {
+		kind: "insert",
+		content: updated,
+		wouldWrite: true,
+		action:
+			"Inserted tracker.projectNumber into the tracker block in rhapsody.config.ts.",
+		blockedReason: null,
+	};
+}
+
+function findTrackerInsertOffset(blockContent: string) {
+	const lines = blockContent.split(/\r?\n/);
+	let propertyIndent = "";
+	for (const line of lines) {
+		const match = line.match(/^(\s*)[A-Za-z_][A-Za-z0-9_]*\s*:/);
+		if (match?.[1]) {
+			propertyIndent = match[1];
+			break;
+		}
+	}
+
+	if (!propertyIndent) {
+		return null;
+	}
+
+	const statusFieldIndex = blockContent.match(/^\s*statusField\s*:/m)?.index;
+	if (typeof statusFieldIndex === "number") {
+		return { indent: propertyIndent, offset: statusFieldIndex };
+	}
+
+	const closeMatch = blockContent.lastIndexOf("\n");
+	const insertOffset = closeMatch >= 0 ? closeMatch + 1 : 0;
+	return { indent: propertyIndent, offset: insertOffset };
+}
+
+function applyTrackerProjectNumber(
+	content: string,
+	projectNumber: number,
+): TrackerEditPlan {
+	return buildTrackerEditPlan(content, projectNumber);
+}
+
+function extractTrackerBlock(content: string): {
+	blockStart: number;
+	blockEnd: number;
+	blockContent: string;
+} | null {
+	const trackerMatch = content.match(/(^|\n)([ \t]*)tracker\s*:\s*\{/m);
+	if (!trackerMatch) {
+		return null;
+	}
+
+	const openBraceIndex =
+		(trackerMatch.index || 0) + trackerMatch[0].indexOf("{");
+	let depth = 0;
+	let inString: "'" | '"' | "`" | null = null;
+	let escaped = false;
+	let blockStart = -1;
+
+	for (let index = openBraceIndex; index < content.length; index += 1) {
+		const char = content[index];
+
+		if (inString) {
+			if (escaped) {
+				escaped = false;
+				continue;
+			}
+			if (char === "\\") {
+				escaped = true;
+				continue;
+			}
+			if (char === inString) {
+				inString = null;
+			}
+			continue;
+		}
+
+		if (char === "'" || char === '"' || char === "`") {
+			inString = char;
+			continue;
+		}
+
+		if (char === "{") {
+			if (depth === 0) {
+				blockStart = index;
+			}
+			depth += 1;
+			continue;
+		}
+
+		if (char === "}") {
+			depth -= 1;
+			if (depth === 0 && blockStart !== -1) {
+				const blockEnd = index;
+				return {
+					blockStart,
+					blockEnd,
+					blockContent: content.slice(blockStart + 1, blockEnd),
+				};
+			}
+		}
 	}
 
 	return null;
@@ -350,8 +566,42 @@ function buildFacts(args: {
 function buildPlannedChanges(args: {
 	pendingGeneratedSecrets: string[];
 	files: Facts["files"];
+	projectNumberPlan: TrackerEditPlan | null;
+	applyProjectNumber: boolean;
 }) {
-	const { pendingGeneratedSecrets, files } = args;
+	const {
+		pendingGeneratedSecrets,
+		files,
+		projectNumberPlan,
+		applyProjectNumber,
+	} = args;
+
+	if (applyProjectNumber) {
+		return [
+			projectNumberPlan
+				? {
+						kind: "config-update",
+						target: "rhapsody.config.ts",
+						action: projectNumberPlan.action,
+						reason: projectNumberPlan.wouldWrite
+							? "Persist a board number created by configure-github into the local tracker config."
+							: "Preserve local config unchanged until tracker block changes can be made safely.",
+						requiresUserConfirmation: true,
+						wouldWrite: projectNumberPlan.wouldWrite,
+					}
+				: {
+						kind: "config-update",
+						target: "rhapsody.config.ts",
+						action:
+							"Persist the configured project number in tracker.projectNumber.",
+						reason:
+							"Persisting the project number is required for later setup steps.",
+						requiresUserConfirmation: true,
+						wouldWrite: false,
+					},
+		];
+	}
+
 	return [
 		...(pendingGeneratedSecrets.length > 0
 			? [
@@ -453,6 +703,8 @@ function buildPostWritePlannedChanges(args: { files: Facts["files"] }) {
 	return buildPlannedChanges({
 		pendingGeneratedSecrets: [],
 		files: args.files,
+		projectNumberPlan: null,
+		applyProjectNumber: false,
 	}).filter(
 		(change) =>
 			change.kind !== "secret-generation" &&
@@ -475,7 +727,7 @@ function main() {
 					mode: "dry-run",
 					phase: "configure-local",
 					error:
-						"Unsupported arguments. This helper supports no args, --dry-run, or --apply --yes.",
+						"Unsupported arguments. Supported forms: no args, --dry-run, -- --dry-run, --dry-run --project-number <number>, -- --dry-run --project-number <number>, --apply --yes, -- --apply --yes, --apply --yes --project-number <number>, -- --apply --yes --project-number <number>.",
 				},
 				null,
 				2,
@@ -524,9 +776,27 @@ function main() {
 	}
 
 	const pendingGeneratedSecrets = generatedSecretsPresence.missing;
+	const applyProjectNumber =
+		mode.mode === "apply" && mode.projectNumber !== undefined;
+	const planProjectNumber =
+		mode.mode === "dry-run" && mode.projectNumber !== undefined;
+	const projectConfigPath = path.join(process.cwd(), "rhapsody.config.ts");
+	const projectConfigContent = existsSync(projectConfigPath)
+		? readFileSync(projectConfigPath, "utf8")
+		: null;
+	const projectNumberPlan =
+		mode.projectNumber !== undefined &&
+		(applyProjectNumber || planProjectNumber)
+			? applyTrackerProjectNumber(
+					projectConfigContent ?? "",
+					mode.projectNumber,
+				)
+			: null;
 	const plannedChanges = buildPlannedChanges({
 		pendingGeneratedSecrets,
 		files,
+		projectNumberPlan,
+		applyProjectNumber: applyProjectNumber || planProjectNumber,
 	});
 
 	const localWriteBlocked: string[] = [];
@@ -558,11 +828,145 @@ function main() {
 
 	const ok = localWriteBlocked.length === 0 && setupBlocked.length === 0;
 
-	if (mode === "apply") {
+	if (mode.mode === "apply") {
+		if (applyProjectNumber) {
+			if (!files.rhapsodyConfigTsExists) {
+				const report: Report = {
+					ok: false,
+					mode: mode.mode,
+					phase: "configure-local",
+					facts: buildFacts({
+						branch,
+						remote,
+						files,
+						generatedSecretsPresence,
+						externalInputsPresence,
+					}),
+					checks,
+					plannedChanges,
+					appliedChanges: [],
+					needsUser,
+					blocked: [
+						"rhapsody.config.ts is required for project-number persistence, but was not found.",
+					],
+					nextActions: [
+						"Create or restore rhapsody.config.ts before applying project-number updates.",
+					],
+				};
+				reportJSON(report, 1);
+				return;
+			}
+
+			if (!projectNumberPlan || projectNumberPlan.blockedReason) {
+				const report: Report = {
+					ok: false,
+					mode: mode.mode,
+					phase: "configure-local",
+					facts: buildFacts({
+						branch,
+						remote,
+						files,
+						generatedSecretsPresence,
+						externalInputsPresence,
+					}),
+					checks,
+					plannedChanges,
+					appliedChanges: [],
+					needsUser,
+					blocked: [
+						projectNumberPlan?.blockedReason ??
+							"Unable to build a safe tracker.projectNumber edit plan.",
+					],
+					nextActions: [
+						"Open rhapsody.config.ts and update tracker.projectNumber manually.",
+					],
+				};
+				reportJSON(report, 1);
+				return;
+			}
+
+			const updatedConfigContent = projectNumberPlan.content;
+			if (!updatedConfigContent) {
+				const report: Report = {
+					ok: false,
+					mode: mode.mode,
+					phase: "configure-local",
+					facts: buildFacts({
+						branch,
+						remote,
+						files,
+						generatedSecretsPresence,
+						externalInputsPresence,
+					}),
+					checks,
+					plannedChanges,
+					appliedChanges: [],
+					needsUser,
+					blocked: ["Unable to build tracker.projectNumber content update."],
+					nextActions: [
+						"Open rhapsody.config.ts and update tracker.projectNumber manually.",
+					],
+				};
+				reportJSON(report, 1);
+				return;
+			}
+
+			writeFileSync(
+				projectConfigPath,
+				ensureTrailingNewline(updatedConfigContent),
+			);
+
+			const postWriteChecks = buildChecks({
+				branch,
+				remote,
+				files,
+				generatedSecretsPresence,
+				externalInputsPresence,
+			});
+			const postWritePlannedChanges = buildPlannedChanges({
+				pendingGeneratedSecrets: [],
+				files,
+				projectNumberPlan,
+				applyProjectNumber: true,
+			});
+			const applyReport: Report = {
+				ok: true,
+				mode: mode.mode,
+				phase: "configure-local",
+				facts: buildFacts({
+					branch,
+					remote,
+					files,
+					generatedSecretsPresence,
+					externalInputsPresence,
+				}),
+				checks: postWriteChecks,
+				plannedChanges: postWritePlannedChanges,
+				appliedChanges: [
+					{
+						key: "projectNumber",
+						target: "rhapsody.config.ts",
+						action:
+							projectNumberPlan.kind === "replace"
+								? "Replaced tracker.projectNumber in rhapsody.config.ts."
+								: "Inserted tracker.projectNumber in rhapsody.config.ts.",
+						wrote: true,
+					},
+				],
+				needsUser,
+				blocked: [],
+				nextActions: [
+					"Proceed to configure-remotes after project persistence.",
+				],
+			};
+			process.stdout.write(`${JSON.stringify(applyReport, null, 2)}\n`);
+			return;
+		}
+
 		if (localWriteBlocked.length > 0) {
 			const report: Report = {
 				ok: false,
-				mode,
+				mode: mode.mode,
 				phase: "configure-local",
 				facts: buildFacts({
 					branch,
@@ -647,7 +1051,7 @@ function main() {
 
 		const applyReport: Report = {
 			ok: true,
-			mode,
+			mode: mode.mode,
 			phase: "configure-local",
 			facts: buildFacts({
 				branch,
@@ -673,7 +1077,7 @@ function main() {
 
 	const report: Report = {
 		ok,
-		mode,
+		mode: mode.mode,
 		phase: "configure-local",
 		facts: buildFacts({
 			branch,
@@ -685,10 +1089,27 @@ function main() {
 		checks,
 		plannedChanges,
 		needsUser,
-		blocked: [...localWriteBlocked, ...setupBlocked],
+		blocked: [
+			...localWriteBlocked,
+			...setupBlocked,
+			...(planProjectNumber && projectNumberPlan?.blockedReason
+				? [projectNumberPlan.blockedReason]
+				: []),
+		],
 		nextActions: [
-			...([...localWriteBlocked, ...setupBlocked].length > 0
+			...([
+				...localWriteBlocked,
+				...setupBlocked,
+				...(planProjectNumber && projectNumberPlan?.blockedReason
+					? [projectNumberPlan.blockedReason]
+					: []),
+			].length > 0
 				? ["Resolve blocked items before any write step."]
+				: []),
+			...(planProjectNumber && projectNumberPlan?.wouldWrite
+				? [
+						"Review the planned rhapsody.config.ts project number change, then rerun with --apply --yes --project-number <number>.",
+					]
 				: []),
 			...(needsUser.length > 0
 				? ["Provide the missing external inputs before remote configuration."]
