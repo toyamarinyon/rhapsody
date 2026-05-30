@@ -1,0 +1,40 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "1d9733599f81",
+  "session_id": "019e6ee5-09b4-7430-a46a-58e27ddb4189",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-30T04:07:40.2385Z",
+  "branch": "codex-require-codex-seed-opt-in",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "95ee47c99b68",
+  "token_usage": {
+    "input_tokens": 119582,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3711360,
+    "output_tokens": 26637,
+    "api_call_count": 63
+  },
+  "session_metrics": {
+    "turn_count": 37
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 174,
+      "user_lines_removed": 37,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "README.md": 1,
+        "scripts/setup-rhapsody-configure-deploy.test.ts": 99,
+        "scripts/setup-rhapsody-configure-deploy.ts": 74
+      },
+      "user_removed_per_file": {
+        "scripts/setup-rhapsody-configure-deploy.ts": 37
+      }
+    }
+  ]
+}
