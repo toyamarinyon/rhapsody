@@ -25,6 +25,11 @@ type Facts = {
 		rhapsodyConfigTomlExists: boolean;
 		rhapsodyConfigTsExists: boolean;
 	};
+	vercelProjectLink: {
+		exists: boolean;
+		orgIdPresent: boolean;
+		projectIdPresent: boolean;
+	};
 	env: {
 		generatedSecrets: {
 			present: Record<string, boolean>;
@@ -33,6 +38,10 @@ type Facts = {
 		externalInputs: {
 			present: Record<string, boolean>;
 			missingExternalInputs: string[];
+		};
+		codexSeed: {
+			present: Record<string, boolean>;
+			missingCodexSeedInputs: string[];
 		};
 	};
 };
@@ -99,8 +108,9 @@ const EXTERNAL_INPUT_KEYS = [
 	"VERCEL_TOKEN",
 	"VERCEL_TEAM_ID",
 	"VERCEL_PROJECT_ID",
-	"INITIAL_CHATGPT_AUTH_JSON",
 ] as const;
+
+const CODEX_SEED_KEYS = ["INITIAL_CHATGPT_AUTH_JSON"] as const;
 
 function run(command: string, args: string[]) {
 	return spawnSync(command, args, { encoding: "utf8" });
@@ -434,13 +444,50 @@ function buildEnvAppendLines(missingKeys: readonly string[]) {
 	return missingKeys.map((key) => `${key}=${formatGeneratedSecretValue()}`);
 }
 
-function readEnvPresence(keys: readonly string[], envLocalKeys: Set<string>) {
+function readVercelProjectLink() {
+	const filePath = path.join(process.cwd(), ".vercel", "project.json");
+	if (!existsSync(filePath)) {
+		return {
+			exists: false,
+			orgIdPresent: false,
+			projectIdPresent: false,
+		};
+	}
+
+	try {
+		const parsed = JSON.parse(readFileSync(filePath, "utf8")) as {
+			orgId?: string;
+			projectId?: string;
+		};
+
+		return {
+			exists: true,
+			orgIdPresent: Boolean(parsed.orgId?.trim()),
+			projectIdPresent: Boolean(parsed.projectId?.trim()),
+		};
+	} catch {
+		return {
+			exists: true,
+			orgIdPresent: false,
+			projectIdPresent: false,
+		};
+	}
+}
+
+function readEnvPresence(
+	keys: readonly string[],
+	envLocalKeys: Set<string>,
+	vercelProjectLink: ReturnType<typeof readVercelProjectLink>,
+) {
 	const present: Record<string, boolean> = {};
 	const missing: string[] = [];
 
 	for (const key of keys) {
 		const isPresent =
-			Boolean(process.env[key]?.trim()) || envLocalKeys.has(key);
+			Boolean(process.env[key]?.trim()) ||
+			envLocalKeys.has(key) ||
+			(key === "VERCEL_TEAM_ID" && vercelProjectLink.orgIdPresent) ||
+			(key === "VERCEL_PROJECT_ID" && vercelProjectLink.projectIdPresent);
 		present[key] = isPresent;
 		if (!isPresent) {
 			missing.push(key);
@@ -541,8 +588,10 @@ function buildFacts(args: {
 		repository: string | null;
 	} | null;
 	files: Facts["files"];
+	vercelProjectLink: Facts["vercelProjectLink"];
 	generatedSecretsPresence: ReturnType<typeof readEnvPresence>;
 	externalInputsPresence: ReturnType<typeof readEnvPresence>;
+	codexSeedPresence: ReturnType<typeof readEnvPresence>;
 }): Facts {
 	return {
 		git: {
@@ -550,6 +599,7 @@ function buildFacts(args: {
 			remote: args.remote,
 		},
 		files: args.files,
+		vercelProjectLink: args.vercelProjectLink,
 		env: {
 			generatedSecrets: {
 				present: args.generatedSecretsPresence.present,
@@ -558,6 +608,10 @@ function buildFacts(args: {
 			externalInputs: {
 				present: args.externalInputsPresence.present,
 				missingExternalInputs: args.externalInputsPresence.missing,
+			},
+			codexSeed: {
+				present: args.codexSeedPresence.present,
+				missingCodexSeedInputs: args.codexSeedPresence.missing,
 			},
 		},
 	};
@@ -743,14 +797,22 @@ function main() {
 	const envLocalExists = existsSync(envLocalPath);
 	const envLocalIgnoredByGit = isIgnoredByGit(".env.local");
 	const envLocalKeys = parseEnvFile(envLocalPath);
+	const vercelProjectLink = readVercelProjectLink();
 
 	const generatedSecretsPresence = readEnvPresence(
 		GENERATED_SECRET_KEYS,
 		envLocalKeys,
+		vercelProjectLink,
 	);
 	const externalInputsPresence = readEnvPresence(
 		EXTERNAL_INPUT_KEYS,
 		envLocalKeys,
+		vercelProjectLink,
+	);
+	const codexSeedPresence = readEnvPresence(
+		CODEX_SEED_KEYS,
+		envLocalKeys,
+		vercelProjectLink,
 	);
 	const files = {
 		envLocalExists,
@@ -839,8 +901,10 @@ function main() {
 						branch,
 						remote,
 						files,
+						vercelProjectLink,
 						generatedSecretsPresence,
 						externalInputsPresence,
+						codexSeedPresence,
 					}),
 					checks,
 					plannedChanges,
@@ -866,8 +930,10 @@ function main() {
 						branch,
 						remote,
 						files,
+						vercelProjectLink,
 						generatedSecretsPresence,
 						externalInputsPresence,
+						codexSeedPresence,
 					}),
 					checks,
 					plannedChanges,
@@ -895,8 +961,10 @@ function main() {
 						branch,
 						remote,
 						files,
+						vercelProjectLink,
 						generatedSecretsPresence,
 						externalInputsPresence,
+						codexSeedPresence,
 					}),
 					checks,
 					plannedChanges,
@@ -937,8 +1005,10 @@ function main() {
 					branch,
 					remote,
 					files,
+					vercelProjectLink,
 					generatedSecretsPresence,
 					externalInputsPresence,
+					codexSeedPresence,
 				}),
 				checks: postWriteChecks,
 				plannedChanges: postWritePlannedChanges,
@@ -972,8 +1042,10 @@ function main() {
 					branch,
 					remote,
 					files,
+					vercelProjectLink,
 					generatedSecretsPresence,
 					externalInputsPresence,
+					codexSeedPresence,
 				}),
 				checks,
 				plannedChanges,
@@ -990,6 +1062,7 @@ function main() {
 		const appendKeys = readEnvPresence(
 			GENERATED_SECRET_KEYS,
 			parseEnvFile(envLocalPath),
+			vercelProjectLink,
 		).missing.filter((key) => !envLocalKeys.has(key));
 		const envLocalWasCreated = envLocalContent === null;
 
@@ -1018,10 +1091,17 @@ function main() {
 		const postWriteGeneratedSecretsPresence = readEnvPresence(
 			GENERATED_SECRET_KEYS,
 			postWriteEnvLocalKeys,
+			vercelProjectLink,
 		);
 		const postWriteExternalInputsPresence = readEnvPresence(
 			EXTERNAL_INPUT_KEYS,
 			postWriteEnvLocalKeys,
+			vercelProjectLink,
+		);
+		const postWriteCodexSeedPresence = readEnvPresence(
+			CODEX_SEED_KEYS,
+			postWriteEnvLocalKeys,
+			vercelProjectLink,
 		);
 		const postWriteFiles = {
 			...files,
@@ -1057,8 +1137,10 @@ function main() {
 				branch,
 				remote,
 				files: postWriteFiles,
+				vercelProjectLink,
 				generatedSecretsPresence: postWriteGeneratedSecretsPresence,
 				externalInputsPresence: postWriteExternalInputsPresence,
+				codexSeedPresence: postWriteCodexSeedPresence,
 			}),
 			checks: postWriteChecks,
 			plannedChanges: postWritePlannedChanges,
@@ -1083,8 +1165,10 @@ function main() {
 			branch,
 			remote,
 			files,
+			vercelProjectLink,
 			generatedSecretsPresence,
 			externalInputsPresence,
+			codexSeedPresence,
 		}),
 		checks,
 		plannedChanges,
