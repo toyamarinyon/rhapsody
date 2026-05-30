@@ -33,6 +33,20 @@ type Report = {
 			artifactsCount?: number | null;
 			linksCount?: number | null;
 			eventsCount?: number | null;
+			pullRequestEvidence?: {
+				artifactCount: number | null;
+				branchArtifactCount: number | null;
+				firstPullRequestUrl: string | null;
+				latestPullRequestUrl: string | null;
+				pullRequestNumber: string | null;
+			};
+			handoff?: {
+				pullRequestEvidenceFound: boolean;
+				pullRequestReadyEventPresent: boolean;
+				pullRequestMissingEventPresent: boolean;
+				pullRequestFailedEventPresent: boolean;
+				runnerWorkflowRunId?: string | null;
+			};
 			handoffEvidence?: string[];
 		};
 	};
@@ -188,8 +202,176 @@ function getString(value: unknown): string | null {
 	return typeof value === "string" && value.trim() ? value : null;
 }
 
+function getStringIf(value: unknown): string | null {
+	return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function getNumber(value: unknown): number | null {
+	if (typeof value === "number" && Number.isFinite(value)) return value;
+	if (typeof value !== "string" || !value.trim()) return null;
+
+	const parsed = Number.parseInt(value, 10);
+	return Number.isFinite(parsed) ? parsed : null;
+}
+
 function getObjectKeys(value: unknown): string[] | null {
 	return asRecord(value) ? Object.keys(value) : null;
+}
+
+function getMetadata(value: unknown): Record<string, unknown> | null {
+	return asRecord(value) ? value : null;
+}
+
+function getFirstNonEmptyString(value: unknown, keys: string[]): string | null {
+	if (!asRecord(value)) return null;
+	for (const key of keys) {
+		const candidate = getStringIf((value as Record<string, unknown>)[key]);
+		if (candidate) return candidate;
+	}
+	return null;
+}
+
+function firstOrLatestByTimestamp(items: Array<Record<string, unknown>>): {
+	first: Record<string, unknown> | null;
+	latest: Record<string, unknown> | null;
+} {
+	let first: Record<string, unknown> | null = null;
+	let latest: Record<string, unknown> | null = null;
+	let latestSortValue = -Infinity;
+
+	for (const item of items) {
+		if (!first) first = item;
+		const scoreCandidates: unknown[] = [
+			item.updatedAt,
+			item.updated_at,
+			item.createdAt,
+			item.created_at,
+			item.timestamp,
+			item.ts,
+		];
+		const sortValue = scoreCandidates.reduce(
+			(current: number, candidate: unknown) => {
+				const next = getNumber(candidate);
+				if (next !== null && next > current) return next;
+				return current;
+			},
+			-Infinity,
+		);
+		if (!latest || sortValue >= latestSortValue) {
+			latest = item;
+			latestSortValue = sortValue;
+		}
+	}
+
+	return { first, latest };
+}
+
+function getFirstOrLatestUrlFromArtifact(
+	artifacts: Array<Record<string, unknown>>,
+): { first: string | null; latest: string | null } {
+	const { first, latest } = firstOrLatestByTimestamp(artifacts);
+	const firstUrl =
+		getFirstNonEmptyString(first, [
+			"externalUrl",
+			"url",
+			"link",
+			"pullRequestUrl",
+			"htmlUrl",
+			"webUrl",
+		]) ||
+		getFirstNonEmptyString(getMetadata(first)?.metadata, [
+			"url",
+			"pullRequestUrl",
+			"htmlUrl",
+			"webUrl",
+			"targetUrl",
+			"link",
+		]);
+	const latestUrl =
+		getFirstNonEmptyString(latest, [
+			"externalUrl",
+			"url",
+			"link",
+			"pullRequestUrl",
+			"htmlUrl",
+			"webUrl",
+		]) ||
+		getFirstNonEmptyString(getMetadata(latest)?.metadata, [
+			"url",
+			"pullRequestUrl",
+			"htmlUrl",
+			"webUrl",
+			"targetUrl",
+			"link",
+		]);
+
+	return { first: firstUrl ?? null, latest: latestUrl ?? null };
+}
+
+function getFirstOrLatestPullRequestNumber(
+	artifacts: Array<Record<string, unknown>>,
+): string | null {
+	const { first, latest } = firstOrLatestByTimestamp(artifacts);
+	const candidateFrom = (value: unknown): string | null => {
+		const numberCandidate = getNumber(value);
+		return numberCandidate !== null
+			? String(numberCandidate)
+			: getStringIf(value);
+	};
+
+	const numberCandidate = candidateFrom(
+		getFirstNonEmptyString(first, [
+			"externalId",
+			"pullRequestNumber",
+			"number",
+			"id",
+		]),
+	);
+	if (numberCandidate) return numberCandidate;
+
+	const firstMetadata = getMetadata(first)?.metadata;
+	const firstPullRequestMetadata = getMetadata(
+		firstMetadata && getMetadata(firstMetadata)?.pullRequest,
+	);
+	const metadataCandidate = candidateFrom(
+		getFirstNonEmptyString(firstMetadata, [
+			"pullRequestNumber",
+			"number",
+			"id",
+			"pullRequestId",
+		]) || getFirstNonEmptyString(firstPullRequestMetadata, ["number", "id"]),
+	);
+	if (metadataCandidate) return metadataCandidate;
+
+	return candidateFrom(
+		getFirstNonEmptyString(getMetadata(latest)?.metadata, [
+			"number",
+			"id",
+			"pullRequestNumber",
+		]),
+	);
+}
+
+function extractEventTypes(events: unknown[]): Set<string> {
+	const eventTypes = new Set<string>();
+	for (const event of events) {
+		if (!asRecord(event)) continue;
+		const eventType =
+			getStringIf(event.type) ||
+			getStringIf(event.name) ||
+			getStringIf(event.eventType);
+		if (eventType) eventTypes.add(eventType);
+	}
+	return eventTypes;
+}
+
+function getArtifactKind(value: Record<string, unknown>): string | null {
+	return (
+		getStringIf(value.kind) ||
+		getStringIf(value.type) ||
+		getStringIf(value.artifactKind) ||
+		null
+	);
 }
 
 function pickLatestAttempt(attemptsValue: unknown) {
@@ -306,6 +488,19 @@ function buildEvidenceSignals(detail: unknown): {
 	artifactsCount: number | null;
 	linksCount: number | null;
 	eventsCount: number | null;
+	pullRequestEvidence: {
+		artifactCount: number | null;
+		branchArtifactCount: number | null;
+		firstPullRequestUrl: string | null;
+		latestPullRequestUrl: string | null;
+		pullRequestNumber: string | null;
+	};
+	handoff: {
+		pullRequestEvidenceFound: boolean;
+		pullRequestReadyEventPresent: boolean;
+		pullRequestMissingEventPresent: boolean;
+		pullRequestFailedEventPresent: boolean;
+	};
 	handoffEvidence: string[];
 } {
 	if (!asRecord(detail)) {
@@ -317,6 +512,19 @@ function buildEvidenceSignals(detail: unknown): {
 			artifactsCount: null,
 			linksCount: null,
 			eventsCount: null,
+			pullRequestEvidence: {
+				artifactCount: null,
+				branchArtifactCount: null,
+				firstPullRequestUrl: null,
+				latestPullRequestUrl: null,
+				pullRequestNumber: null,
+			},
+			handoff: {
+				pullRequestEvidenceFound: false,
+				pullRequestReadyEventPresent: false,
+				pullRequestMissingEventPresent: false,
+				pullRequestFailedEventPresent: false,
+			},
 			handoffEvidence: [],
 		};
 	}
@@ -328,6 +536,42 @@ function buildEvidenceSignals(detail: unknown): {
 	const linksValue = asArray(detail.links) ? detail.links : null;
 	const latestAttempt = pickLatestAttempt(attemptsValue);
 	const handoffEvidence: string[] = [];
+	const safeArtifacts = asArray(artifactsValue)
+		? artifactsValue
+				.filter(asRecord)
+				.map((artifact) => artifact as Record<string, unknown>)
+		: [];
+	const pullRequestArtifacts = safeArtifacts.filter((artifact) => {
+		const kind = getArtifactKind(artifact)?.toLowerCase();
+		return kind === "pull_request" || kind === "pull-request";
+	});
+	const branchArtifacts = safeArtifacts.filter((artifact) => {
+		const kind = getArtifactKind(artifact)?.toLowerCase();
+		return kind === "branch";
+	});
+	const pullRequestUrls = getFirstOrLatestUrlFromArtifact(pullRequestArtifacts);
+	const pullRequestNumber =
+		getFirstOrLatestPullRequestNumber(pullRequestArtifacts);
+	const eventTypes = eventsValue
+		? extractEventTypes(eventsValue as Record<string, unknown>[])
+		: new Set();
+	const pullRequestReadyEventPresent = eventTypes.has(
+		"sandbox_codex_runner.pull_request_ready",
+	);
+	const pullRequestMissingEventPresent = eventTypes.has(
+		"sandbox_codex_runner.pull_request_missing",
+	);
+	const pullRequestFailedEventPresent = eventTypes.has(
+		"sandbox_codex_runner.pull_request_failed",
+	);
+	const pullRequestEvidenceFound =
+		pullRequestArtifacts.length > 0 ||
+		Boolean(pullRequestUrls.first) ||
+		Boolean(pullRequestUrls.latest) ||
+		Boolean(pullRequestNumber) ||
+		pullRequestReadyEventPresent ||
+		pullRequestMissingEventPresent ||
+		pullRequestFailedEventPresent;
 
 	const runnerWorkflowRunId =
 		run && getString(run.runnerWorkflowRunId)
@@ -361,6 +605,12 @@ function buildEvidenceSignals(detail: unknown): {
 	if (attemptsValue && attemptsValue.length > 0) {
 		handoffEvidence.push("attempts");
 	}
+	if (pullRequestArtifacts.length > 0) {
+		handoffEvidence.push("pull_request_artifacts");
+	}
+	if (branchArtifacts.length > 0) {
+		handoffEvidence.push("branch_artifacts");
+	}
 
 	return {
 		runStatus,
@@ -370,6 +620,19 @@ function buildEvidenceSignals(detail: unknown): {
 		artifactsCount: countArray(artifactsValue),
 		linksCount: countArray(linksValue),
 		eventsCount: countArray(eventsValue),
+		pullRequestEvidence: {
+			artifactCount: pullRequestArtifacts.length,
+			branchArtifactCount: branchArtifacts.length,
+			firstPullRequestUrl: pullRequestUrls.first,
+			latestPullRequestUrl: pullRequestUrls.latest,
+			pullRequestNumber,
+		},
+		handoff: {
+			pullRequestEvidenceFound,
+			pullRequestReadyEventPresent,
+			pullRequestMissingEventPresent,
+			pullRequestFailedEventPresent,
+		},
 		handoffEvidence,
 	};
 }
@@ -592,9 +855,14 @@ async function main() {
 	}
 
 	nextActions.push(
-		evidence.runnerWorkflowRunId
-			? "Open the dashboard and look for the runner workflow execution and PR handoff evidence."
-			: "If the run is still in progress, inspect the dashboard for attempts, events, and artifacts before looking for the PR.",
+		evidence.handoff?.pullRequestMissingEventPresent ||
+			evidence.handoff?.pullRequestFailedEventPresent
+			? "Inspect runner events and logs; handoff events indicate pull request creation is missing or failed."
+			: evidence.handoff?.pullRequestEvidenceFound
+				? "Open the PR URL(s) and dashboard to confirm handoff completion."
+				: evidence.runnerWorkflowRunId
+					? "Runner workflow started but PR evidence is not visible yet. Wait briefly, rerun verify-run with --use-root-password, and inspect events/artifacts in the dashboard."
+					: "If the run is still in progress, inspect the dashboard for attempts, events, and artifacts before looking for the PR.",
 	);
 
 	emit({
@@ -636,6 +904,17 @@ async function main() {
 				artifactsCount: evidence.artifactsCount,
 				linksCount: evidence.linksCount,
 				eventsCount: evidence.eventsCount,
+				pullRequestEvidence: evidence.pullRequestEvidence,
+				handoff: {
+					pullRequestEvidenceFound: evidence.handoff.pullRequestEvidenceFound,
+					pullRequestReadyEventPresent:
+						evidence.handoff.pullRequestReadyEventPresent,
+					pullRequestMissingEventPresent:
+						evidence.handoff.pullRequestMissingEventPresent,
+					pullRequestFailedEventPresent:
+						evidence.handoff.pullRequestFailedEventPresent,
+					runnerWorkflowRunId: evidence.runnerWorkflowRunId,
+				},
 				handoffEvidence:
 					evidence.handoffEvidence.length > 0
 						? evidence.handoffEvidence
