@@ -872,7 +872,32 @@ function buildNextActionsFromEvidence(evidence: {
 	return "If the run is still in progress, inspect the dashboard for attempts, events, and artifacts before looking for the PR.";
 }
 
-export { buildNextActionsFromEvidence };
+function buildFetchFailureNextActions(response: {
+	classification: string;
+	status: number | null;
+}): string[] {
+	if (response.classification === "network-error") {
+		return [
+			"Confirm the preview URL is the deployed Rhapsody app, then inspect the Vercel deployment logs before rerunning verify-run.",
+		];
+	}
+
+	if (response.status === 401 || response.status === 403) {
+		return [
+			"Confirm ROOT_PASSWORD matches the preview deployment, then rerun verify-run with --use-root-password.",
+		];
+	}
+
+	if (response.status === 404) {
+		return [
+			"Confirm the run ID from setup:first-issue or the dashboard, then rerun verify-run with the corrected --run-id.",
+		];
+	}
+
+	return [];
+}
+
+export { buildFetchFailureNextActions, buildNextActionsFromEvidence };
 
 type WaitPollResult = {
 	attempts: number;
@@ -1200,17 +1225,22 @@ async function main() {
 		);
 	}
 
-	nextActions.push(
-		buildNextActionsFromEvidence({
-			pullRequestEvidenceFound:
-				evidence.handoff?.pullRequestEvidenceFound ?? false,
-			pullRequestMissingEventPresent:
-				evidence.handoff?.pullRequestMissingEventPresent ?? false,
-			pullRequestFailedEventPresent:
-				evidence.handoff?.pullRequestFailedEventPresent ?? false,
-			runnerWorkflowRunId: evidence.runnerWorkflowRunId,
-		}),
-	);
+	const fetchFailureNextActions = buildFetchFailureNextActions(response);
+	if (fetchFailureNextActions.length > 0) {
+		nextActions.push(...fetchFailureNextActions);
+	} else {
+		nextActions.push(
+			buildNextActionsFromEvidence({
+				pullRequestEvidenceFound:
+					evidence.handoff?.pullRequestEvidenceFound ?? false,
+				pullRequestMissingEventPresent:
+					evidence.handoff?.pullRequestMissingEventPresent ?? false,
+				pullRequestFailedEventPresent:
+					evidence.handoff?.pullRequestFailedEventPresent ?? false,
+				runnerWorkflowRunId: evidence.runnerWorkflowRunId,
+			}),
+		);
+	}
 	if (
 		parsed.wait &&
 		(evidence.handoff.pullRequestMissingEventPresent ||

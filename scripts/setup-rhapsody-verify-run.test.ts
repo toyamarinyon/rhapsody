@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
 	buildEvidenceSignals,
+	buildFetchFailureNextActions,
 	buildInvalidArgsReport,
 	buildNextActionsFromEvidence,
 	evaluateWaitDecision,
@@ -79,6 +80,35 @@ test("extracts PR evidence, handoff flags, and next actions from run detail", ()
 	expect(nextActions).toBe(
 		"Inspect runner events and logs; handoff events indicate pull request creation is missing or failed.",
 	);
+});
+
+test("builds concrete verify-run fetch failure next actions", () => {
+	expect(
+		buildFetchFailureNextActions({
+			classification: "network-error",
+			status: null,
+		}),
+	).toEqual([
+		"Confirm the preview URL is the deployed Rhapsody app, then inspect the Vercel deployment logs before rerunning verify-run.",
+	]);
+
+	expect(
+		buildFetchFailureNextActions({
+			classification: "unauthorized",
+			status: 401,
+		}),
+	).toEqual([
+		"Confirm ROOT_PASSWORD matches the preview deployment, then rerun verify-run with --use-root-password.",
+	]);
+
+	expect(
+		buildFetchFailureNextActions({
+			classification: "not-found",
+			status: 404,
+		}),
+	).toEqual([
+		"Confirm the run ID from setup:first-issue or the dashboard, then rerun verify-run with the corrected --run-id.",
+	]);
 });
 
 test("parses verify-run args with default values", () => {
