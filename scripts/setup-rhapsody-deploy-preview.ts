@@ -351,6 +351,13 @@ function extractPreviewUrl(output: string) {
 	return "";
 }
 
+function buildUnsupportedArgsNextActions(): string[] {
+	return [
+		"Run `pnpm setup:deploy-preview -- --dry-run` to inspect preview deploy readiness.",
+		"Run `pnpm setup:deploy-preview -- --apply --yes` only after the dry-run blockers are resolved.",
+	];
+}
+
 function emitUnsupportedArgsError() {
 	const report: Report = {
 		ok: false,
@@ -388,9 +395,11 @@ function emitUnsupportedArgsError() {
 		},
 		checks: [],
 		plannedChanges: [],
-		needsUser: [],
-		blocked: [],
-		nextActions: [],
+		needsUser: [
+			"Use no args or --dry-run for inspection, or exact --apply --yes for preview deployment.",
+		],
+		blocked: ["Unsupported or missing arguments."],
+		nextActions: buildUnsupportedArgsNextActions(),
 		error:
 			"Unsupported arguments. This helper supports no args, --dry-run, or --apply --yes.",
 	};
