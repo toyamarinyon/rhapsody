@@ -716,7 +716,9 @@ main().catch((error) => {
 			},
 			needsUser: [],
 			blocked: ["Unhandled script error."],
-			nextActions: [],
+			nextActions: [
+				"Rerun with --url and --issue-number; if this repeats, capture the command and report the script error name.",
+			],
 			error: error instanceof Error ? error.name : "unexpected script error",
 		}),
 		1,
