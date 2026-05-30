@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
 	buildEvidenceSignals,
+	buildInvalidArgsReport,
 	buildNextActionsFromEvidence,
 	evaluateWaitDecision,
 	parseArgs,
@@ -152,6 +153,42 @@ test("enforces wait argument constraints", () => {
 		ok: false,
 		error: "`--timeout-ms` and `--interval-ms` require `--wait` to be enabled.",
 	});
+});
+
+test("keeps provided input facts in invalid argument reports", () => {
+	const report = buildInvalidArgsReport(
+		"--interval-ms must be less than --timeout-ms.",
+		[
+			"node",
+			"scripts/setup-rhapsody-verify-run.ts",
+			"--url",
+			"https://example.test",
+			"--run-id",
+			"run_abc",
+			"--use-root-password",
+			"--wait",
+			"--timeout-ms",
+			"1000",
+			"--interval-ms",
+			"1000",
+		],
+	);
+
+	expect(report.facts.input).toEqual({
+		providedUrl: "https://example.test",
+		normalizedBaseUrl: "https://example.test",
+		runId: "run_abc",
+		useRootPasswordRequested: true,
+	});
+	expect(report.facts.request).toEqual({
+		endpoint: "https://example.test/api/v1/runs/run_abc",
+		method: "GET",
+		auth: "bearer",
+	});
+	expect(report.needsUser).toEqual([]);
+	expect(report.nextActions).toEqual([
+		"Rerun with --timeout-ms greater than --interval-ms, for example --timeout-ms 300000 --interval-ms 10000.",
+	]);
 });
 
 test("evaluateWaitDecision chooses terminal outcomes", () => {
