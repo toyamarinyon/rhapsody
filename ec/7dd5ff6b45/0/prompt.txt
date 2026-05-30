@@ -1,0 +1,48 @@
+Implement the next small setup increment: a read-only deployed preview smoke-test helper.
+
+Context:
+- Goal is `$setup-rhapsody` end-to-end setup toward first GitHub Project issue -> PR.
+- PR #149 just merged `setup:deploy-preview`, which can produce a Vercel preview URL after env apply/migration/deploy.
+- This PR should NOT trigger scheduler, create runs, mutate GitHub Project, or require browser automation. It should make the next handoff concrete: verify the deployed preview URL is reachable and identify what credentials/action are needed next.
+- Repo content English-only. Do not touch `.codex/agents/builder.toml` if modified.
+
+Task:
+1. Add a package script, likely `setup:smoke-test`, backed by a new TypeScript script in `scripts/`.
+2. Supported args:
+   - `--url <https://...>` or `--url=<https://...>` for preview base URL
+   - optional `--root-password <value>` or, preferably safer, source `ROOT_PASSWORD` from process/.env.local and allow `--use-root-password` to send it as Bearer. Please choose the safer UX; avoid printing the password.
+   - no apply mode in this PR. Read-only only.
+   - reject unsupported args with JSON-only error.
+3. Behavior:
+   - Normalize the base URL.
+   - GET the base URL `/` and `/login` or `/dashboard` as basic app reachability checks. Do not require login success for dashboard; 200/30x/401-ish should be classified clearly.
+   - GET `/api/v1/state` without auth and classify expected auth behavior (401 Unauthorized or 500 Admin auth not configured are useful signals).
+   - If root password is available and operator explicitly opted in with `--use-root-password`, GET `/api/v1/state` with `Authorization: Bearer <ROOT_PASSWORD>` and classify JSON response. Do not print raw secret or full response body; include status, content-type, and a short shape summary such as object keys.
+   - If root password is available but opt-in flag missing, report that authenticated API smoke is available but skipped.
+   - Produce JSON with `ok`, `mode: "dry-run"`, `phase: "smoke-test"`, `facts`, `checks`, `needsUser`, `blocked`, `nextActions`.
+   - Network errors should be summarized, not stack dumped.
+4. Update `.agents/skills/setup-rhapsody/SKILL.md` so after preview deploy the operator/agent runs this smoke-test helper before creating the first issue / scheduler tick.
+5. Verification:
+   - command with unsupported args returns JSON-only unsupported args
+   - command with no URL returns JSON and blocks with needsUser
+   - format/lint/typecheck pass
+   - If feasible, run against a local impossible URL like `--url http://127.0.0.1:1` to confirm network errors are summarized.
+
+Keep implementation straightforward and reviewable. Avoid large shared refactors. Report changed files and verification results. Do not commit/PR; parent will review.
+
+---
+
+Good skeleton. Please make these final safety/output fixes:
+
+1. Remove support for `--root-password <value>` and `--root-password=<value>`. Passing a secret on the command line can leak via shell history/process lists. The helper should only read `ROOT_PASSWORD` from process env first, then `.env.local`; `--use-root-password` is the explicit opt-in to send it.
+   - Unsupported `--root-password` should return JSON-only unsupported args.
+   - Update nextActions/supported args text accordingly.
+   - Update Facts so rootPasswordSource is only `process | .env.local | missing` with no CLI mapping.
+
+2. Fix `.agents/skills/setup-rhapsody/SKILL.md` smoke-test bullet list:
+   - indentation should match the surrounding numbered list style.
+   - remove duplicate `trigger or wait for scheduler tick` line.
+
+3. In the script, if the base URL is unreachable, nextActions should not say "Proceed to manual scheduler...". Blocked output should only tell the operator to fix blockers/re-run.
+
+4. Please rerun the same verification list, including `pnpm setup:smoke-test -- --root-password nope --url http://127.0.0.1:1` to confirm JSON-only rejection.
