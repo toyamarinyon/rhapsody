@@ -325,97 +325,200 @@ type SetupSmokeResult = {
 };
 
 const SMOKE_TEST_TIMEOUT_MS = 12_000;
-const command = process.argv[2] ?? "help";
-const subcommand = process.argv[3];
-const flags = new Set(process.argv.slice(3));
-const cliArgs = process.argv.slice(3);
 const DEFAULT_FIRST_ISSUE_TITLE = "Rhapsody smoke-test issue";
 const DEFAULT_FIRST_ISSUE_BODY =
 	"Smoke test issue created by setup:create-first-issue for first-run handoff validation.";
 const BODY_PREVIEW_MAX = 120;
-let handledSetupCommand = false;
 
-if (command === "setup") {
-	if (subcommand === "first-issue") {
-		handledSetupCommand = true;
-		const parse = parseSetupFirstIssueArgs(cliArgs);
-		if (parse.ok === false) {
-			console.error(parse.error);
-			process.exit(1);
-		}
+export async function runSetupCommand(
+	argv: string[] = process.argv.slice(2),
+): Promise<number> {
+	const command = argv[0] ?? "help";
+	const subcommand = argv[1];
+	const flags = new Set(argv.slice(1));
+	const cliArgs = argv.slice(2);
+	let handledSetupCommand = false;
 
-		const start = Date.now();
-		const statePath = getSetupStatePath();
-		const issueNumber = parse.issueNumber;
-		let baseUrl: string | null = null;
-		let endpoint: string | null = null;
-		const payloadShape: JsonRecord = {
-			issueNumber: "positive integer",
-			claimedBy: "setup-rhapsody",
-		};
-		const blockers: string[] = [];
-		const needsUser: string[] = [];
-		const nextActions: string[] = [];
+	if (command === "setup") {
+		if (subcommand === "first-issue") {
+			handledSetupCommand = true;
+			const parse = parseSetupFirstIssueArgs(cliArgs);
+			if (parse.ok === false) {
+				console.error(parse.error);
+				process.exit(1);
+			}
 
-		try {
-			baseUrl = normalizeBaseUrl(parse.url);
-			endpoint = `${baseUrl}/api/v1/runs`;
-		} catch {
-			blockers.push("The --url value must be a valid absolute URL.");
-			nextActions.push(
-				"Retry with a valid preview URL such as https://preview-url.vercel.app in dry-run mode.",
-			);
-		}
+			const start = Date.now();
+			const statePath = getSetupStatePath();
+			const issueNumber = parse.issueNumber;
+			let baseUrl: string | null = null;
+			let endpoint: string | null = null;
+			const payloadShape: JsonRecord = {
+				issueNumber: "positive integer",
+				claimedBy: "setup-rhapsody",
+			};
+			const blockers: string[] = [];
+			const needsUser: string[] = [];
+			const nextActions: string[] = [];
 
-		const rootPassword = resolveRootPasswordForSmoke();
-		const rootPasswordAvailable = Boolean(rootPassword);
-		const rootPasswordSource = rootPassword?.source ?? "missing";
-
-		if (blockers.length > 0) {
-			recordSetupState({
-				command: "first-issue",
-				mode: parse.mode,
-				baseUrl: parse.url,
-				endpoint: null,
-				issueNumber,
-				rootPassword: {
-					requested: parse.useRootPassword,
-					available: false,
-					source: "missing",
-				},
-				nextAction: "blocked",
-				blockers,
-				nextActions,
-			});
-			printSetupFirstIssueResult({
-				json: parse.json,
-				ok: false,
-				mode: parse.mode,
-				baseUrl: parse.url,
-				endpoint: null,
-				issueNumber,
-				statePath,
-				rootPassword: {
-					requested: parse.useRootPassword,
-					available: false,
-					source: "missing",
-				},
-				payloadShape,
-				blockers,
-				needsUser,
-				nextActions,
-				elapsedMs: Date.now() - start,
-			});
-			process.exit(1);
-		}
-
-		if (parse.mode === "dry-run") {
-			if (!parse.useRootPassword) {
-				needsUser.push("Pass --use-root-password to authorize apply mode.");
+			try {
+				baseUrl = normalizeBaseUrl(parse.url);
+				endpoint = `${baseUrl}/api/v1/runs`;
+			} catch {
+				blockers.push("The --url value must be a valid absolute URL.");
 				nextActions.push(
-					"Run with --apply --yes --use-root-password to execute the handoff once ready.",
+					"Retry with a valid preview URL such as https://preview-url.vercel.app in dry-run mode.",
 				);
 			}
+
+			const rootPassword = resolveRootPasswordForSmoke();
+			const rootPasswordAvailable = Boolean(rootPassword);
+			const rootPasswordSource = rootPassword?.source ?? "missing";
+
+			if (blockers.length > 0) {
+				recordSetupState({
+					command: "first-issue",
+					mode: parse.mode,
+					baseUrl: parse.url,
+					endpoint: null,
+					issueNumber,
+					rootPassword: {
+						requested: parse.useRootPassword,
+						available: false,
+						source: "missing",
+					},
+					nextAction: "blocked",
+					blockers,
+					nextActions,
+				});
+				printSetupFirstIssueResult({
+					json: parse.json,
+					ok: false,
+					mode: parse.mode,
+					baseUrl: parse.url,
+					endpoint: null,
+					issueNumber,
+					statePath,
+					rootPassword: {
+						requested: parse.useRootPassword,
+						available: false,
+						source: "missing",
+					},
+					payloadShape,
+					blockers,
+					needsUser,
+					nextActions,
+					elapsedMs: Date.now() - start,
+				});
+				process.exit(1);
+			}
+
+			if (parse.mode === "dry-run") {
+				if (!parse.useRootPassword) {
+					needsUser.push("Pass --use-root-password to authorize apply mode.");
+					nextActions.push(
+						"Run with --apply --yes --use-root-password to execute the handoff once ready.",
+					);
+				}
+				recordSetupState({
+					command: "first-issue",
+					mode: parse.mode,
+					baseUrl,
+					endpoint,
+					issueNumber,
+					rootPassword: {
+						requested: parse.useRootPassword,
+						available: rootPasswordAvailable,
+						source: rootPasswordSource,
+					},
+					nextAction: "ready",
+					blockers,
+					nextActions,
+				});
+				printSetupFirstIssueResult({
+					json: parse.json,
+					ok: blockers.length === 0,
+					mode: parse.mode,
+					baseUrl,
+					endpoint,
+					issueNumber,
+					statePath,
+					rootPassword: {
+						requested: parse.useRootPassword,
+						available: rootPasswordAvailable,
+						source: rootPasswordSource,
+					},
+					payloadShape,
+					blockers,
+					needsUser,
+					nextActions,
+					elapsedMs: Date.now() - start,
+				});
+				process.exit(0);
+			}
+
+			if (!parse.apply || !parse.yes) {
+				console.error(
+					"Apply mode requires both --apply and --yes. Use neither for dry-run.",
+				);
+				process.exit(1);
+			}
+
+			if (!parse.useRootPassword) {
+				blockers.push(
+					"Apply requires --use-root-password for the ROOT_PASSWORD bearer token.",
+				);
+				nextActions.push(
+					"Re-run with --apply --yes --use-root-password to execute the handoff.",
+				);
+			}
+
+			if (!rootPasswordAvailable) {
+				blockers.push(
+					"ROOT_PASSWORD is missing from process env or apps/app/.env.local.",
+				);
+				nextActions.push("Set ROOT_PASSWORD and rerun the same command.");
+			}
+
+			let response: FirstIssuePostResponse | null = null;
+			if (blockers.length === 0) {
+				if (endpoint && rootPassword) {
+					response = await postRun({
+						endpoint,
+						token: rootPassword.value,
+						issueNumber,
+					});
+				}
+			}
+
+			const ok = response?.classification === "ok";
+			if (!ok && response) {
+				if (response.classification === "validation-error") {
+					blockers.push(
+						"Preview rejected the payload with 400 validation; check issue exists and is routable.",
+					);
+				} else if (response.classification === "unauthorized") {
+					blockers.push("Preview rejected ROOT_PASSWORD with 401.");
+				} else if (response.classification === "existing-run") {
+					nextActions.push(
+						"A manual run already exists for this issue. Continue in dashboard.",
+					);
+				} else if (
+					response.classification === "network-error" ||
+					response.classification === "server-error"
+				) {
+					blockers.push("Request failed at the preview endpoint.");
+					nextActions.push(
+						"Check the deployment and network visibility, then rerun with --apply.",
+					);
+				} else {
+					blockers.push(`Request failed with ${response.classification}.`);
+					nextActions.push(
+						"Retry the same command after fixing the reported issue.",
+					);
+				}
+			}
+
 			recordSetupState({
 				command: "first-issue",
 				mode: parse.mode,
@@ -427,13 +530,26 @@ if (command === "setup") {
 					available: rootPasswordAvailable,
 					source: rootPasswordSource,
 				},
-				nextAction: "ready",
+				response: response
+					? {
+							status: response.status,
+							classification: response.classification,
+							runId: response.runId,
+							attemptId: response.attemptId,
+						}
+					: null,
+				nextAction: ok
+					? "complete"
+					: response?.classification === "existing-run"
+						? "ready"
+						: "failed",
 				blockers,
 				nextActions,
 			});
+
 			printSetupFirstIssueResult({
 				json: parse.json,
-				ok: blockers.length === 0,
+				ok,
 				mode: parse.mode,
 				baseUrl,
 				endpoint,
@@ -445,175 +561,187 @@ if (command === "setup") {
 					source: rootPasswordSource,
 				},
 				payloadShape,
+				response,
 				blockers,
 				needsUser,
 				nextActions,
 				elapsedMs: Date.now() - start,
 			});
-			process.exit(0);
+			process.exit(ok ? 0 : 1);
 		}
+		if (subcommand === "start-attempt") {
+			handledSetupCommand = true;
+			const parse = parseSetupStartAttemptArgs(cliArgs);
+			if (parse.ok === false) {
+				console.error(parse.error);
+				process.exit(1);
+			}
 
-		if (!parse.apply || !parse.yes) {
-			console.error(
-				"Apply mode requires both --apply and --yes. Use neither for dry-run.",
-			);
-			process.exit(1);
-		}
+			const start = Date.now();
+			const statePath = getSetupStatePath();
+			let baseUrl: string | null = null;
+			let endpoint: string | null = null;
+			let runDetailEndpoint: string | null = null;
+			const payloadShape: JsonRecord = { claimToken: "redacted" };
+			const blockers: string[] = [];
+			const needsUser: string[] = [];
+			const nextActions: string[] = [];
 
-		if (!parse.useRootPassword) {
-			blockers.push(
-				"Apply requires --use-root-password for the ROOT_PASSWORD bearer token.",
-			);
-			nextActions.push(
-				"Re-run with --apply --yes --use-root-password to execute the handoff.",
-			);
-		}
+			const rootPassword = resolveRootPasswordForSmoke();
+			const claimTokenLocal = resolveClaimTokenForSetup();
 
-		if (!rootPasswordAvailable) {
-			blockers.push(
-				"ROOT_PASSWORD is missing from process env or apps/app/.env.local.",
-			);
-			nextActions.push("Set ROOT_PASSWORD and rerun the same command.");
-		}
+			const rootPasswordMetadata = {
+				requested: parse.useRootPassword,
+				available: Boolean(rootPassword),
+				source: rootPassword?.source ?? "missing",
+			};
+			const claimTokenMetadata = {
+				available: Boolean(claimTokenLocal),
+				source: claimTokenLocal?.source ?? "missing",
+			};
 
-		let response: FirstIssuePostResponse | null = null;
-		if (blockers.length === 0) {
-			if (endpoint && rootPassword) {
-				response = await postRun({
+			try {
+				baseUrl = normalizeBaseUrl(parse.url);
+				endpoint = `${baseUrl}/api/v1/runs/${parse.runId}/attempts/${parse.attemptId}/start`;
+				runDetailEndpoint = `${baseUrl}/api/v1/runs/${parse.runId}`;
+			} catch {
+				blockers.push("The --url value must be a valid absolute URL.");
+				nextActions.push(
+					"Retry with a valid preview URL such as https://preview-url.vercel.app in dry-run mode.",
+				);
+			}
+
+			if (parse.mode === "dry-run") {
+				if (!parse.useRootPassword) {
+					needsUser.push("Pass --use-root-password to authorize apply mode.");
+					nextActions.push(
+						"Run with --apply --yes --use-root-password to execute the attempt start.",
+					);
+				}
+				recordSetupState({
+					command: "start-attempt",
+					mode: parse.mode,
+					baseUrl,
+					endpoint,
+					runId: parse.runId,
+					attemptId: parse.attemptId,
+					rootPassword: rootPasswordMetadata,
+					claimToken: claimTokenMetadata,
+					nextAction: blockers.length ? "blocked" : "ready",
+					blockers,
+					nextActions,
+				});
+				printSetupStartAttemptResult({
+					json: parse.json,
+					ok: blockers.length === 0,
+					mode: parse.mode,
+					baseUrl,
+					endpoint,
+					runId: parse.runId,
+					attemptId: parse.attemptId,
+					statePath,
+					rootPassword: rootPasswordMetadata,
+					claimToken: claimTokenMetadata,
+					payloadShape,
+					blockers,
+					needsUser,
+					nextActions,
+					elapsedMs: Date.now() - start,
+				});
+				process.exit(0);
+			}
+
+			if (!parse.apply || !parse.yes || !parse.useRootPassword) {
+				console.error(
+					"Apply mode requires --apply, --yes, and --use-root-password. Use neither for dry-run.",
+				);
+				process.exit(1);
+			}
+
+			if (!rootPassword) {
+				blockers.push(
+					"ROOT_PASSWORD is missing from process env or apps/app/.env.local.",
+				);
+				nextActions.push("Set ROOT_PASSWORD and rerun the same command.");
+			}
+
+			let resolvedClaimToken = claimTokenLocal?.value ?? null;
+			if (!resolvedClaimToken && rootPassword && runDetailEndpoint) {
+				const runLookup = await fetchRunClaimToken({
+					endpoint: runDetailEndpoint,
+					token: rootPassword.value,
+				});
+				if (runLookup.status !== 200 || !runLookup.claimToken) {
+					blockers.push(
+						runLookup.status === null
+							? "Failed to fetch run detail."
+							: runLookup.claimToken
+								? "Run detail response parsing failed."
+								: "Run detail did not include a claimToken.",
+					);
+					nextActions.push(
+						"Confirm the URL and run ID, then rerun with --apply --yes --use-root-password.",
+					);
+				} else {
+					resolvedClaimToken = runLookup.claimToken;
+					claimTokenMetadata.available = true;
+					claimTokenMetadata.source = "run-detail";
+				}
+			}
+
+			if (!resolvedClaimToken && !claimTokenLocal) {
+				needsUser.push(
+					"Set RHAPSODY_CLAIM_TOKEN in process env or apps/app/.env.local.",
+				);
+			}
+
+			let response: StartAttemptPostResponse | null = null;
+			if (
+				blockers.length === 0 &&
+				endpoint &&
+				resolvedClaimToken &&
+				rootPassword
+			) {
+				response = await postStartAttempt({
 					endpoint,
 					token: rootPassword.value,
-					issueNumber,
+					claimToken: resolvedClaimToken,
 				});
 			}
-		}
 
-		const ok = response?.classification === "ok";
-		if (!ok && response) {
-			if (response.classification === "validation-error") {
-				blockers.push(
-					"Preview rejected the payload with 400 validation; check issue exists and is routable.",
-				);
-			} else if (response.classification === "unauthorized") {
-				blockers.push("Preview rejected ROOT_PASSWORD with 401.");
-			} else if (response.classification === "existing-run") {
+			const ok = response?.classification === "ok";
+			if (!ok && response) {
+				if (response.classification === "validation-error") {
+					blockers.push("Preview rejected the payload with 400 validation.");
+				} else if (response.classification === "unauthorized") {
+					blockers.push("Preview rejected ROOT_PASSWORD with 401.");
+				} else if (response.classification === "not-found") {
+					blockers.push("Run or attempt was not found.");
+				} else if (response.classification === "already-started") {
+					nextActions.push(
+						"The attempt already exists; inspect dashboard state.",
+					);
+				} else if (
+					response.classification === "network-error" ||
+					response.classification === "server-error"
+				) {
+					blockers.push("Request failed at the preview endpoint.");
+				} else {
+					blockers.push(`Request failed with ${response.classification}.`);
+				}
+			}
+
+			if (response && !ok) {
 				nextActions.push(
-					"A manual run already exists for this issue. Continue in dashboard.",
-				);
-			} else if (
-				response.classification === "network-error" ||
-				response.classification === "server-error"
-			) {
-				blockers.push("Request failed at the preview endpoint.");
-				nextActions.push(
-					"Check the deployment and network visibility, then rerun with --apply.",
-				);
-			} else {
-				blockers.push(`Request failed with ${response.classification}.`);
-				nextActions.push(
-					"Retry the same command after fixing the reported issue.",
+					"Check the preview URL and run/attempt IDs, then retry with valid auth.",
 				);
 			}
-		}
-
-		recordSetupState({
-			command: "first-issue",
-			mode: parse.mode,
-			baseUrl,
-			endpoint,
-			issueNumber,
-			rootPassword: {
-				requested: parse.useRootPassword,
-				available: rootPasswordAvailable,
-				source: rootPasswordSource,
-			},
-			response: response
-				? {
-						status: response.status,
-						classification: response.classification,
-						runId: response.runId,
-						attemptId: response.attemptId,
-					}
-				: null,
-			nextAction: ok
-				? "complete"
-				: response?.classification === "existing-run"
-					? "ready"
-					: "failed",
-			blockers,
-			nextActions,
-		});
-
-		printSetupFirstIssueResult({
-			json: parse.json,
-			ok,
-			mode: parse.mode,
-			baseUrl,
-			endpoint,
-			issueNumber,
-			statePath,
-			rootPassword: {
-				requested: parse.useRootPassword,
-				available: rootPasswordAvailable,
-				source: rootPasswordSource,
-			},
-			payloadShape,
-			response,
-			blockers,
-			needsUser,
-			nextActions,
-			elapsedMs: Date.now() - start,
-		});
-		process.exit(ok ? 0 : 1);
-	}
-	if (subcommand === "start-attempt") {
-		handledSetupCommand = true;
-		const parse = parseSetupStartAttemptArgs(cliArgs);
-		if (parse.ok === false) {
-			console.error(parse.error);
-			process.exit(1);
-		}
-
-		const start = Date.now();
-		const statePath = getSetupStatePath();
-		let baseUrl: string | null = null;
-		let endpoint: string | null = null;
-		let runDetailEndpoint: string | null = null;
-		const payloadShape: JsonRecord = { claimToken: "redacted" };
-		const blockers: string[] = [];
-		const needsUser: string[] = [];
-		const nextActions: string[] = [];
-
-		const rootPassword = resolveRootPasswordForSmoke();
-		const claimTokenLocal = resolveClaimTokenForSetup();
-
-		const rootPasswordMetadata = {
-			requested: parse.useRootPassword,
-			available: Boolean(rootPassword),
-			source: rootPassword?.source ?? "missing",
-		};
-		const claimTokenMetadata = {
-			available: Boolean(claimTokenLocal),
-			source: claimTokenLocal?.source ?? "missing",
-		};
-
-		try {
-			baseUrl = normalizeBaseUrl(parse.url);
-			endpoint = `${baseUrl}/api/v1/runs/${parse.runId}/attempts/${parse.attemptId}/start`;
-			runDetailEndpoint = `${baseUrl}/api/v1/runs/${parse.runId}`;
-		} catch {
-			blockers.push("The --url value must be a valid absolute URL.");
-			nextActions.push(
-				"Retry with a valid preview URL such as https://preview-url.vercel.app in dry-run mode.",
-			);
-		}
-
-		if (parse.mode === "dry-run") {
-			if (!parse.useRootPassword) {
-				needsUser.push("Pass --use-root-password to authorize apply mode.");
+			if (ok) {
 				nextActions.push(
-					"Run with --apply --yes --use-root-password to execute the attempt start.",
+					"Attempt start accepted. Verify the run in the dashboard and continue to monitoring.",
 				);
 			}
+
 			recordSetupState({
 				command: "start-attempt",
 				mode: parse.mode,
@@ -623,13 +751,22 @@ if (command === "setup") {
 				attemptId: parse.attemptId,
 				rootPassword: rootPasswordMetadata,
 				claimToken: claimTokenMetadata,
-				nextAction: blockers.length ? "blocked" : "ready",
+				response: response
+					? {
+							status: response.status,
+							classification: response.classification,
+							...(response.runnerWorkflowRunId
+								? { runnerWorkflowRunId: response.runnerWorkflowRunId }
+								: {}),
+						}
+					: null,
+				nextAction: ok ? "complete" : blockers.length ? "blocked" : "failed",
 				blockers,
 				nextActions,
 			});
 			printSetupStartAttemptResult({
 				json: parse.json,
-				ok: blockers.length === 0,
+				ok,
 				mode: parse.mode,
 				baseUrl,
 				endpoint,
@@ -639,192 +776,91 @@ if (command === "setup") {
 				rootPassword: rootPasswordMetadata,
 				claimToken: claimTokenMetadata,
 				payloadShape,
+				response,
 				blockers,
 				needsUser,
 				nextActions,
 				elapsedMs: Date.now() - start,
 			});
-			process.exit(0);
+			process.exit(ok ? 0 : 1);
 		}
 
-		if (!parse.apply || !parse.yes || !parse.useRootPassword) {
-			console.error(
-				"Apply mode requires --apply, --yes, and --use-root-password. Use neither for dry-run.",
-			);
-			process.exit(1);
-		}
-
-		if (!rootPassword) {
-			blockers.push(
-				"ROOT_PASSWORD is missing from process env or apps/app/.env.local.",
-			);
-			nextActions.push("Set ROOT_PASSWORD and rerun the same command.");
-		}
-
-		let resolvedClaimToken = claimTokenLocal?.value ?? null;
-		if (!resolvedClaimToken && rootPassword && runDetailEndpoint) {
-			const runLookup = await fetchRunClaimToken({
-				endpoint: runDetailEndpoint,
-				token: rootPassword.value,
-			});
-			if (runLookup.status !== 200 || !runLookup.claimToken) {
-				blockers.push(
-					runLookup.status === null
-						? "Failed to fetch run detail."
-						: runLookup.claimToken
-							? "Run detail response parsing failed."
-							: "Run detail did not include a claimToken.",
-				);
-				nextActions.push(
-					"Confirm the URL and run ID, then rerun with --apply --yes --use-root-password.",
-				);
-			} else {
-				resolvedClaimToken = runLookup.claimToken;
-				claimTokenMetadata.available = true;
-				claimTokenMetadata.source = "run-detail";
+		if (subcommand === "check-projects") {
+			handledSetupCommand = true;
+			const parse = parseSetupCheckProjectsArgs(cliArgs);
+			if (parse.ok === false) {
+				console.error(parse.error);
+				process.exit(1);
 			}
-		}
-
-		if (!resolvedClaimToken && !claimTokenLocal) {
-			needsUser.push(
-				"Set RHAPSODY_CLAIM_TOKEN in process env or apps/app/.env.local.",
-			);
-		}
-
-		let response: StartAttemptPostResponse | null = null;
-		if (
-			blockers.length === 0 &&
-			endpoint &&
-			resolvedClaimToken &&
-			rootPassword
-		) {
-			response = await postStartAttempt({
-				endpoint,
-				token: rootPassword.value,
-				claimToken: resolvedClaimToken,
+			const readiness = collectProjectReadiness();
+			printSetupCheckProjects({ json: parse.json, readiness });
+			recordSetupState({
+				command: "check-projects",
+				nextAction: readiness.ok ? "complete" : "blocked",
+				statePath: readiness.statePath,
+				blockers: readiness.blockers,
+				nextActions: readiness.nextActions,
+				github: {
+					installed: readiness.github.installed,
+					authTokenPresent: readiness.github.authTokenPresent,
+					remoteUrl: readiness.github.remoteUrl,
+					repository: readiness.github.repository,
+					repoReadable: readiness.github.repoReadable,
+					repoSummary: readiness.github.repoSummary,
+				},
+				vercel: {
+					installed: readiness.vercel.installed,
+					tokenPresent: readiness.vercel.tokenPresent,
+					projectLink: readiness.vercel.projectLink,
+				},
 			});
+			process.exit(readiness.ok ? 0 : 1);
 		}
-
-		const ok = response?.classification === "ok";
-		if (!ok && response) {
-			if (response.classification === "validation-error") {
-				blockers.push("Preview rejected the payload with 400 validation.");
-			} else if (response.classification === "unauthorized") {
-				blockers.push("Preview rejected ROOT_PASSWORD with 401.");
-			} else if (response.classification === "not-found") {
-				blockers.push("Run or attempt was not found.");
-			} else if (response.classification === "already-started") {
-				nextActions.push(
-					"The attempt already exists; inspect dashboard state.",
-				);
-			} else if (
-				response.classification === "network-error" ||
-				response.classification === "server-error"
-			) {
-				blockers.push("Request failed at the preview endpoint.");
-			} else {
-				blockers.push(`Request failed with ${response.classification}.`);
+		if (subcommand === "create-first-issue") {
+			handledSetupCommand = true;
+			const parse = parseSetupCreateFirstIssueArgs(cliArgs);
+			if (parse.ok === false) {
+				console.error(parse.error);
+				process.exit(1);
 			}
-		}
 
-		if (response && !ok) {
-			nextActions.push(
-				"Check the preview URL and run/attempt IDs, then retry with valid auth.",
-			);
-		}
-		if (ok) {
-			nextActions.push(
-				"Attempt start accepted. Verify the run in the dashboard and continue to monitoring.",
-			);
-		}
+			const plan = buildCreateFirstIssuePlan({
+				parse: parse as ParseSetupCreateFirstIssueSuccess,
+				statePath: getSetupStatePath(),
+			});
+			if (plan.mode === "dry-run") {
+				recordSetupState({
+					command: "create-first-issue",
+					mode: plan.mode,
+					statePath: plan.statePath,
+					repository: plan.repository,
+					title: plan.title,
+					bodyPreview: plan.bodyPreview,
+					blockers: plan.blockers,
+					nextAction: plan.blockers.length ? "blocked" : "ready",
+					nextActions: plan.nextActions,
+				});
+				printCreateFirstIssueResult({ json: parse.json, plan });
+				process.exit(plan.blockers.length ? 1 : 0);
+			}
 
-		recordSetupState({
-			command: "start-attempt",
-			mode: parse.mode,
-			baseUrl,
-			endpoint,
-			runId: parse.runId,
-			attemptId: parse.attemptId,
-			rootPassword: rootPasswordMetadata,
-			claimToken: claimTokenMetadata,
-			response: response
-				? {
-						status: response.status,
-						classification: response.classification,
-						...(response.runnerWorkflowRunId
-							? { runnerWorkflowRunId: response.runnerWorkflowRunId }
-							: {}),
-					}
-				: null,
-			nextAction: ok ? "complete" : blockers.length ? "blocked" : "failed",
-			blockers,
-			nextActions,
-		});
-		printSetupStartAttemptResult({
-			json: parse.json,
-			ok,
-			mode: parse.mode,
-			baseUrl,
-			endpoint,
-			runId: parse.runId,
-			attemptId: parse.attemptId,
-			statePath,
-			rootPassword: rootPasswordMetadata,
-			claimToken: claimTokenMetadata,
-			payloadShape,
-			response,
-			blockers,
-			needsUser,
-			nextActions,
-			elapsedMs: Date.now() - start,
-		});
-		process.exit(ok ? 0 : 1);
-	}
+			if (plan.blockers.length > 0) {
+				recordSetupState({
+					command: "create-first-issue",
+					mode: plan.mode,
+					statePath: plan.statePath,
+					repository: plan.repository,
+					title: plan.title,
+					bodyPreview: plan.bodyPreview,
+					blockers: plan.blockers,
+					nextAction: "blocked",
+					nextActions: plan.nextActions,
+				});
+				printCreateFirstIssueResult({ json: parse.json, plan });
+				process.exit(1);
+			}
 
-	if (subcommand === "check-projects") {
-		handledSetupCommand = true;
-		const parse = parseSetupCheckProjectsArgs(cliArgs);
-		if (parse.ok === false) {
-			console.error(parse.error);
-			process.exit(1);
-		}
-		const readiness = collectProjectReadiness();
-		printSetupCheckProjects({ json: parse.json, readiness });
-		recordSetupState({
-			command: "check-projects",
-			nextAction: readiness.ok ? "complete" : "blocked",
-			statePath: readiness.statePath,
-			blockers: readiness.blockers,
-			nextActions: readiness.nextActions,
-			github: {
-				installed: readiness.github.installed,
-				authTokenPresent: readiness.github.authTokenPresent,
-				remoteUrl: readiness.github.remoteUrl,
-				repository: readiness.github.repository,
-				repoReadable: readiness.github.repoReadable,
-				repoSummary: readiness.github.repoSummary,
-			},
-			vercel: {
-				installed: readiness.vercel.installed,
-				tokenPresent: readiness.vercel.tokenPresent,
-				projectLink: readiness.vercel.projectLink,
-			},
-		});
-		process.exit(readiness.ok ? 0 : 1);
-	}
-	if (subcommand === "create-first-issue") {
-		handledSetupCommand = true;
-		const parse = parseSetupCreateFirstIssueArgs(cliArgs);
-		if (parse.ok === false) {
-			console.error(parse.error);
-			process.exit(1);
-		}
-
-		const plan = buildCreateFirstIssuePlan({
-			parse: parse as ParseSetupCreateFirstIssueSuccess,
-			statePath: getSetupStatePath(),
-		});
-		if (plan.mode === "dry-run") {
+			const apply = runCreateFirstIssueApply(plan);
 			recordSetupState({
 				command: "create-first-issue",
 				mode: plan.mode,
@@ -832,118 +868,50 @@ if (command === "setup") {
 				repository: plan.repository,
 				title: plan.title,
 				bodyPreview: plan.bodyPreview,
-				blockers: plan.blockers,
-				nextAction: plan.blockers.length ? "blocked" : "ready",
-				nextActions: plan.nextActions,
-			});
-			printCreateFirstIssueResult({ json: parse.json, plan });
-			process.exit(plan.blockers.length ? 1 : 0);
-		}
-
-		if (plan.blockers.length > 0) {
-			recordSetupState({
-				command: "create-first-issue",
-				mode: plan.mode,
-				statePath: plan.statePath,
-				repository: plan.repository,
-				title: plan.title,
-				bodyPreview: plan.bodyPreview,
-				blockers: plan.blockers,
-				nextAction: "blocked",
-				nextActions: plan.nextActions,
-			});
-			printCreateFirstIssueResult({ json: parse.json, plan });
-			process.exit(1);
-		}
-
-		const apply = runCreateFirstIssueApply(plan);
-		recordSetupState({
-			command: "create-first-issue",
-			mode: plan.mode,
-			statePath: plan.statePath,
-			repository: plan.repository,
-			title: plan.title,
-			bodyPreview: plan.bodyPreview,
-			issue: apply.issue,
-			blockers: apply.blockers,
-			nextAction: apply.ok ? "complete" : "failed",
-			nextActions: apply.nextActions,
-		});
-		printCreateFirstIssueResult({
-			json: parse.json,
-			plan: {
-				...plan,
-				ok: apply.ok,
 				issue: apply.issue,
 				blockers: apply.blockers,
+				nextAction: apply.ok ? "complete" : "failed",
 				nextActions: apply.nextActions,
-			},
-		});
-		process.exit(apply.ok ? 0 : 1);
-	}
-	if (subcommand === "plan") {
-		handledSetupCommand = true;
-		const parse = parseSetupPlanArgs(cliArgs);
-		if (parse.ok === false) {
-			console.error(parse.error);
-			process.exit(1);
-		}
-		const { json } = parse;
-		const region = parse.region;
-		const status = collectSetupStatus();
-		const planned = buildSetupPlan({ status, region });
-		printSetupPlan({ json, plan: planned });
-		process.exit(planned.ok ? 0 : 0);
-	}
-	if (subcommand === "deploy-preview") {
-		handledSetupCommand = true;
-		const parse = parseDeployPreviewArgs(cliArgs);
-		if (parse.ok === false) {
-			console.error(parse.error);
-			process.exit(1);
-		}
-
-		const status = collectSetupStatus();
-		const plan = buildDeployPreviewPlan({ status });
-		const mode = parse.dryRun ? "dry-run" : "apply";
-		const statePath = plan.statePath;
-
-		recordSetupState({
-			command: "deploy-preview",
-			mode,
-			appRoot: plan.appRoot,
-			statePath,
-			plannedCommands: plan.plannedCommands,
-			blockers: plan.blockers,
-			before: {
-				commandCount: plan.plannedCommands.length,
-			},
-			nextAction: plan.ok ? "ready" : "blocked",
-		});
-
-		if (!parse.dryRun && !parse.yes) {
-			console.error(
-				"rhapsody setup deploy-preview requires confirmation in apply mode. Pass --yes to execute.",
-			);
-			recordSetupState({
-				command: "deploy-preview",
-				mode,
-				appRoot: plan.appRoot,
-				statePath,
-				plannedCommands: plan.plannedCommands,
-				blockers: plan.blockers,
-				nextAction: "blocked",
-				nextActions: plan.nextActions,
 			});
-			process.exit(1);
-		}
-
-		if (parse.dryRun || !plan.ok) {
-			printDeployPreviewPlan({
+			printCreateFirstIssueResult({
 				json: parse.json,
-				mode,
-				plan,
+				plan: {
+					...plan,
+					ok: apply.ok,
+					issue: apply.issue,
+					blockers: apply.blockers,
+					nextActions: apply.nextActions,
+				},
 			});
+			process.exit(apply.ok ? 0 : 1);
+		}
+		if (subcommand === "plan") {
+			handledSetupCommand = true;
+			const parse = parseSetupPlanArgs(cliArgs);
+			if (parse.ok === false) {
+				console.error(parse.error);
+				process.exit(1);
+			}
+			const { json } = parse;
+			const region = parse.region;
+			const status = collectSetupStatus();
+			const planned = buildSetupPlan({ status, region });
+			printSetupPlan({ json, plan: planned });
+			process.exit(planned.ok ? 0 : 0);
+		}
+		if (subcommand === "deploy-preview") {
+			handledSetupCommand = true;
+			const parse = parseDeployPreviewArgs(cliArgs);
+			if (parse.ok === false) {
+				console.error(parse.error);
+				process.exit(1);
+			}
+
+			const status = collectSetupStatus();
+			const plan = buildDeployPreviewPlan({ status });
+			const mode = parse.dryRun ? "dry-run" : "apply";
+			const statePath = plan.statePath;
+
 			recordSetupState({
 				command: "deploy-preview",
 				mode,
@@ -951,221 +919,258 @@ if (command === "setup") {
 				statePath,
 				plannedCommands: plan.plannedCommands,
 				blockers: plan.blockers,
+				before: {
+					commandCount: plan.plannedCommands.length,
+				},
 				nextAction: plan.ok ? "ready" : "blocked",
-				nextActions: plan.nextActions,
 			});
-			process.exit(plan.ok ? 0 : 1);
-		}
 
-		const appliedSteps = [];
-		let failed = false;
-		for (const step of plan.commandPlan) {
-			const result = runCommandFromApp({
-				cwd: plan.appRoot,
-				argv: step.argv,
-			});
-			appliedSteps.push({
-				command: step.name,
-				exitCode: result.exitCode,
-				signal: result.signal,
-			});
-			if (!result.ok) {
-				failed = true;
-				break;
+			if (!parse.dryRun && !parse.yes) {
+				console.error(
+					"rhapsody setup deploy-preview requires confirmation in apply mode. Pass --yes to execute.",
+				);
+				recordSetupState({
+					command: "deploy-preview",
+					mode,
+					appRoot: plan.appRoot,
+					statePath,
+					plannedCommands: plan.plannedCommands,
+					blockers: plan.blockers,
+					nextAction: "blocked",
+					nextActions: plan.nextActions,
+				});
+				process.exit(1);
 			}
-		}
-		const ok = !failed;
-		recordSetupState({
-			command: "deploy-preview",
-			mode,
-			appRoot: plan.appRoot,
-			statePath,
-			plannedCommands: plan.plannedCommands,
-			blockers: plan.blockers,
-			appliedSteps: appliedSteps.map((step) => ({
-				command: step.command,
-				exitCode: step.exitCode,
-				signal: step.signal,
-			})),
-			nextAction: ok ? "complete" : "failed",
-			nextActions: ok
-				? ["Deployment completed. Check app logs and deployment URL."]
-				: [
-						"Re-run `rhapsody setup deploy-preview --yes` after resolving blocking issues.",
-					],
-		});
 
-		printDeployPreviewPlan({
-			json: parse.json,
-			mode,
-			plan: {
-				...plan,
+			if (parse.dryRun || !plan.ok) {
+				printDeployPreviewPlan({
+					json: parse.json,
+					mode,
+					plan,
+				});
+				recordSetupState({
+					command: "deploy-preview",
+					mode,
+					appRoot: plan.appRoot,
+					statePath,
+					plannedCommands: plan.plannedCommands,
+					blockers: plan.blockers,
+					nextAction: plan.ok ? "ready" : "blocked",
+					nextActions: plan.nextActions,
+				});
+				process.exit(plan.ok ? 0 : 1);
+			}
+
+			const appliedSteps = [];
+			let failed = false;
+			for (const step of plan.commandPlan) {
+				const result = runCommandFromApp({
+					cwd: plan.appRoot,
+					argv: step.argv,
+				});
+				appliedSteps.push({
+					command: step.name,
+					exitCode: result.exitCode,
+					signal: result.signal,
+				});
+				if (!result.ok) {
+					failed = true;
+					break;
+				}
+			}
+			const ok = !failed;
+			recordSetupState({
+				command: "deploy-preview",
+				mode,
+				appRoot: plan.appRoot,
+				statePath,
+				plannedCommands: plan.plannedCommands,
+				blockers: plan.blockers,
 				appliedSteps: appliedSteps.map((step) => ({
 					command: step.command,
 					exitCode: step.exitCode,
+					signal: step.signal,
 				})),
-			},
-		});
-		process.exit(ok ? 0 : 1);
-	}
-	if (subcommand === "wait-env") {
-		handledSetupCommand = true;
-		const parse = parseWaitEnvArgs(cliArgs);
-		if (parse.ok === false) {
-			console.error(parse.error);
-			process.exit(1);
-		}
-		const result = waitForEnv({
-			timeoutSeconds: parse.timeoutSeconds,
-			intervalSeconds: parse.intervalSeconds,
-		});
-		recordWaitEnvSetupState(result);
-		printWaitEnvResult({ json: parse.json, result });
-		process.exit(result.ok ? 0 : 1);
-	}
-	if (subcommand === "provision-turso") {
-		handledSetupCommand = true;
-		const parse = parseProvisionTursoArgs(cliArgs);
-		if (parse.ok === false) {
-			console.error(parse.error);
-			process.exit(1);
-		}
-		if (!parse.dryRun && !parse.yes) {
-			console.error(
-				"rhapsody setup provision-turso requires confirmation in apply mode. Pass --yes to execute.",
-			);
-			process.exit(1);
-		}
-
-		const plan = buildProvisionTursoPlan({ region: parse.region });
-		plan.applyConfirmationProvided = parse.yes;
-		if (!parse.dryRun && !plan.applyReady) {
-			console.error(
-				`Cannot execute apply without source .vercel/project.json at ${inferTursoProjectJsonPath()}`,
-			);
-			process.exit(1);
-		}
-		if (parse.dryRun) {
-			printProvisionTurso({
-				json: parse.json,
-				plan,
+				nextAction: ok ? "complete" : "failed",
+				nextActions: ok
+					? ["Deployment completed. Check app logs and deployment URL."]
+					: [
+							"Re-run `rhapsody setup deploy-preview --yes` after resolving blocking issues.",
+						],
 			});
-			process.exit(plan.ok ? 0 : 1);
+
+			printDeployPreviewPlan({
+				json: parse.json,
+				mode,
+				plan: {
+					...plan,
+					appliedSteps: appliedSteps.map((step) => ({
+						command: step.command,
+						exitCode: step.exitCode,
+					})),
+				},
+			});
+			process.exit(ok ? 0 : 1);
 		}
+		if (subcommand === "wait-env") {
+			handledSetupCommand = true;
+			const parse = parseWaitEnvArgs(cliArgs);
+			if (parse.ok === false) {
+				console.error(parse.error);
+				process.exit(1);
+			}
+			const result = waitForEnv({
+				timeoutSeconds: parse.timeoutSeconds,
+				intervalSeconds: parse.intervalSeconds,
+			});
+			recordWaitEnvSetupState(result);
+			printWaitEnvResult({ json: parse.json, result });
+			process.exit(result.ok ? 0 : 1);
+		}
+		if (subcommand === "provision-turso") {
+			handledSetupCommand = true;
+			const parse = parseProvisionTursoArgs(cliArgs);
+			if (parse.ok === false) {
+				console.error(parse.error);
+				process.exit(1);
+			}
+			if (!parse.dryRun && !parse.yes) {
+				console.error(
+					"rhapsody setup provision-turso requires confirmation in apply mode. Pass --yes to execute.",
+				);
+				process.exit(1);
+			}
 
-		recordSetupState({
-			command: "provision-turso",
-			mode: "apply",
-			region: parse.region,
-			applyConfirmationProvided: parse.yes,
-			before: stateSnapshot(plan.linkDir, plan.wouldWriteProjectJson),
-			after: {
-				linkDir: plan.linkDir,
-				linkDirExists: existsSync(plan.linkDir),
-				wouldWriteProjectJson: plan.wouldWriteProjectJson,
-				preparedProjectJson: existsSync(
-					path.join(plan.linkDir, ".vercel", "project.json"),
-				),
-			},
-			nextAction: "prepare-link-dir",
-		});
+			const plan = buildProvisionTursoPlan({ region: parse.region });
+			plan.applyConfirmationProvided = parse.yes;
+			if (!parse.dryRun && !plan.applyReady) {
+				console.error(
+					`Cannot execute apply without source .vercel/project.json at ${inferTursoProjectJsonPath()}`,
+				);
+				process.exit(1);
+			}
+			if (parse.dryRun) {
+				printProvisionTurso({
+					json: parse.json,
+					plan,
+				});
+				process.exit(plan.ok ? 0 : 1);
+			}
 
-		const prepared = prepareTursoLinkDirectory({
-			linkDir: plan.linkDir,
-			projectJsonPath: inferTursoProjectJsonPath(),
-		});
-		recordSetupState({
-			command: "provision-turso",
-			mode: "apply",
-			region: parse.region,
-			applyConfirmationProvided: parse.yes,
-			before: {
-				linkDir: plan.linkDir,
-				linkDirExists: existsSync(plan.linkDir),
-				wouldWriteProjectJson: plan.wouldWriteProjectJson,
-				preparedProjectJson: false,
-			},
-			after: {
-				linkDir: plan.linkDir,
-				linkDirExists: existsSync(plan.linkDir),
-				wouldWriteProjectJson: plan.wouldWriteProjectJson,
-				preparedProjectJson: prepared.prepared,
-				projectJsonTarget: prepared.projectJsonTarget,
-			},
-			nextAction: "run-command",
-		});
+			recordSetupState({
+				command: "provision-turso",
+				mode: "apply",
+				region: parse.region,
+				applyConfirmationProvided: parse.yes,
+				before: stateSnapshot(plan.linkDir, plan.wouldWriteProjectJson),
+				after: {
+					linkDir: plan.linkDir,
+					linkDirExists: existsSync(plan.linkDir),
+					wouldWriteProjectJson: plan.wouldWriteProjectJson,
+					preparedProjectJson: existsSync(
+						path.join(plan.linkDir, ".vercel", "project.json"),
+					),
+				},
+				nextAction: "prepare-link-dir",
+			});
 
-		const result = runProvisionTursoApply({
-			commandArgv: plan.commandArgv,
-			cwd: plan.linkDir,
-		});
-		recordSetupState({
-			command: "provision-turso",
-			mode: "apply",
-			region: parse.region,
-			applyConfirmationProvided: parse.yes,
-			before: {
+			const prepared = prepareTursoLinkDirectory({
 				linkDir: plan.linkDir,
-				linkDirExists: existsSync(plan.linkDir),
-				wouldWriteProjectJson: plan.wouldWriteProjectJson,
-				preparedProjectJson: prepared.prepared,
-				projectJsonTarget: prepared.projectJsonTarget,
-			},
-			after: {
-				linkDir: plan.linkDir,
-				linkDirExists: existsSync(plan.linkDir),
-				wouldWriteProjectJson: plan.wouldWriteProjectJson,
-				preparedProjectJson: prepared.prepared,
-				projectJsonTarget: prepared.projectJsonTarget,
+				projectJsonPath: inferTursoProjectJsonPath(),
+			});
+			recordSetupState({
+				command: "provision-turso",
+				mode: "apply",
+				region: parse.region,
+				applyConfirmationProvided: parse.yes,
+				before: {
+					linkDir: plan.linkDir,
+					linkDirExists: existsSync(plan.linkDir),
+					wouldWriteProjectJson: plan.wouldWriteProjectJson,
+					preparedProjectJson: false,
+				},
+				after: {
+					linkDir: plan.linkDir,
+					linkDirExists: existsSync(plan.linkDir),
+					wouldWriteProjectJson: plan.wouldWriteProjectJson,
+					preparedProjectJson: prepared.prepared,
+					projectJsonTarget: prepared.projectJsonTarget,
+				},
+				nextAction: "run-command",
+			});
+
+			const result = runProvisionTursoApply({
+				commandArgv: plan.commandArgv,
+				cwd: plan.linkDir,
+			});
+			recordSetupState({
+				command: "provision-turso",
+				mode: "apply",
+				region: parse.region,
+				applyConfirmationProvided: parse.yes,
+				before: {
+					linkDir: plan.linkDir,
+					linkDirExists: existsSync(plan.linkDir),
+					wouldWriteProjectJson: plan.wouldWriteProjectJson,
+					preparedProjectJson: prepared.prepared,
+					projectJsonTarget: prepared.projectJsonTarget,
+				},
+				after: {
+					linkDir: plan.linkDir,
+					linkDirExists: existsSync(plan.linkDir),
+					wouldWriteProjectJson: plan.wouldWriteProjectJson,
+					preparedProjectJson: prepared.prepared,
+					projectJsonTarget: prepared.projectJsonTarget,
+					exitCode: result.exitCode,
+					signal: result.signal,
+				},
 				exitCode: result.exitCode,
 				signal: result.signal,
-			},
-			exitCode: result.exitCode,
-			signal: result.signal,
-			nextAction: result.ok ? "complete" : "failed",
-		});
-		process.exit(result.ok ? 0 : 1);
-	}
-	if (subcommand === "smoke-test") {
-		handledSetupCommand = true;
-		const parse = parseSetupSmokeTestArgs(cliArgs);
-		if (parse.ok === false) {
-			console.error(parse.error);
-			process.exit(1);
+				nextAction: result.ok ? "complete" : "failed",
+			});
+			process.exit(result.ok ? 0 : 1);
 		}
-		await runSetupSmokeTest({
-			url: parse.url,
-			json: parse.json,
-			useRootPassword: parse.useRootPassword,
-		}).catch((error) => {
-			console.error(error instanceof Error ? error.message : String(error));
-			process.exit(1);
-		});
+		if (subcommand === "smoke-test") {
+			handledSetupCommand = true;
+			const parse = parseSetupSmokeTestArgs(cliArgs);
+			if (parse.ok === false) {
+				console.error(parse.error);
+				process.exit(1);
+			}
+			await runSetupSmokeTest({
+				url: parse.url,
+				json: parse.json,
+				useRootPassword: parse.useRootPassword,
+			}).catch((error) => {
+				console.error(error instanceof Error ? error.message : String(error));
+				process.exit(1);
+			});
+		}
+		if (subcommand === "status") {
+			handledSetupCommand = true;
+			printSetupStatus({ json: flags.has("--json") });
+			process.exit(0);
+		}
+		if (subcommand === "--help" || subcommand === "-h") {
+			handledSetupCommand = true;
+			printSetupHelp();
+			process.exit(0);
+		}
+		if (!handledSetupCommand) {
+			printSetupPreview();
+			process.exit(0);
+		}
 	}
-	if (subcommand === "status") {
-		handledSetupCommand = true;
-		printSetupStatus({ json: flags.has("--json") });
-		process.exit(0);
-	}
-	if (subcommand === "--help" || subcommand === "-h") {
-		handledSetupCommand = true;
-		printSetupHelp();
-		process.exit(0);
-	}
-	if (!handledSetupCommand) {
-		printSetupPreview();
-		process.exit(0);
-	}
-}
 
-if (command === "help" || command === "--help" || command === "-h") {
-	printHelp();
-	process.exit(0);
-}
+	if (command === "help" || command === "--help" || command === "-h") {
+		printHelp();
+		return 0;
+	}
 
-console.error(`Unknown command: ${command}`);
-console.error("Run `rhapsody --help` for available commands.");
-process.exit(1);
+	console.error(`Unknown command: ${command}`);
+	console.error("Run `rhapsody --help` for available commands.");
+	return 1;
+}
 
 function printHelp() {
 	console.log(`Rhapsody setup CLI
@@ -4081,4 +4086,56 @@ function firstLine(value: string): string | null {
 
 function label(value: boolean): "yes" | "no" {
 	return value ? "yes" : "no";
+}
+
+export type ParsedArgs = string[];
+
+export async function runStatusCommand(args: ParsedArgs): Promise<number> {
+	return runSetupCommand(["setup", "status", ...args]);
+}
+
+export async function runPlanCommand(args: ParsedArgs): Promise<number> {
+	return runSetupCommand(["setup", "plan", ...args]);
+}
+
+export async function runCheckProjectsCommand(
+	args: ParsedArgs,
+): Promise<number> {
+	return runSetupCommand(["setup", "check-projects", ...args]);
+}
+
+export async function runWaitEnvCommand(args: ParsedArgs): Promise<number> {
+	return runSetupCommand(["setup", "wait-env", ...args]);
+}
+
+export async function runProvisionTursoCommand(
+	args: ParsedArgs,
+): Promise<number> {
+	return runSetupCommand(["setup", "provision-turso", ...args]);
+}
+
+export async function runDeployPreviewCommand(
+	args: ParsedArgs,
+): Promise<number> {
+	return runSetupCommand(["setup", "deploy-preview", ...args]);
+}
+
+export async function runSmokeTestCommand(args: ParsedArgs): Promise<number> {
+	return runSetupCommand(["setup", "smoke-test", ...args]);
+}
+
+export async function runCreateFirstIssueCommand(
+	args: ParsedArgs,
+): Promise<number> {
+	return runSetupCommand(["setup", "create-first-issue", ...args]);
+}
+
+export async function runFirstIssueCommand(args: ParsedArgs): Promise<number> {
+	return runSetupCommand(["setup", "first-issue", ...args]);
+}
+
+export async function runStartAttemptCommand(
+	args: ParsedArgs,
+): Promise<number> {
+	return runSetupCommand(["setup", "start-attempt", ...args]);
 }
