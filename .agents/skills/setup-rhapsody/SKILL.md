@@ -66,8 +66,19 @@ Treat setup as resumable phases:
    - dry-run first to confirm the endpoint, redacted payload shape, and whether the operator still
      needs to supply the claim token or root password;
    - apply only with `--apply --yes --use-root-password` when the claim token is available;
-   - verify the attempt start response, then inspect the dashboard and PR state to confirm the
-     runner workflow has started.
+   - verify the attempt start response, then run the read-only run verification helper against the
+     preview URL and run ID;
+   - use the verification output to decide whether to wait for the runner workflow, inspect the
+     dashboard for attempt and event evidence, or look for the PR handoff.
+9. `verify-run`
+   - run the read-only verification helper against the preview URL and run ID after
+     `first-attempt-start`;
+   - without `--use-root-password`, use it as a dry classification step that reports the endpoint
+     and whether an authenticated fetch is available;
+   - with `--use-root-password`, fetch `GET /api/v1/runs/:runId` and inspect the run, attempt,
+     workflow, artifact, link, and event signals without printing raw bodies or secrets;
+   - use the result to decide whether the setup flow should wait, inspect the dashboard, or look
+     for PR handoff evidence.
 
 ## Inspect Phase
 
@@ -157,6 +168,19 @@ To apply the start after setting `RHAPSODY_CLAIM_TOKEN`, run:
 
 ```bash
 pnpm setup:start-attempt -- --url <https://your-preview-url.vercel.app> --run-id <runId> --attempt-id <attemptId> --apply --yes --use-root-password
+```
+
+After the attempt starts, verify the run detail:
+
+```bash
+pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId>
+```
+
+If `ROOT_PASSWORD` is available and you want authenticated inspection, rerun with
+`--use-root-password`:
+
+```bash
+pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId> --use-root-password
 ```
 
 When using `pnpm setup:deploy-preview -- --apply --yes`, this phase is explicitly limited to:
