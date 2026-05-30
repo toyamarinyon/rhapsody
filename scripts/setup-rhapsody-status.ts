@@ -232,15 +232,26 @@ function buildNextActions(args: {
 				`Missing external inputs: ${externalInputs.missing.join(", ")}.`,
 				"Provide missing external inputs through process env or .env.local before remote configuration.",
 			);
+			if (externalInputs.missing.includes("VERCEL_TOKEN")) {
+				nextActions.push(
+					"Create a Vercel API token in Vercel account settings, then expose it as VERCEL_TOKEN for configure-deploy and deploy-preview.",
+				);
+			}
 		}
 		return nextActions;
 	}
 
 	if (recommendedNextCommand.includes("setup:configure-deploy")) {
-		return [
+		const nextActions = [
 			`Provide missing external deploy inputs through process env or .env.local: ${externalInputs.missing.join(", ")}.`,
 			"Run pnpm setup:configure-deploy -- --dry-run before any Vercel env write.",
 		];
+		if (externalInputs.missing.includes("VERCEL_TOKEN")) {
+			nextActions.push(
+				"Create a Vercel API token in Vercel account settings, then expose it as VERCEL_TOKEN for configure-deploy and deploy-preview.",
+			);
+		}
+		return nextActions;
 	}
 
 	const nextActions = [
