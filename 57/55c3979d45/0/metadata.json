@@ -1,0 +1,32 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "5755c3979d45",
+  "session_id": "019e6ee5-09b4-7430-a46a-58e27ddb4189",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-30T07:49:58.39615Z",
+  "branch": "codex-setup-seed-failure-next-actions",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "113be1769a19",
+  "token_usage": {
+    "input_tokens": 6419446,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 234826880,
+    "output_tokens": 311397,
+    "api_call_count": 1775
+  },
+  "session_metrics": {
+    "turn_count": 55
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
