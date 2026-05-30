@@ -86,7 +86,7 @@ Rhapsody keeps sensitive credentials in trusted server-side code. Sandboxed runs
 
 Deploy it quickly from Vercel Template mode:
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Ftoyamarinyon%2Frhapsody&env=ROOT_PASSWORD%2CAUTH_SECRET%2CCRON_SECRET%2CTURSO_DATABASE_URL%2CTURSO_AUTH_TOKEN%2CGITHUB_TOKEN%2CMEDIATOR_SECRET%2CVERCEL_TOKEN%2CVERCEL_TEAM_ID%2CVERCEL_PROJECT_ID)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Ftoyamarinyon%2Frhapsody&env=ROOT_PASSWORD%2CAUTH_SECRET%2CCRON_SECRET%2CTURSO_DATABASE_URL%2CTURSO_AUTH_TOKEN%2CGITHUB_TOKEN%2CMEDIATOR_SECRET%2CVERCEL_TOKEN%2CVERCEL_TEAM_ID%2CVERCEL_PROJECT_ID&envDescription=Rhapsody%20needs%20server-side%20runtime%20secrets%20and%20service%20tokens.%20Use%20the%20README%20setup%20flow%20for%20generated%20secrets%2C%20Turso%2FlibSQL%2C%20GitHub%2C%20Vercel%2C%20and%20Codex%20seed%20guidance.&envLink=https%3A%2F%2Fgithub.com%2Ftoyamarinyon%2Frhapsody%23environment-variables)
 
 This button creates/clones a Vercel project from this repo, and you still use `$setup-rhapsody` / setup helpers to complete GitHub Project setup, add Turso values, opt into Codex seed upload, run preview smoke tests, and perform the first issue handoff.
 
