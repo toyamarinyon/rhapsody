@@ -2,6 +2,7 @@
 
 import {
 	copyFileSync,
+	unlinkSync,
 	existsSync,
 	mkdirSync,
 	readFileSync,
@@ -29,6 +30,20 @@ if (command === "setup") {
 		const planned = buildSetupPlan({ status, region });
 		printSetupPlan({ json, plan: planned });
 		process.exit(planned.ok ? 0 : 0);
+	}
+	if (subcommand === "wait-env") {
+		const parse = parseWaitEnvArgs(cliArgs);
+		if (!parse.ok) {
+			console.error(parse.error);
+			process.exit(1);
+		}
+		const result = waitForEnv({
+			timeoutSeconds: parse.timeoutSeconds,
+			intervalSeconds: parse.intervalSeconds,
+		});
+		recordWaitEnvSetupState(result);
+		printWaitEnvResult({ json: parse.json, result });
+		process.exit(result.ok ? 0 : 1);
 	}
 	if (subcommand === "provision-turso") {
 		const parse = parseProvisionTursoArgs(cliArgs);
@@ -169,6 +184,7 @@ function printSetupHelp() {
   rhapsody setup
   rhapsody setup status [--json]
   rhapsody setup plan [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]
+  rhapsody setup wait-env [--json] [--timeout <seconds>] [--interval <seconds>]
   rhapsody setup provision-turso --dry-run [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]
   rhapsody setup provision-turso --yes [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]
 
@@ -237,6 +253,28 @@ Region: ${plan.region}`);
 
 	console.log("\nNext actions:");
 	for (const action of plan.nextActions) {
+		console.log(`  - ${action}`);
+	}
+}
+
+function printWaitEnvResult({ json, result }) {
+	if (json) {
+		console.log(JSON.stringify(result, null, 2));
+		return;
+	}
+
+	console.log(`Rhapsody setup wait-env
+
+Required environment keys: ${result.requiredEnvKeys.join(", ")}`);
+
+	console.log(`Timeout: ${result.timeoutSeconds}s`);
+	console.log(`Interval: ${result.intervalSeconds}s`);
+	console.log(`Present keys: ${result.presentEnvKeys.join(", ") || "none"}`);
+	console.log(`Missing keys: ${result.missingEnvKeys.join(", ") || "none"}`);
+	console.log(`Elapsed: ${result.elapsedMs}ms`);
+	console.log(`State path: ${result.statePath}`);
+	console.log(`Next actions:`);
+	for (const action of result.nextActions) {
 		console.log(`  - ${action}`);
 	}
 }
@@ -338,6 +376,207 @@ function parseRegionFlag(args) {
 		ok: true,
 		region,
 	};
+}
+
+function parseWaitEnvArgs(args) {
+	const timeoutResult = parseTimeoutFlag(args);
+	if (!timeoutResult.ok) {
+		return timeoutResult;
+	}
+	const intervalResult = parseIntervalFlag(args);
+	if (!intervalResult.ok) {
+		return intervalResult;
+	}
+	if (args.includes("--help") || args.includes("-h")) {
+		return {
+			ok: false,
+			error:
+				"Usage: rhapsody setup wait-env [--json] [--timeout <seconds>] [--interval <seconds>]",
+		};
+	}
+	return {
+		ok: true,
+		json: args.includes("--json"),
+		timeoutSeconds: timeoutResult.value,
+		intervalSeconds: intervalResult.value,
+	};
+}
+
+function parseTimeoutFlag(args) {
+	return parseIntegerSecondsFlag({
+		args,
+		name: "--timeout",
+		defaultValue: 30,
+	});
+}
+
+function parseIntervalFlag(args) {
+	return parseIntegerSecondsFlag({
+		args,
+		name: "--interval",
+		defaultValue: 3,
+		minValue: 1,
+	});
+}
+
+function parseIntegerSecondsFlag({ args, name, defaultValue, minValue = 0 }) {
+	let valueRaw = null;
+	for (let i = 0; i < args.length; i++) {
+		const arg = args[i];
+		if (arg === name) {
+			const value = args[i + 1];
+			if (!value || value.startsWith("--")) {
+				return {
+					ok: false,
+					error: `${name} requires a value in seconds.`,
+				};
+			}
+			valueRaw = value;
+			continue;
+		}
+		if (arg.startsWith(`${name}=`)) {
+			valueRaw = arg.slice(name.length + 1);
+			continue;
+		}
+	}
+	if (valueRaw === null) {
+		return { ok: true, value: defaultValue };
+	}
+	if (!/^\d+$/.test(valueRaw)) {
+		return {
+			ok: false,
+			error: `${name} must be a non-negative integer (seconds).`,
+		};
+	}
+	const value = Number.parseInt(valueRaw, 10);
+	if (!Number.isFinite(value) || value < minValue) {
+		return {
+			ok: false,
+			error:
+				minValue === 0
+					? `${name} must be a non-negative integer (seconds).`
+					: `${name} must be an integer greater than or equal to ${minValue} (seconds).`,
+		};
+	}
+	return {
+		ok: true,
+		value,
+	};
+}
+
+function waitForEnv({ timeoutSeconds, intervalSeconds }) {
+	const start = Date.now();
+	const timeoutMs = timeoutSeconds * 1000;
+	const intervalMs = intervalSeconds * 1000;
+	const requiredEnvKeys = ["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"];
+	const statePath = getSetupStatePath();
+
+	let presentEnvKeys = [];
+	let missingEnvKeys = [...requiredEnvKeys];
+	let nextActions = [];
+	while (true) {
+		const status = collectSetupStatus();
+		const observed = gatherEnvStatus({
+			status,
+			requiredEnvKeys,
+		});
+		presentEnvKeys = observed.presentEnvKeys;
+		missingEnvKeys = observed.missingEnvKeys;
+		nextActions = observed.missingEnvKeys.length
+			? [
+					"Provision Turso through Vercel Marketplace or set missing keys in .env.local.",
+					"Re-run `rhapsody setup wait-env` until all keys are available.",
+				]
+			: [
+					"Turso env vars are available.",
+					"Continue with `rhapsody setup plan` or next setup phase commands.",
+				];
+		const elapsedMs = Date.now() - start;
+		if (missingEnvKeys.length === 0) {
+			return {
+				ok: true,
+				requiredEnvKeys,
+				presentEnvKeys,
+				missingEnvKeys,
+				timeoutSeconds,
+				intervalSeconds,
+				elapsedMs,
+				statePath,
+				nextActions,
+			};
+		}
+		if (elapsedMs >= timeoutMs || timeoutMs === 0) {
+			return {
+				ok: false,
+				requiredEnvKeys,
+				presentEnvKeys,
+				missingEnvKeys,
+				timeoutSeconds,
+				intervalSeconds,
+				elapsedMs,
+				statePath,
+				nextActions,
+			};
+		}
+		if (intervalMs > 0) {
+			sleepSync(intervalMs);
+		}
+	}
+}
+
+function gatherEnvStatus({ status, requiredEnvKeys }) {
+	const localPath = path.join(status.paths.appRoot, ".env.local");
+	const env = readDotEnv(localPath);
+	const mergedEnv = { ...env };
+	const localMissing = requiredEnvKeys.filter((key) => !mergedEnv[key]);
+	if (localMissing.length > 0) {
+		const vercelPull = maybeReadVercelEnv(status);
+		for (const [key, value] of Object.entries(vercelPull)) {
+			if (!mergedEnv[key] && value) {
+				mergedEnv[key] = value;
+			}
+		}
+	}
+	const presentEnvKeys = [];
+	const missingEnvKeys = [];
+	for (const key of requiredEnvKeys) {
+		if (mergedEnv[key]) {
+			presentEnvKeys.push(key);
+		} else {
+			missingEnvKeys.push(key);
+		}
+	}
+	return { presentEnvKeys, missingEnvKeys };
+}
+
+function maybeReadVercelEnv(status) {
+	if (
+		!status.tools.vercel.installed ||
+		!status.tools.vercel.tokenPresent ||
+		!status.app.vercelProjectLink.exists
+	) {
+		return {};
+	}
+
+	const tempPath = path.join(
+		tmpdir(),
+		`rhapsody-setup-env-${Date.now()}-${Math.random().toString(16).slice(2)}.env`,
+	);
+	const result = run(
+		["vercel", "env", "pull", tempPath, "--environment=development"],
+		{
+			cwd: status.paths.appRoot,
+		},
+	);
+	if (!result.ok || !existsSync(tempPath)) {
+		if (existsSync(tempPath)) {
+			unlinkSync(tempPath);
+		}
+		return {};
+	}
+	const pulledEnv = readDotEnv(tempPath);
+	unlinkSync(tempPath);
+	return pulledEnv;
 }
 
 function buildProvisionTursoPlan({ region }) {
@@ -481,8 +720,7 @@ function buildSetupPlan({ status, region }) {
 		},
 		{
 			name: "Vercel env setup",
-			command:
-				"vercel env pull --environment=production --environment=preview --environment=development",
+			command: "rhapsody setup wait-env",
 			status: status.app.env.tursoDatabaseUrlPresent ? "ready" : "ready",
 		},
 		{
@@ -652,6 +890,19 @@ function collectSetupStatus() {
 	};
 }
 
+function recordWaitEnvSetupState(result) {
+	recordSetupState({
+		command: "wait-env",
+		nextAction: result.ok ? "complete" : "waiting-for-env",
+		requiredEnvKeys: result.requiredEnvKeys,
+		presentEnvKeys: result.presentEnvKeys,
+		missingEnvKeys: result.missingEnvKeys,
+		timeoutSeconds: result.timeoutSeconds,
+		intervalSeconds: result.intervalSeconds,
+		ok: result.ok,
+	});
+}
+
 function findWorkspaceRoot(start) {
 	let current = start;
 	while (true) {
@@ -788,9 +1039,10 @@ function readJson(filePath) {
 	}
 }
 
-function run(command) {
+function run(command, options = {}) {
 	const result = spawnSync(command[0], command.slice(1), {
 		encoding: "utf8",
+		cwd: options.cwd,
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 	return {
@@ -798,6 +1050,16 @@ function run(command) {
 		stdout: result.stdout ?? "",
 		stderr: result.stderr ?? "",
 	};
+}
+
+const sleepSyncState = { waitArray: new Int32Array(new SharedArrayBuffer(4)) };
+function sleepSync(ms) {
+	if (ms <= 0) return;
+	const end = Date.now() + ms;
+	while (Date.now() < end) {
+		const remaining = end - Date.now();
+		Atomics.wait(sleepSyncState.waitArray, 0, 0, remaining);
+	}
 }
 
 function firstLine(value) {
