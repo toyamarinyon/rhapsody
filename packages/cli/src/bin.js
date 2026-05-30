@@ -18,6 +18,36 @@ const flags = new Set(process.argv.slice(3));
 const cliArgs = process.argv.slice(3);
 
 if (command === "setup") {
+	if (subcommand === "check-projects") {
+		const parse = parseSetupCheckProjectsArgs(cliArgs);
+		if (!parse.ok) {
+			console.error(parse.error);
+			process.exit(1);
+		}
+		const readiness = collectProjectReadiness();
+		printSetupCheckProjects({ json: parse.json, readiness });
+		recordSetupState({
+			command: "check-projects",
+			nextAction: readiness.ok ? "complete" : "blocked",
+			statePath: readiness.statePath,
+			blockers: readiness.blockers,
+			nextActions: readiness.nextActions,
+			github: {
+				installed: readiness.github.installed,
+				authTokenPresent: readiness.github.authTokenPresent,
+				remoteUrl: readiness.github.remoteUrl,
+				repository: readiness.github.repository,
+				repoReadable: readiness.github.repoReadable,
+				repoSummary: readiness.github.repoSummary,
+			},
+			vercel: {
+				installed: readiness.vercel.installed,
+				tokenPresent: readiness.vercel.tokenPresent,
+				projectLink: readiness.vercel.projectLink,
+			},
+		});
+		process.exit(readiness.ok ? 0 : 1);
+	}
 	if (subcommand === "plan") {
 		const parse = parseSetupPlanArgs(cliArgs);
 		if (!parse.ok) {
@@ -295,6 +325,7 @@ function printSetupHelp() {
 	console.log(`Usage:
   rhapsody setup
   rhapsody setup status [--json]
+  rhapsody setup check-projects [--json]
   rhapsody setup plan [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]
   rhapsody setup wait-env [--json] [--timeout <seconds>] [--interval <seconds>]
   rhapsody setup deploy-preview --dry-run [--json]
@@ -334,6 +365,64 @@ Region: ${plan.region}`);
 
 	console.log("\nNext actions:");
 	for (const action of plan.nextActions) {
+		console.log(`  - ${action}`);
+	}
+}
+
+function parseSetupCheckProjectsArgs(args) {
+	if (args.includes("--help") || args.includes("-h")) {
+		return {
+			ok: false,
+			error: "Usage: rhapsody setup check-projects [--json]",
+		};
+	}
+	return {
+		ok: true,
+		json: args.includes("--json"),
+	};
+}
+
+function printSetupCheckProjects({ json, readiness }) {
+	if (json) {
+		console.log(JSON.stringify(readiness, null, 2));
+		return;
+	}
+	console.log(`Rhapsody setup check-projects`);
+	console.log(`State path: ${readiness.statePath}`);
+
+	console.log("\nGitHub:");
+	console.log(`  installed: ${label(readiness.github.installed)}`);
+	if (readiness.github.version) {
+		console.log(`  version: ${readiness.github.version}`);
+	}
+	console.log(
+		`  auth token present: ${label(readiness.github.authTokenPresent)}`,
+	);
+	console.log(`  remote URL: ${readiness.github.remoteUrl ?? "none"}`);
+	console.log(`  repository: ${readiness.github.repository ?? "unknown"}`);
+	console.log(`  repo readable: ${label(readiness.github.repoReadable)}`);
+	if (readiness.github.repoSummary) {
+		console.log(`  repo summary: ${readiness.github.repoSummary}`);
+	}
+
+	console.log("\nVercel:");
+	console.log(`  installed: ${label(readiness.vercel.installed)}`);
+	if (readiness.vercel.version) {
+		console.log(`  version: ${readiness.vercel.version}`);
+	}
+	console.log(`  token present: ${label(readiness.vercel.tokenPresent)}`);
+	console.log(
+		`  project link exists: ${label(readiness.vercel.projectLink.exists)}`,
+	);
+	console.log(
+		`  orgId present: ${label(readiness.vercel.projectLink.orgIdPresent)}`,
+	);
+	console.log(
+		`  projectId present: ${label(readiness.vercel.projectLink.projectIdPresent)}`,
+	);
+
+	console.log("\nNext actions:");
+	for (const action of readiness.nextActions) {
 		console.log(`  - ${action}`);
 	}
 }
@@ -954,8 +1043,7 @@ function buildSetupPlan({ status, region }) {
 		},
 		{
 			name: "GitHub repo/project prep",
-			command:
-				"gh repo view $(git config --get remote.origin.url) --json nameWithOwner",
+			command: "rhapsody setup check-projects --json",
 			status:
 				status.tools.gh.installed && status.tools.gh.authTokenPresent
 					? "ready"
@@ -963,7 +1051,7 @@ function buildSetupPlan({ status, region }) {
 		},
 		{
 			name: "Vercel project link/create",
-			command: "vercel link",
+			command: "rhapsody setup check-projects --json",
 			status: status.app.vercelProjectLink.exists ? "ready" : "ready",
 		},
 		{
@@ -1142,6 +1230,168 @@ function collectSetupStatus() {
 		},
 		nextActions,
 	};
+}
+
+function collectProjectReadiness() {
+	const workspaceRoot = findWorkspaceRoot(process.cwd());
+	const appRoot = path.join(workspaceRoot, "apps", "app");
+	const statePath = getSetupStatePath();
+	const env = readDotEnv(path.join(appRoot, ".env.local"));
+	const vercelProjectPath = path.join(appRoot, ".vercel", "project.json");
+	const vercelProject = readJson(vercelProjectPath);
+	const vercelToken =
+		process.env.VERCEL_TOKEN ?? env.VERCEL_TOKEN ?? readVercelTokenFromDisk();
+	const blockers = [];
+
+	const ghVersion = run(["gh", "--version"]);
+	const ghToken = run(["gh", "auth", "token"]);
+	const vercelVersion = run(["vercel", "--version"]);
+	const remoteUrl = readGitRemoteOriginUrl();
+	const repoTarget = normalizeGitRemoteTarget(remoteUrl);
+
+	const github = {
+		installed: ghVersion.ok,
+		version: firstLine(ghVersion.stdout),
+		authTokenPresent: ghToken.ok && ghToken.stdout.trim().length > 0,
+		remoteUrl,
+		repository: repoTarget,
+		repoReadable: false,
+		repoSummary: null,
+	};
+
+	if (github.installed && github.authTokenPresent && repoTarget) {
+		const repoResult = run([
+			"gh",
+			"repo",
+			"view",
+			repoTarget,
+			"--json",
+			"nameWithOwner,url,defaultBranchRef",
+		]);
+		if (repoResult.ok) {
+			try {
+				const repo = JSON.parse(repoResult.stdout);
+				github.repoReadable = true;
+				github.repository = repo.nameWithOwner ?? null;
+				github.repoSummary = [
+					repo.nameWithOwner,
+					repo.url,
+					repo.defaultBranchRef?.name,
+				]
+					.filter(Boolean)
+					.join(" | ");
+			} catch {
+				blockers.push("GitHub repo view returned non-JSON output.");
+			}
+		} else {
+			blockers.push(
+				`gh repo view could not read ${repoTarget}; check authentication and repository access.`,
+			);
+		}
+	}
+
+	if (!github.installed) {
+		blockers.push(
+			"Install the GitHub CLI (`gh`) before setup can read GitHub repository state.",
+		);
+	}
+	if (!github.authTokenPresent) {
+		blockers.push(
+			"Run `gh auth login` before setup can read repository metadata.",
+		);
+	}
+	if (!remoteUrl) {
+		blockers.push(
+			"Configure `remote.origin.url` so setup can identify the repository.",
+		);
+	}
+
+	const projectLink = {
+		exists: Boolean(vercelProject),
+		orgIdPresent:
+			typeof vercelProject?.orgId === "string" &&
+			vercelProject.orgId.length > 0,
+		projectIdPresent:
+			typeof vercelProject?.projectId === "string" &&
+			vercelProject.projectId.length > 0,
+	};
+	const vercel = {
+		installed: vercelVersion.ok,
+		version: firstLine(vercelVersion.stdout),
+		tokenPresent: Boolean(vercelToken),
+		projectLink: {
+			exists: projectLink.exists,
+			orgIdPresent: projectLink.orgIdPresent,
+			projectIdPresent: projectLink.projectIdPresent,
+		},
+	};
+	if (!vercel.installed) {
+		blockers.push(
+			"Install the Vercel CLI (`vercel`) before setup can read project linkage.",
+		);
+	}
+	if (!vercel.tokenPresent) {
+		blockers.push(
+			"Run `vercel login` or provide VERCEL_TOKEN before setup can verify project linkage.",
+		);
+	}
+	if (!vercel.projectLink.exists) {
+		blockers.push(
+			"Create or link a Vercel project (`vercel link`) before setup can proceed.",
+		);
+	}
+	if (
+		!vercel.projectLink.orgIdPresent ||
+		!vercel.projectLink.projectIdPresent
+	) {
+		blockers.push(
+			"The Vercel project link file exists but is missing orgId/projectId metadata.",
+		);
+	}
+
+	const nextActions = blockers.length
+		? [
+				"Fix blockers above, then re-run `rhapsody setup check-projects --json`.",
+				"Run `rhapsody setup check-projects` for human-readable guidance.",
+			]
+		: [
+				"GitHub and Vercel project prerequisites are ready. Run `rhapsody setup plan` to continue.",
+				"Re-run `rhapsody setup check-projects --json` after any configuration changes.",
+			];
+
+	return {
+		ok: blockers.length === 0,
+		statePath,
+		github,
+		vercel,
+		blockers,
+		nextActions,
+	};
+}
+
+function readGitRemoteOriginUrl() {
+	const result = run(["git", "config", "--get", "remote.origin.url"]);
+	return result.ok ? result.stdout.trim() : null;
+}
+
+function normalizeGitRemoteTarget(remote) {
+	const trimmed = remote?.trim();
+	if (!trimmed) return null;
+	if (trimmed.startsWith("http")) {
+		const match = trimmed.match(/github\.com\/([^/]+\/[^/?#]+)/);
+		if (match) return normalizeGithubOwnerRepo(match[1]);
+		return trimmed;
+	}
+	if (/^git@github\.com:/.test(trimmed)) {
+		const match = trimmed.match(/^git@github\.com:([^/]+\/.+)$/);
+		if (match) return normalizeGithubOwnerRepo(match[1]);
+		return trimmed;
+	}
+	return trimmed;
+}
+
+function normalizeGithubOwnerRepo(value) {
+	return value.replace(/\.git$/, "");
 }
 
 function recordWaitEnvSetupState(result) {
