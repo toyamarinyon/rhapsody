@@ -62,9 +62,13 @@ See [docs/SPEC.md](docs/SPEC.md) for the working product and engineering specifi
 
 ## Can I Try It Today?
 
-Yes, if you are comfortable wiring together Vercel, GitHub Projects v2, Turso/libSQL, and Codex credentials manually.
+Yes—if you can run the Rhapsody setup helpers and want an early-adopter onboarding path.
 
-The guided Vercel Template flow and setup skill are still in progress. For now, expect to edit `rhapsody.config.ts`, configure environment variables, run `pnpm db:migrate`, seed Codex credentials through the admin endpoint, and trigger the scheduler endpoint by hand.
+Use the setup flow in `$setup-rhapsody` (or the equivalent scripts directly): `inspect`, `configure-local`, `configure-github`, `configure-deploy`, `deploy-preview`, `smoke-test`, then the first-issue handoff path.
+
+Turso/libSQL provisioning and Codex credential seeding remain operator-controlled:
+- create and provide Turso/libSQL values (`TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`) yourself.
+- supply `INITIAL_CHATGPT_AUTH_JSON` through the trusted seed flow only when you explicitly opt in.
 
 ## How It Works
 
@@ -80,21 +84,28 @@ Rhapsody keeps sensitive credentials in trusted server-side code. Sandboxed runs
 
 ## Quick Start
 
-This is the expected happy path for a first run:
+This is the current first-run path:
 
-1. Create or choose a GitHub ProjectV2 board.
-2. Configure `rhapsody.config.ts` for your GitHub owner, repository, Project number, status field, and eligible statuses.
-3. Create a Turso/libSQL database for durable state.
-4. Copy `.env.example` to `.env.local` and fill in the required values.
-5. Run `pnpm install`.
-6. Run `pnpm db:migrate`.
-7. Deploy Rhapsody to Vercel and add the same environment variables to the Vercel project.
-8. Seed Codex ChatGPT credentials with `POST /api/v1/admin/codex-chatgpt-credentials/seed-from-env`.
-9. Add `.rhapsody/INSTRUCTIONS.md` to the target repository.
-10. Create one GitHub issue and place it in an eligible Project status.
-11. Open `/dashboard`.
-12. Trigger `POST /api/v1/admin/scheduler/tick` or wait for the configured cron.
-13. Watch Rhapsody create a run, execute Codex in Sandbox, and hand the result back as a branch and pull request.
+1. `pnpm setup:inspect` to validate local tooling and repo context.
+2. `pnpm setup:configure-local -- --dry-run`.
+3. `pnpm setup:configure-github -- --dry-run`.
+4. `pnpm setup:configure-deploy -- --dry-run`.
+5. Apply local bootstrap inputs with:
+   - `pnpm setup:configure-local -- --apply --yes`
+6. Apply project/deploy readiness with:
+   - `pnpm setup:configure-github -- --apply --yes --project-title "Rhapsody"` (if you need a new ProjectV2 board)
+   - `pnpm setup:configure-local -- --dry-run --project-number <number>` and `pnpm setup:configure-local -- --apply --yes --project-number <number>` after board creation
+   - `pnpm setup:configure-github -- --apply --yes --create-status-field` (if needed)
+   - `pnpm setup:configure-deploy -- --apply --yes`
+7. `pnpm setup:deploy-preview -- --apply --yes` (includes `pnpm db:migrate`).
+8. `pnpm setup:smoke-test -- --url <https://your-preview-url.vercel.app>`.
+9. Start the first handoff:
+   - `pnpm setup:create-first-issue -- --apply --yes --title "Rhapsody smoke test"`
+   - `pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-number <issueNumber> --apply --yes --use-root-password`
+   - `pnpm setup:start-attempt -- --url <https://your-preview-url.vercel.app> --run-id <runId> --attempt-id <attemptId> --apply --yes --use-root-password`
+10. Verify: `pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId> [--use-root-password]`.
+
+Use the `number` emitted by `setup:configure-github`, `facts.issue.number` emitted by `setup:create-first-issue`, and the `runId`/`attemptId` emitted by `setup:first-issue` in the following commands.
 
 Admin endpoints accept `Authorization: Bearer <ROOT_PASSWORD>`. Scheduler tick also accepts `Authorization: Bearer <CRON_SECRET>` when `CRON_SECRET` is configured.
 
@@ -105,7 +116,7 @@ After a successful first run, you should see:
 - A branch created in the target repository.
 - A pull request or handoff artifact linked from the run detail page.
 
-The setup experience is still being refined. Until the template flow and setup skill are complete, treat this README as an operator setup guide for early adopters.
+The setup experience is still early-adopter oriented, and security-sensitive actions (including secrets and credential seeding) remain operator-confirmed.
 
 ## Prerequisites
 
