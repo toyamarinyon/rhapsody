@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 type Check = {
@@ -172,7 +173,15 @@ function checkCommandAvailability(
 	};
 }
 
-function summarizeVercelAuth(result: ReturnType<typeof run>) {
+export function summarizeVercelAuth(result: ReturnType<typeof run>) {
+	const errnoError = result.error as NodeJS.ErrnoException | undefined;
+	if (errnoError?.code === "ETIMEDOUT") {
+		return "vercel whoami timed out after 12000ms; provide VERCEL_TOKEN, run `vercel login`, or rerun when the CLI is responsive";
+	}
+	if (result.error) {
+		return result.error.message;
+	}
+
 	if (result.status === 0) {
 		return "authenticated";
 	}
@@ -758,4 +767,6 @@ function main() {
 	process.exitCode = report.ok ? 0 : 1;
 }
 
-main();
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
+	main();
+}

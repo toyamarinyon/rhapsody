@@ -5,6 +5,7 @@ import {
 	buildConfigureDeployUnsupportedNextActions,
 	getConfigureDeployWriteKeys,
 	parseConfigureDeployArgs,
+	summarizeVercelAuth,
 } from "@/scripts/setup-rhapsody-configure-deploy";
 
 type PlannedChangeInput = Parameters<typeof buildPlannedChanges>[0];
@@ -66,6 +67,24 @@ test("builds concrete unsupported-args next actions", () => {
 		"Run `pnpm setup:configure-deploy -- --dry-run` to inspect deploy environment readiness.",
 		"Run `pnpm setup:configure-deploy -- --apply --yes` only after the dry-run blockers are resolved.",
 	]);
+});
+
+test("summarizes Vercel auth timeouts with operator recovery", () => {
+	expect(
+		summarizeVercelAuth({
+			status: null,
+			signal: "SIGTERM",
+			output: [],
+			pid: 123,
+			stdout: "",
+			stderr: "",
+			error: Object.assign(new Error("spawnSync vercel ETIMEDOUT"), {
+				code: "ETIMEDOUT",
+			}),
+		}),
+	).toBe(
+		"vercel whoami timed out after 12000ms; provide VERCEL_TOKEN, run `vercel login`, or rerun when the CLI is responsive",
+	);
 });
 
 test("builds concrete blocked next actions for missing deploy prerequisites", () => {

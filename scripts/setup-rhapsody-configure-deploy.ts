@@ -353,7 +353,11 @@ function checkCommandAvailability(
 	};
 }
 
-function summarizeVercelAuth(result: ReturnType<typeof run>) {
+export function summarizeVercelAuth(result: ReturnType<typeof run>) {
+	const errnoError = result.error as NodeJS.ErrnoException | undefined;
+	if (errnoError?.code === "ETIMEDOUT") {
+		return "vercel whoami timed out after 12000ms; provide VERCEL_TOKEN, run `vercel login`, or rerun when the CLI is responsive";
+	}
 	if (result.error) {
 		return result.error.message;
 	}
