@@ -1,0 +1,23 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "0db1a9bd4128",
+  "strategy": "manual-commit",
+  "branch": "codex-configure-github-project-create",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/0d/b1a9bd4128/0/metadata.json",
+      "transcript": "/0d/b1a9bd4128/0/full.jsonl",
+      "content_hash": "/0d/b1a9bd4128/0/content_hash.txt",
+      "prompt": "/0d/b1a9bd4128/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 61501,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2863744,
+    "output_tokens": 20102,
+    "api_call_count": 50
+  }
+}
