@@ -8,6 +8,16 @@ type Check = {
 	detail: string;
 };
 
+type AppliedChange = {
+	kind: string;
+	target: string;
+	action: string;
+	detail: string;
+	wrote: boolean;
+};
+
+type Mode = "dry-run" | "apply";
+
 type PlannedChange = {
 	kind: string;
 	target: string;
@@ -84,16 +94,31 @@ type Facts = {
 
 type Report = {
 	ok: boolean;
-	mode: "dry-run";
+	mode: Mode;
 	phase: "configure-github";
 	error?: string;
 	facts: Facts;
 	checks: Check[];
 	plannedChanges: PlannedChange[];
+	appliedChanges?: AppliedChange[];
 	needsUser: string[];
 	blocked: string[];
 	nextActions: string[];
 };
+
+type ParsedArgs =
+	| {
+			mode: "dry-run";
+	  }
+	| {
+			mode: "apply";
+			projectTitle: string;
+	  };
+
+function normalizeFlags(argv: string[]) {
+	const flags = argv.slice(2);
+	return flags[0] === "--" ? flags.slice(1) : flags;
+}
 
 function run(command: string, args: string[], timeout = 12_000) {
 	return spawnSync(command, args, {
@@ -164,7 +189,7 @@ function unsupportedArgsError() {
 			mode: "dry-run",
 			phase: "configure-github",
 			error:
-				"Unsupported arguments. This helper supports no args or --dry-run.",
+				"Unsupported arguments. Supported forms: no args, --dry-run, -- --dry-run, --apply --yes --project-title <title>, -- --apply --yes --project-title <title>.",
 			facts: {
 				git: {
 					branch: null,
@@ -236,20 +261,100 @@ function unsupportedArgsError() {
 }
 
 function parseMode(argv: string[]) {
-	const flags = argv.slice(2);
+	const flags = normalizeFlags(argv);
 
 	if (flags.length === 0) {
-		return "dry-run" as const;
+		return {
+			mode: "dry-run",
+		} as ParsedArgs;
+	}
+
+	if (flags.length === 1 && flags[0] === "--dry-run") {
+		return {
+			mode: "dry-run",
+		} as ParsedArgs;
 	}
 
 	if (
-		(flags.length === 1 && flags[0] === "--dry-run") ||
-		(flags.length === 2 && flags[0] === "--" && flags[1] === "--dry-run")
+		flags.length === 4 &&
+		flags[0] === "--apply" &&
+		flags[1] === "--yes" &&
+		flags[2] === "--project-title" &&
+		flags[3].trim().length > 0
 	) {
-		return "dry-run" as const;
+		return {
+			mode: "apply",
+			projectTitle: flags[3],
+		} as ParsedArgs;
 	}
 
 	return null;
+}
+
+function createGithubProject(owner: string, title: string) {
+	const result = run("gh", [
+		"project",
+		"create",
+		"--owner",
+		owner,
+		"--title",
+		title,
+		"--format",
+		"json",
+	]);
+
+	if (result.status !== 0) {
+		return {
+			ok: false as const,
+			attempted: true,
+			project: {
+				title,
+				id: null as string | null,
+				number: null as number | null,
+				url: null as string | null,
+			},
+			errorSummary:
+				(result.stderr || result.stdout || result.error?.message || "failed")
+					.toString()
+					.trim() || "gh project create failed",
+		};
+	}
+
+	try {
+		const parsed = JSON.parse(result.stdout) as {
+			id?: string;
+			title?: string;
+			number?: number;
+			url?: string;
+		};
+
+		return {
+			ok: true as const,
+			attempted: true,
+			project: {
+				title: parsed.title ?? title,
+				id: parsed.id ?? null,
+				number: parsed.number ?? null,
+				url: parsed.url ?? null,
+			},
+			errorSummary: null as string | null,
+		};
+	} catch (error) {
+		return {
+			ok: false as const,
+			attempted: true,
+			project: {
+				title,
+				id: null as string | null,
+				number: null as number | null,
+				url: null as string | null,
+			},
+			errorSummary:
+				error instanceof Error
+					? error.message
+					: "gh project create did not return valid JSON",
+		};
+	}
 }
 
 function redactGitRemoteUrl(remoteUrl: string | null) {
@@ -715,11 +820,25 @@ query($owner: String!, $projectNumber: Int!) {
 }
 
 function main() {
-	const mode = parseMode(process.argv);
-	if (!mode) {
+	const parsedArgs = parseMode(process.argv);
+	if (!parsedArgs) {
 		unsupportedArgsError();
 		return;
 	}
+	const mode = parsedArgs.mode;
+	const applyMode = parsedArgs.mode === "apply";
+	const applyProjectTitle =
+		parsedArgs.mode === "apply" ? parsedArgs.projectTitle : null;
+
+	const needsUser: string[] = [];
+	const blocked: string[] = [];
+	const appliedChanges: AppliedChange[] = [];
+	let createdProject: {
+		title: string;
+		id: string | null;
+		url: string | null;
+		number: number | null;
+	} | null = null;
 
 	const remote = readGitRemote();
 	const branch = readGitBranch();
@@ -766,6 +885,8 @@ function main() {
 	const projectIdentified =
 		localConfig.projectTarget.kind === "github_project" &&
 		typeof localConfig.projectTarget.projectNumber === "number";
+	const projectTargetHasNumber =
+		localConfig.projectTarget.projectNumber !== null;
 	const projectOwner = localConfig.projectTarget.owner ?? remote?.owner ?? null;
 	const projectRepository =
 		localConfig.projectTarget.repository ?? remote?.repository ?? null;
@@ -915,9 +1036,6 @@ function main() {
 		},
 	];
 
-	const needsUser: string[] = [];
-	const blocked: string[] = [];
-
 	if (!remote?.owner || !remote.repository) {
 		needsUser.push(
 			"Confirm the GitHub repository owner and name, or fix the origin remote so it can be inferred.",
@@ -940,7 +1058,7 @@ function main() {
 		blocked.push("gh repo view could not read the repository.");
 	}
 
-	if (!projectIdentified) {
+	if (!projectIdentified && !applyMode) {
 		if (localConfig.projectTarget.kind === "github_project") {
 			needsUser.push(
 				"Provide the GitHub ProjectV2 identifier or project selection in local config before an apply phase.",
@@ -965,6 +1083,62 @@ function main() {
 		needsUser.push(
 			`The configured tracker target points at ${projectOwner}/${projectRepository}, which differs from the git remote ${remote?.owner}/${remote?.repository}.`,
 		);
+		if (applyMode) {
+			blocked.push(
+				"Apply is blocked because configured tracker owner/repository differs from the git remote.",
+			);
+		}
+	}
+
+	if (applyMode) {
+		if (!applyProjectTitle) {
+			unsupportedArgsError();
+			return;
+		}
+
+		if (projectTargetHasNumber) {
+			blocked.push(
+				"Local config already includes a ProjectV2 number; this helper does not overwrite existing local project targets.",
+			);
+		}
+
+		if (!projectOwner) {
+			blocked.push(
+				"Project owner could not be resolved from local config or repository remote.",
+			);
+		}
+
+		if (!repoView.accessible) {
+			blocked.push(
+				"Repository access must be verified before creating a ProjectV2.",
+			);
+		}
+
+		if (!projectTargetHasNumber && !blocked.length && projectOwner) {
+			const creation = createGithubProject(projectOwner, applyProjectTitle);
+			appliedChanges.push({
+				kind: "project-create",
+				target: `GitHub ProjectV2 (${projectOwner})`,
+				action: `Create GitHub ProjectV2 titled ${applyProjectTitle}`,
+				detail: creation.ok
+					? creation.project.number
+						? `created #${creation.project.number}`
+						: "created"
+					: (creation.errorSummary ?? "creation blocked"),
+				wrote: creation.ok,
+			});
+
+			if (!creation.ok) {
+				blocked.push(
+					creation.errorSummary ?? "GitHub ProjectV2 creation failed.",
+				);
+			} else {
+				createdProject = creation.project;
+				needsUser.push(
+					"Field/status reconciliation remains a later/manual step; configure status field names and active/terminal options manually.",
+				);
+			}
+		}
 	}
 
 	if (projectRemote.queried && !projectRemote.exists) {
@@ -990,33 +1164,50 @@ function main() {
 		);
 	}
 
-	const plannedChanges: PlannedChange[] = [
-		{
-			kind: "project-bootstrap",
-			target: "GitHub ProjectV2",
-			action:
-				"Inspect or prepare the repository's ProjectV2 configuration before any creation or mutation step.",
-			reason:
-				"This dry-run helper is read-only and exists to decide whether an apply phase can safely proceed.",
-			requiresUserConfirmation: true,
-			wouldWrite: false,
-		},
-		{
-			kind: "config-resolution",
-			target: "local config hints",
-			action:
-				"Use rhapsody.config.ts and .rhapsody/config.toml hints to resolve the intended project identity.",
-			reason:
-				"GitHub Project setup should only advance once the intended board is known.",
-			requiresUserConfirmation: false,
-			wouldWrite: false,
-		},
-	];
+	const plannedChanges: PlannedChange[] = applyMode
+		? [
+				{
+					kind: "project-create",
+					target: `GitHub ProjectV2 (${projectOwner ?? "owner"})`,
+					action: `Create a new GitHub ProjectV2 titled ${applyProjectTitle ?? "<unknown>"}`,
+					reason:
+						"This apply path only creates the board; status field/options reconciliation remains a manual step.",
+					requiresUserConfirmation: true,
+					wouldWrite: true,
+				},
+			]
+		: [
+				{
+					kind: "project-bootstrap",
+					target: "GitHub ProjectV2",
+					action:
+						"Inspect or prepare the repository's ProjectV2 configuration before any creation or mutation step.",
+					reason:
+						"This dry-run helper is read-only and exists to decide whether an apply phase can safely proceed.",
+					requiresUserConfirmation: true,
+					wouldWrite: false,
+				},
+				{
+					kind: "config-resolution",
+					target: "local config hints",
+					action:
+						"Use rhapsody.config.ts and .rhapsody/config.toml hints to resolve the intended project identity.",
+					reason:
+						"GitHub Project setup should only advance once the intended board is known.",
+					requiresUserConfirmation: false,
+					wouldWrite: false,
+				},
+			];
 
 	const nextActions: string[] = [];
 	if (blocked.length > 0) {
 		nextActions.push(
 			"Resolve the blocked CLI or auth issue, then rerun `pnpm setup:configure-github -- --dry-run`.",
+		);
+	}
+	if (createdProject) {
+		nextActions.push(
+			`Created ProjectV2 #${createdProject.number ?? "<unknown>"} (${createdProject.title}). Manually set tracker.projectNumber in rhapsody.config.ts; field/status reconciliation remains manual.`,
 		);
 	}
 	if (needsUser.length > 0) {
@@ -1032,7 +1223,7 @@ function main() {
 
 	const report: Report = {
 		ok: blocked.length === 0,
-		mode: "dry-run",
+		mode,
 		phase: "configure-github",
 		facts: {
 			git: {
@@ -1063,13 +1254,13 @@ function main() {
 					? projectListing.summary
 					: null,
 				remote: {
-					attempted: projectRemote.attempted,
-					queried: projectRemote.queried,
-					exists: projectRemote.exists,
-					id: projectRemote.id,
-					title: projectRemote.title,
-					url: projectRemote.url,
-					number: projectRemote.number,
+					attempted: createdProject ? true : projectRemote.attempted,
+					queried: createdProject ? true : projectRemote.queried,
+					exists: createdProject ? true : projectRemote.exists,
+					id: createdProject ? createdProject.id : projectRemote.id,
+					title: createdProject ? createdProject.title : projectRemote.title,
+					url: createdProject ? createdProject.url : projectRemote.url,
+					number: createdProject ? createdProject.number : projectRemote.number,
 					statusField: projectRemote.statusField,
 					missingStatusOptions: projectRemote.missingStatusOptions,
 					errorSummary: projectRemote.errorSummary,
@@ -1079,6 +1270,7 @@ function main() {
 		},
 		checks,
 		plannedChanges,
+		appliedChanges: appliedChanges.length > 0 ? appliedChanges : undefined,
 		needsUser,
 		blocked,
 		nextActions,
