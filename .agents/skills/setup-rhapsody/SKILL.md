@@ -114,6 +114,16 @@ This apply mode is intentionally narrow: it only appends missing generated local
 `.env.local`, never writes external inputs, never overwrites existing keys, and requires the
 explicit confirmation flags.
 
+After creating or confirming a GitHub ProjectV2 board, persist only the board number with:
+
+```bash
+pnpm setup:configure-local -- --dry-run --project-number <number>
+pnpm setup:configure-local -- --apply --yes --project-number <number>
+```
+
+That mode updates only `rhapsody.config.ts` for local bootstrap continuity and requires no
+remote state writes.
+
 Before any GitHub Project creation or detection work, run the read-only GitHub bootstrap probe:
 
 ```bash
@@ -134,6 +144,7 @@ Apply mode only creates a new ProjectV2 board at the resolved owner when all of 
 - a non-empty `--project-title` is provided
 
 Created project metadata is reported in `project.remote` output (`number`, `id`, `url`, `title`) for a later helper or operator to persist in `rhapsody.config.ts`.
+Persist that value with `setup:configure-local -- --apply --yes --project-number <number>`.
 
 This helper does not create fields or modify status options; field/status reconciliation remains a later/manual step.
 
