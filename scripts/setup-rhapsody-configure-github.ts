@@ -113,6 +113,10 @@ type ParsedArgs =
 	| {
 			mode: "apply";
 			projectTitle: string;
+	  }
+	| {
+			mode: "apply";
+			createStatusField: true;
 	  };
 
 function normalizeFlags(argv: string[]) {
@@ -189,7 +193,7 @@ function unsupportedArgsError() {
 			mode: "dry-run",
 			phase: "configure-github",
 			error:
-				"Unsupported arguments. Supported forms: no args, --dry-run, -- --dry-run, --apply --yes --project-title <title>, -- --apply --yes --project-title <title>.",
+				"Unsupported arguments. Supported forms: no args, --dry-run, -- --dry-run, --apply --yes --project-title <title>, -- --apply --yes --project-title <title>, --apply --yes --create-status-field, -- --apply --yes --create-status-field.",
 			facts: {
 				git: {
 					branch: null,
@@ -288,6 +292,18 @@ function parseMode(argv: string[]) {
 		} as ParsedArgs;
 	}
 
+	if (
+		flags.length === 3 &&
+		flags[0] === "--apply" &&
+		flags[1] === "--yes" &&
+		flags[2] === "--create-status-field"
+	) {
+		return {
+			mode: "apply",
+			createStatusField: true,
+		} as ParsedArgs;
+	}
+
 	return null;
 }
 
@@ -353,6 +369,67 @@ function createGithubProject(owner: string, title: string) {
 				error instanceof Error
 					? error.message
 					: "gh project create did not return valid JSON",
+		};
+	}
+}
+
+function createStatusField(
+	owner: string,
+	projectNumber: number,
+	statusFieldName: string,
+	options: string[],
+) {
+	const result = run("gh", [
+		"project",
+		"field-create",
+		projectNumber.toString(),
+		"--owner",
+		owner,
+		"--name",
+		statusFieldName,
+		"--data-type",
+		"SINGLE_SELECT",
+		"--single-select-options",
+		options.join(","),
+		"--format",
+		"json",
+	]);
+
+	if (result.status !== 0) {
+		return {
+			ok: false as const,
+			attempted: true,
+			field: {
+				name: statusFieldName,
+			},
+			errorSummary:
+				(result.stderr || result.stdout || result.error?.message || "failed")
+					.toString()
+					.trim() || "gh project field-create failed",
+		};
+	}
+
+	try {
+		JSON.parse(result.stdout);
+		return {
+			ok: true as const,
+			attempted: true,
+			field: {
+				name: statusFieldName,
+			},
+			errorSummary: null as string | null,
+		};
+	} catch (error) {
+		return {
+			ok: false as const,
+			attempted: true,
+			field: {
+				name: statusFieldName,
+			},
+			errorSummary:
+				error instanceof Error
+					? error.message
+					: "gh project field-create did not return valid JSON",
 		};
 	}
 }
@@ -828,7 +905,13 @@ function main() {
 	const mode = parsedArgs.mode;
 	const applyMode = parsedArgs.mode === "apply";
 	const applyProjectTitle =
-		parsedArgs.mode === "apply" ? parsedArgs.projectTitle : null;
+		parsedArgs.mode === "apply" && "projectTitle" in parsedArgs
+			? parsedArgs.projectTitle
+			: null;
+	const applyCreateStatusField =
+		parsedArgs.mode === "apply" &&
+		"createStatusField" in parsedArgs &&
+		parsedArgs.createStatusField === true;
 
 	const needsUser: string[] = [];
 	const blocked: string[] = [];
@@ -839,6 +922,7 @@ function main() {
 		url: string | null;
 		number: number | null;
 	} | null = null;
+	let createdStatusField = false;
 
 	const remote = readGitRemote();
 	const branch = readGitBranch();
@@ -1091,52 +1175,144 @@ function main() {
 	}
 
 	if (applyMode) {
-		if (!applyProjectTitle) {
+		if (!applyProjectTitle && !applyCreateStatusField) {
 			unsupportedArgsError();
 			return;
 		}
 
-		if (projectTargetHasNumber) {
-			blocked.push(
-				"Local config already includes a ProjectV2 number; this helper does not overwrite existing local project targets.",
-			);
-		}
-
-		if (!projectOwner) {
-			blocked.push(
-				"Project owner could not be resolved from local config or repository remote.",
-			);
-		}
-
-		if (!repoView.accessible) {
-			blocked.push(
-				"Repository access must be verified before creating a ProjectV2.",
-			);
-		}
-
-		if (!projectTargetHasNumber && !blocked.length && projectOwner) {
-			const creation = createGithubProject(projectOwner, applyProjectTitle);
-			appliedChanges.push({
-				kind: "project-create",
-				target: `GitHub ProjectV2 (${projectOwner})`,
-				action: `Create GitHub ProjectV2 titled ${applyProjectTitle}`,
-				detail: creation.ok
-					? creation.project.number
-						? `created #${creation.project.number}`
-						: "created"
-					: (creation.errorSummary ?? "creation blocked"),
-				wrote: creation.ok,
-			});
-
-			if (!creation.ok) {
+		if (applyProjectTitle) {
+			if (projectTargetHasNumber) {
 				blocked.push(
-					creation.errorSummary ?? "GitHub ProjectV2 creation failed.",
+					"Local config already includes a ProjectV2 number; this helper does not overwrite existing local project targets.",
 				);
-			} else {
-				createdProject = creation.project;
-				needsUser.push(
-					"Field/status reconciliation remains a later/manual step; configure status field names and active/terminal options manually.",
+			}
+
+			if (!projectOwner) {
+				blocked.push(
+					"Project owner could not be resolved from local config or repository remote.",
 				);
+			}
+
+			if (!repoView.accessible) {
+				blocked.push(
+					"Repository access must be verified before creating a ProjectV2.",
+				);
+			}
+
+			if (!projectTargetHasNumber && !blocked.length && projectOwner) {
+				const creation = createGithubProject(projectOwner, applyProjectTitle);
+				appliedChanges.push({
+					kind: "project-create",
+					target: `GitHub ProjectV2 (${projectOwner})`,
+					action: `Create GitHub ProjectV2 titled ${applyProjectTitle}`,
+					detail: creation.ok
+						? creation.project.number
+							? `created #${creation.project.number}`
+							: "created"
+						: (creation.errorSummary ?? "creation blocked"),
+					wrote: creation.ok,
+				});
+
+				if (!creation.ok) {
+					blocked.push(
+						creation.errorSummary ?? "GitHub ProjectV2 creation failed.",
+					);
+				} else {
+					createdProject = creation.project;
+					needsUser.push(
+						"Field/status reconciliation remains a later/manual step; configure status field names and active/terminal options manually.",
+					);
+				}
+			}
+		}
+
+		if (applyCreateStatusField) {
+			const statusFieldName =
+				localConfig.projectTarget.statusField?.trim() ?? null;
+			const configuredStatuses = [
+				...localConfig.projectTarget.activeStatuses,
+				...localConfig.projectTarget.terminalStatuses,
+			];
+			const dedupedStatusOptions = Array.from(
+				new Set(
+					configuredStatuses
+						.map((status) => status.trim())
+						.filter((status) => status.length > 0),
+				),
+			);
+
+			if (!projectTargetHasNumber) {
+				blocked.push(
+					"Create-status-field mode requires a configured ProjectV2 number in local config.",
+				);
+			}
+
+			if (!projectOwner) {
+				blocked.push(
+					"Project owner could not be resolved from local config or repository remote.",
+				);
+			}
+
+			if (!repoView.accessible) {
+				blocked.push(
+					"Repository access must be verified before creating a status field.",
+				);
+			}
+
+			if (!statusFieldName) {
+				blocked.push(
+					"Configured statusField is required to create the status field.",
+				);
+			}
+
+			if (dedupedStatusOptions.length === 0) {
+				blocked.push(
+					"At least one of activeStatuses or terminalStatuses must be configured.",
+				);
+			}
+
+			if (!projectRemote.queried || !projectRemote.exists) {
+				blocked.push(
+					"The configured ProjectV2 could not be read; configure GitHub project access before creating status field.",
+				);
+			}
+
+			if (projectRemote.queried && projectRemote.statusField.exists) {
+				blocked.push(
+					`Status field ${projectRemote.statusField.name ?? statusFieldName} already exists; this mode does not mutate existing fields.`,
+				);
+			}
+
+			if (
+				!blocked.length &&
+				projectOwner &&
+				typeof localConfig.projectTarget.projectNumber === "number" &&
+				statusFieldName
+			) {
+				const fieldCreation = createStatusField(
+					projectOwner,
+					localConfig.projectTarget.projectNumber,
+					statusFieldName,
+					dedupedStatusOptions,
+				);
+				appliedChanges.push({
+					kind: "project-status-field-create",
+					target: `GitHub ProjectV2 (${projectOwner})`,
+					action: `Create status field ${statusFieldName} with ${dedupedStatusOptions.length} options`,
+					detail: fieldCreation.ok
+						? `created ${statusFieldName}`
+						: (fieldCreation.errorSummary ?? "creation blocked"),
+					wrote: fieldCreation.ok,
+				});
+
+				if (!fieldCreation.ok) {
+					blocked.push(
+						fieldCreation.errorSummary ??
+							"GitHub ProjectV2 status field creation failed.",
+					);
+				} else {
+					createdStatusField = true;
+				}
 			}
 		}
 	}
@@ -1165,17 +1341,30 @@ function main() {
 	}
 
 	const plannedChanges: PlannedChange[] = applyMode
-		? [
-				{
-					kind: "project-create",
-					target: `GitHub ProjectV2 (${projectOwner ?? "owner"})`,
-					action: `Create a new GitHub ProjectV2 titled ${applyProjectTitle ?? "<unknown>"}`,
-					reason:
-						"This apply path only creates the board; status field/options reconciliation remains a manual step.",
-					requiresUserConfirmation: true,
-					wouldWrite: true,
-				},
-			]
+		? applyProjectTitle
+			? [
+					{
+						kind: "project-create",
+						target: `GitHub ProjectV2 (${projectOwner ?? "owner"})`,
+						action: `Create a new GitHub ProjectV2 titled ${applyProjectTitle ?? "<unknown>"}`,
+						reason:
+							"This apply path only creates the board; status field/options reconciliation remains a manual step.",
+						requiresUserConfirmation: true,
+						wouldWrite: true,
+					},
+				]
+			: [
+					{
+						kind: "project-status-field-create",
+						target: `GitHub ProjectV2 status field (${projectOwner ?? "owner"})`,
+						action:
+							"Create the configured status field on the configured ProjectV2 board.",
+						reason:
+							"This apply path only creates the configured missing single-select status field.",
+						requiresUserConfirmation: true,
+						wouldWrite: true,
+					},
+				]
 		: [
 				{
 					kind: "project-bootstrap",
@@ -1208,6 +1397,11 @@ function main() {
 	if (createdProject) {
 		nextActions.push(
 			`Created ProjectV2 #${createdProject.number ?? "<unknown>"} (${createdProject.title}). Manually set tracker.projectNumber in rhapsody.config.ts; field/status reconciliation remains manual.`,
+		);
+	}
+	if (createdStatusField) {
+		nextActions.push(
+			"Created the configured ProjectV2 status field. Verify configured active/terminal statuses are selectable in the board.",
 		);
 	}
 	if (needsUser.length > 0) {

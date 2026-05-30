@@ -151,6 +151,24 @@ This helper does not create fields or modify status options; field/status reconc
 In read-only mode it behaves as before and does not create or modify GitHub Projects, issues, fields, repository settings, files,
 or environment variables.
 
+After you have an existing configured ProjectV2 target with a missing status field, this helper can now also create the configured status field only:
+
+```bash
+pnpm setup:configure-github -- --apply --yes --create-status-field
+```
+
+That path is intentionally limited:
+- it only creates the configured status field on the configured ProjectV2 number when all of these are true:
+  - `gh` is available and authenticated
+  - repository access is verified
+  - `tracker.projectNumber` is set in `rhapsody.config.ts`
+  - the configured ProjectV2 can be read
+  - `tracker.statusField` is set
+  - at least one configured `activeStatuses` or `terminalStatuses` value exists
+- it requires the configured field to be missing
+- it creates a single-select field with configured `activeStatuses` + `terminalStatuses`
+- it does not modify existing fields and does not append missing options to existing fields
+
 Before any deploy-preview or remote env apply work, run the read-only deploy readiness helper:
 
 ```bash
