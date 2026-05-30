@@ -1,0 +1,23 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "7828cf838940",
+  "strategy": "manual-commit",
+  "branch": "codex-setup-start-attempt-mvp",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/78/28cf838940/0/metadata.json",
+      "transcript": "/78/28cf838940/0/full.jsonl",
+      "content_hash": "/78/28cf838940/0/content_hash.txt",
+      "prompt": "/78/28cf838940/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 174792,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2231040,
+    "output_tokens": 20028,
+    "api_call_count": 38
+  }
+}
