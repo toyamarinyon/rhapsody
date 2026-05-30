@@ -16,8 +16,9 @@ const EXTERNAL_INPUT_KEYS = [
 	"VERCEL_TOKEN",
 	"VERCEL_TEAM_ID",
 	"VERCEL_PROJECT_ID",
-	"INITIAL_CHATGPT_AUTH_JSON",
 ] as const;
+
+const CODEX_SEED_KEYS = ["INITIAL_CHATGPT_AUTH_JSON"] as const;
 
 type EnvSource = "process" | ".env.local";
 
@@ -167,7 +168,11 @@ function buildRecommendedNextCommand(args: {
 	return "pnpm setup:inspect";
 }
 
-function buildNextActions(recommendedNextCommand: string) {
+function buildNextActions(args: {
+	recommendedNextCommand: string;
+	codexSeed: EnvPresence;
+}) {
+	const { recommendedNextCommand, codexSeed } = args;
 	if (recommendedNextCommand.includes("setup:configure-local")) {
 		return [
 			"Run pnpm setup:configure-local -- --dry-run to review missing local files and generated secrets.",
@@ -182,10 +187,18 @@ function buildNextActions(recommendedNextCommand: string) {
 		];
 	}
 
-	return [
+	const nextActions = [
 		"Run pnpm setup:inspect to check local CLIs, authentication, and Git context.",
 		"Then continue with configure-local, configure-github, and configure-deploy dry-runs.",
 	];
+
+	if (codexSeed.missing.length > 0) {
+		nextActions.push(
+			"Before the first sandbox-codex run, provide INITIAL_CHATGPT_AUTH_JSON only through the explicit Codex seed flow.",
+		);
+	}
+
+	return nextActions;
 }
 
 const envLocalPath = path.join(process.cwd(), ".env.local");
@@ -211,6 +224,7 @@ const files = {
 };
 const generatedSecrets = readEnvPresence(GENERATED_SECRET_KEYS, envLocalKeys);
 const externalInputs = readEnvPresence(EXTERNAL_INPUT_KEYS, envLocalKeys);
+const codexSeed = readEnvPresence(CODEX_SEED_KEYS, envLocalKeys);
 const recommendedNextCommand = buildRecommendedNextCommand({
 	files,
 	generatedSecrets,
@@ -232,10 +246,14 @@ const report = {
 		env: {
 			generatedSecrets,
 			externalInputs,
+			codexSeed,
 		},
 	},
 	recommendedNextCommand,
-	nextActions: buildNextActions(recommendedNextCommand),
+	nextActions: buildNextActions({
+		recommendedNextCommand,
+		codexSeed,
+	}),
 };
 
 console.log(JSON.stringify(report, null, 2));
