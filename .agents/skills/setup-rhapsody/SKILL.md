@@ -109,6 +109,15 @@ This helper does not deploy, migrate, or mutate Vercel env vars. Use its JSON ou
 Vercel CLI availability, Vercel auth, local project link state, and whether the deployment-critical
 env keys are present before any apply or deploy step.
 
+When using `pnpm setup:configure-deploy -- --apply --yes`, keep scope limited to:
+- Vercel environment variables only
+- target environments: `development` and `preview`
+- no production env changes
+- no deploys
+- no migrations
+- do not overwrite existing remote keys
+- no optional env vars (runtime required only; runner seed if provided)
+
 ## Safety Rules
 
 - Do not print raw secrets.
