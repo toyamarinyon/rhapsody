@@ -11,6 +11,7 @@
 		"setup:configure-local": "node --import tsx scripts/setup-rhapsody-configure-local.ts",
 		"setup:configure-github": "node --import tsx scripts/setup-rhapsody-configure-github.ts",
 		"setup:configure-deploy": "node --import tsx scripts/setup-rhapsody-configure-deploy.ts",
+		"setup:deploy-preview": "node --import tsx scripts/setup-rhapsody-deploy-preview.ts",
 		"lint": "eslint",
 		"test": "vitest",
 		"format:check": "biome format .",
