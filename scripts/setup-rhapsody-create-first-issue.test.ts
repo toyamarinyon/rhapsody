@@ -1,0 +1,89 @@
+import { expect, test } from "vitest";
+import {
+	buildPartialIssueProjectActions,
+	parseArgs,
+	parseIssueCreateUrl,
+} from "@/scripts/setup-rhapsody-create-first-issue";
+
+test("parses GitHub issue URL and issue number from gh issue-create stdout", () => {
+	const stdout =
+		"Creating issue in repo test/repo\nhttps://github.com/example/test-repo/issues/12345\nDone\n";
+
+	expect(parseIssueCreateUrl(stdout)).toEqual({
+		ok: true,
+		issueUrl: "https://github.com/example/test-repo/issues/12345",
+		issueNumber: 12345,
+	});
+});
+
+test("fails to parse invalid gh issue-create stdout", () => {
+	expect(parseIssueCreateUrl("issue created\n")).toEqual({
+		ok: false,
+		error: "gh issue create did not print a parseable issue URL",
+	});
+});
+
+test("parses default and apply/yes arguments", () => {
+	expect(parseArgs(["node", "script.ts"])).toEqual({
+		mode: "dry-run",
+		title: null,
+		body: null,
+	});
+	expect(
+		parseArgs([
+			"node",
+			"script.ts",
+			"--",
+			"--title",
+			"Title One",
+			"--body",
+			"Body One",
+		]),
+	).toEqual({
+		mode: "dry-run",
+		title: "Title One",
+		body: "Body One",
+	});
+	expect(
+		parseArgs([
+			"node",
+			"script.ts",
+			"--apply",
+			"--yes",
+			"--title=Smoke test",
+			"--body=Body",
+		]),
+	).toEqual({
+		mode: "apply",
+		title: "Smoke test",
+		body: "Body",
+	});
+	expect(parseArgs(["node", "script.ts", "--apply"])).toEqual(null);
+	expect(parseArgs(["node", "script.ts", "--yes"])).toEqual(null);
+	expect(parseArgs(["node", "script.ts", "--unknown"])).toEqual(null);
+	expect(parseArgs(["node", "script.ts", "--title"])).toEqual(null);
+	expect(parseArgs(["node", "script.ts", "--body"])).toEqual(null);
+});
+
+test("builds partial-success follow-up actions when project item-add fails", () => {
+	const actions = buildPartialIssueProjectActions({
+		issueNumber: 77,
+		issueUrl: "https://github.com/example/test/issues/77",
+	});
+
+	expect(actions).toEqual({
+		needsUser: [
+			"Add the issue to the ProjectV2 board manually if required.",
+			"Issue was created as #77 at https://github.com/example/test/issues/77.",
+			"Continue with setup:first-issue using --issue-number 77.",
+		],
+		blocked: [
+			"The issue was created but could not be added to ProjectV2.",
+			"Issue remains available for manual recovery: #77 (https://github.com/example/test/issues/77).",
+		],
+		nextActions: [
+			"Run the issue handoff manually using the existing issue number #77 and URL https://github.com/example/test/issues/77.",
+			"Then run: pnpm setup:first-issue -- --url <preview-url> --issue-number 77.",
+		],
+	});
+});

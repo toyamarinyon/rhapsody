@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 type Check = {
 	name: string;
@@ -78,6 +79,15 @@ type ParsedArgs = {
 	body: string | null;
 };
 
+export type ParsedIssueCreateOutput = {
+	issueUrl: string;
+	issueNumber: number;
+};
+
+type ParsedIssueCreateOutputError =
+	| { ok: true; issueUrl: string; issueNumber: number }
+	| { ok: false; error: string };
+
 const DEFAULT_TITLE = "Rhapsody smoke-test issue";
 const DEFAULT_BODY =
 	"Smoke test issue created by setup:create-first-issue for first-run handoff validation.";
@@ -93,7 +103,7 @@ function normalizeFlags(argv: string[]) {
 	return flags.length > 0 && flags[0] === "--" ? flags.slice(1) : flags;
 }
 
-function parseArgs(argv: string[]): ParsedArgs | null {
+export function parseArgs(argv: string[]): ParsedArgs | null {
 	const args = normalizeFlags(argv);
 	let mode: "dry-run" | "apply" = "dry-run";
 	let hasApply = false;
@@ -165,6 +175,36 @@ function parseArgs(argv: string[]): ParsedArgs | null {
 	}
 
 	return { mode, title, body };
+}
+
+export function parseIssueCreateUrl(
+	stdout: string,
+): ParsedIssueCreateOutputError {
+	const url = stdout
+		.trim()
+		.split(/\r?\n/)
+		.find((line) => {
+			return /^https:\/\/github\.com\/[^/]+\/[^/]+\/issues\/\d+/.test(line);
+		});
+	if (!url) {
+		return {
+			ok: false,
+			error: "gh issue create did not print a parseable issue URL",
+		};
+	}
+
+	const numberMatch = url.match(/\/issues\/(\d+)(?:$|[/?#])/);
+	const issueNumber = numberMatch?.[1]
+		? Number.parseInt(numberMatch[1], 10)
+		: null;
+	if (!issueNumber || !Number.isInteger(issueNumber)) {
+		return {
+			ok: false,
+			error: "gh issue create did not print a parseable issue URL",
+		};
+	}
+
+	return { ok: true, issueUrl: url, issueNumber };
 }
 
 function parseProjectNumberFromConfig(content: string): number | null {
@@ -401,27 +441,20 @@ function createIssue(args: {
 		};
 	}
 
-	const url = result.stdout
-		.trim()
-		.split(/\r?\n/)
-		.find((line) => {
-			return /^https:\/\/github\.com\/[^/]+\/[^/]+\/issues\/\d+/.test(line);
-		});
-	const numberMatch = url?.match(/\/issues\/(\d+)(?:$|[/?#])/);
-	const number = numberMatch?.[1] ? Number.parseInt(numberMatch[1], 10) : null;
-	if (!url || !number || !Number.isInteger(number)) {
+	const parsedIssue = parseIssueCreateUrl(result.stdout);
+	if (!parsedIssue.ok) {
 		return {
 			ok: false as const,
-			number: null as number | null,
-			url: null as string | null,
-			error: "gh issue create did not print a parseable issue URL",
+			number: null,
+			url: null,
+			error: parsedIssue.error,
 		};
 	}
 
 	return {
 		ok: true as const,
-		number,
-		url,
+		number: parsedIssue.issueNumber,
+		url: parsedIssue.issueUrl,
 		error: null as string | null,
 	};
 }
@@ -524,6 +557,27 @@ function makeBaseFacts(args: {
 				projectItemId: null,
 			},
 		},
+	};
+}
+
+export function buildPartialIssueProjectActions(args: {
+	issueNumber: number;
+	issueUrl: string;
+}) {
+	return {
+		needsUser: [
+			"Add the issue to the ProjectV2 board manually if required.",
+			`Issue was created as #${args.issueNumber} at ${args.issueUrl}.`,
+			`Continue with setup:first-issue using --issue-number ${args.issueNumber}.`,
+		],
+		blocked: [
+			"The issue was created but could not be added to ProjectV2.",
+			`Issue remains available for manual recovery: #${args.issueNumber} (${args.issueUrl}).`,
+		],
+		nextActions: [
+			`Run the issue handoff manually using the existing issue number #${args.issueNumber} and URL ${args.issueUrl}.`,
+			`Then run: pnpm setup:first-issue -- --url <preview-url> --issue-number ${args.issueNumber}.`,
+		],
 	};
 }
 
@@ -935,23 +989,22 @@ async function main() {
 	const partialSuccess = issue.ok && !projectItemAdd.ok;
 
 	const finalNeedsUser = partialSuccess
-		? [
-				"Add the issue to the ProjectV2 board manually if required.",
-				`Issue was created as #${issue.number} at ${issue.url}.`,
-				`Continue with setup:first-issue using --issue-number ${issue.number}.`,
-			]
+		? buildPartialIssueProjectActions({
+				issueNumber: issue.number!,
+				issueUrl: issue.url!,
+			}).needsUser
 		: [];
 	const finalBlocked = partialSuccess
-		? [
-				"The issue was created but could not be added to ProjectV2.",
-				`Issue remains available for manual recovery: #${issue.number} (${issue.url}).`,
-			]
+		? buildPartialIssueProjectActions({
+				issueNumber: issue.number!,
+				issueUrl: issue.url!,
+			}).blocked
 		: [];
 	const finalNextActions = partialSuccess
-		? [
-				`Run the issue handoff manually using the existing issue number #${issue.number} and URL ${issue.url}.`,
-				`Then run: pnpm setup:first-issue -- --url <preview-url> --issue-number ${issue.number}.`,
-			]
+		? buildPartialIssueProjectActions({
+				issueNumber: issue.number!,
+				issueUrl: issue.url!,
+			}).nextActions
 		: [
 				`Next action: pnpm setup:first-issue -- --url <preview-url> --issue-number ${issue.number}.`,
 			];
@@ -983,4 +1036,6 @@ async function main() {
 	);
 }
 
-main();
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
+	main();
+}
