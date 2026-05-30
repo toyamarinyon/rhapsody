@@ -456,7 +456,7 @@ function buildReport(args: {
 		);
 	}
 
-	if (!args.vercelAuthReady && args.auth.vercel.ok) {
+	if (!args.vercelAuthReady) {
 		needsUser.push("Provide VERCEL_TOKEN or authenticate with Vercel.");
 	}
 	if (migrationMissing.length > 0) {
@@ -478,6 +478,11 @@ function buildReport(args: {
 			: [];
 	if (needsUser.length > 0) {
 		nextActions.push("Collect missing values and re-run with --dry-run.");
+		if (!args.vercelAuthReady) {
+			nextActions.push(
+				"Create a Vercel API token as VERCEL_TOKEN or run `vercel login`, then rerun `pnpm setup:deploy-preview -- --dry-run`.",
+			);
+		}
 	} else if (blocked.length === 0 && args.mode === "dry-run") {
 		nextActions.push("Apply mode is available with --apply --yes.");
 	}

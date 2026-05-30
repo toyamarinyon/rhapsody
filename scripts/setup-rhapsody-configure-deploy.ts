@@ -1078,6 +1078,11 @@ function main() {
 		blocked,
 		nextActions: [
 			...(blocked.length > 0 ? ["Resolve blocked prerequisites first."] : []),
+			...(!auth.vercel.ok
+				? [
+						"Create a Vercel API token as VERCEL_TOKEN or run `vercel login`, then rerun `pnpm setup:configure-deploy -- --dry-run`.",
+					]
+				: []),
 			...(runtimeRequiredMissing.length > 0
 				? [
 						`Cannot apply required runtime Vercel env keys until all sourceable values exist: ${runtimeRequiredMissing.join(
