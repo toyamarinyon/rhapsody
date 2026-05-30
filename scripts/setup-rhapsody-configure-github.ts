@@ -1396,7 +1396,11 @@ function main() {
 	}
 	if (createdProject) {
 		nextActions.push(
-			`Created ProjectV2 #${createdProject.number ?? "<unknown>"} (${createdProject.title}). Manually set tracker.projectNumber in rhapsody.config.ts; field/status reconciliation remains manual.`,
+			`Created ProjectV2 #${createdProject.number ?? "<unknown>"} (${createdProject.title}). ` +
+				`Run:\n` +
+				`  pnpm setup:configure-local -- --dry-run --project-number ${createdProject.number ?? "<unknown>"}\n` +
+				`  pnpm setup:configure-local -- --apply --yes --project-number ${createdProject.number ?? "<unknown>"}\n` +
+				`Field/status reconciliation remains a later/manual step.`,
 		);
 	}
 	if (createdStatusField) {
