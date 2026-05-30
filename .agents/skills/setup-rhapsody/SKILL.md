@@ -53,9 +53,12 @@ Treat setup as resumable phases:
    - verify base URL, optional login/dashboard, and `/api/v1/state` endpoint behavior;
    - if `ROOT_PASSWORD` is available and the operator opts in, verify authenticated `/api/v1/state`;
    - open `/dashboard`;
-   - place one issue in the configured active Project status;
-   - guide to trigger or wait for a scheduler tick;
-   - verify run, attempt, branch, and pull request or handoff artifact evidence.
+   - verify the preview is ready for the first issue handoff.
+7. `first-issue`
+   - run the first issue handoff helper against the preview URL and issue number;
+   - dry-run to confirm the manual run request before mutation;
+   - apply only with `--use-root-password` and explicit confirmation;
+   - verify the manual handoff response before moving on to scheduler or PR verification.
 
 ## Inspect Phase
 
@@ -119,6 +122,16 @@ pnpm setup:smoke-test -- --url <https://your-preview-url.vercel.app>
 
 This helper is read-only. It verifies preview reachability and API smoke behavior before the first
 issue-to-run handoff and marks whether authenticated `/api/v1/state` checks are possible.
+
+Before triggering the first issue handoff, run:
+
+```bash
+pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-number <1>
+```
+
+This helper is read-only in dry-run mode. It prepares the manual first issue handoff against
+`POST /api/v1/runs` and, with `--apply --yes --use-root-password`, performs the manual run creation
+against the deployed preview API.
 
 When using `pnpm setup:deploy-preview -- --apply --yes`, this phase is explicitly limited to:
 - `pnpm db:migrate`
