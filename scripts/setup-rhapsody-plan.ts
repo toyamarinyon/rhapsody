@@ -150,12 +150,12 @@ const phases: SetupPhase[] = [
 	{
 		id: "verify-run",
 		command:
-			"pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId>",
+			"pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId> --use-root-password --wait",
 		mode: "read-only",
 		writes: [],
-		requiresUser: ["Preview deployment URL", "Run ID"],
+		requiresUser: ["Preview deployment URL", "Run ID", "ROOT_PASSWORD opt-in"],
 		purpose:
-			"Read run evidence and confirm whether the first issue produced branch or pull-request handoff signals.",
+			"Poll run evidence until the first issue produces pull-request handoff signals or a terminal handoff failure.",
 	},
 ];
 
