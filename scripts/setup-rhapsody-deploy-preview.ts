@@ -358,6 +358,62 @@ function buildUnsupportedArgsNextActions(): string[] {
 	];
 }
 
+function buildBlockedNextActions(args: {
+	cli: Facts["cli"];
+	repo: Facts["repo"];
+	migration: Facts["env"]["migration"];
+	vercelAuthReady: boolean;
+}) {
+	const nextActions: string[] = [];
+
+	if (!args.cli.vercel.available) {
+		nextActions.push(
+			"Install the Vercel CLI, then rerun `pnpm setup:deploy-preview -- --dry-run`.",
+		);
+	}
+	if (!args.cli.pnpm.available) {
+		nextActions.push(
+			"Install pnpm, then rerun `pnpm setup:deploy-preview -- --dry-run`.",
+		);
+	}
+	if (!args.vercelAuthReady) {
+		nextActions.push(
+			"Create a Vercel API token as VERCEL_TOKEN or run `vercel login`, then rerun `pnpm setup:deploy-preview -- --dry-run`.",
+		);
+	}
+	if (!args.repo.packageJsonExists) {
+		nextActions.push(
+			"Run this helper from the Rhapsody repository root where package.json is present.",
+		);
+	}
+	if (!args.repo.dbMigrateScriptExists) {
+		nextActions.push(
+			"Restore the `db:migrate` package script before preview deployment.",
+		);
+	}
+	if (!args.repo.vercelProjectJson.exists) {
+		nextActions.push(
+			"Link the local checkout with `vercel link`, then rerun `pnpm setup:deploy-preview -- --dry-run`.",
+		);
+	} else if (!args.repo.vercelProjectJson.orgIdPresent) {
+		nextActions.push(
+			"Repair `.vercel/project.json` so it includes orgId, or rerun `vercel link`.",
+		);
+	} else if (!args.repo.vercelProjectJson.projectIdPresent) {
+		nextActions.push(
+			"Repair `.vercel/project.json` so it includes projectId, or rerun `vercel link`.",
+		);
+	}
+	if (args.migration.missing.length > 0) {
+		nextActions.push(
+			`Provide migration credentials ${args.migration.missing.join(", ")} in process env or .env.local, then rerun ` +
+				"`pnpm setup:deploy-preview -- --dry-run`.",
+		);
+	}
+
+	return [...new Set(nextActions)];
+}
+
 function emitUnsupportedArgsError() {
 	const report: Report = {
 		ok: false,
@@ -474,10 +530,17 @@ function buildReport(args: {
 	});
 	const nextActions =
 		blocked.length > 0
-			? ["Resolve blocked prerequisites and rerun helper."]
+			? buildBlockedNextActions({
+					cli: args.cli,
+					repo: args.repo,
+					migration: args.migration,
+					vercelAuthReady: args.vercelAuthReady,
+				})
 			: [];
 	if (needsUser.length > 0) {
-		nextActions.push("Collect missing values and re-run with --dry-run.");
+		nextActions.push(
+			"Collect missing values and re-run `pnpm setup:deploy-preview -- --dry-run`.",
+		);
 		if (!args.vercelAuthReady) {
 			nextActions.push(
 				"Create a Vercel API token as VERCEL_TOKEN or run `vercel login`, then rerun `pnpm setup:deploy-preview -- --dry-run`.",
@@ -493,7 +556,7 @@ function buildReport(args: {
 		needsUser: [...new Set(needsUser)],
 		blocked: [...new Set(blocked)],
 		plannedChanges: buildPlannedChanges(args.mode),
-		nextActions,
+		nextActions: [...new Set(nextActions)],
 	};
 }
 
