@@ -120,10 +120,25 @@ Before any GitHub Project creation or detection work, run the read-only GitHub b
 pnpm setup:configure-github -- --dry-run
 ```
 
-This helper does not create or modify GitHub Projects, issues, fields, repository settings, files,
-or environment variables. Use its JSON output to confirm repository access, GitHub CLI readiness,
-and whether the intended ProjectV2 target and status field/options can be verified from local
-config and read-only remote inspection before any apply phase.
+This helper can now run in a narrow apply path with explicit confirmation:
+
+```bash
+pnpm setup:configure-github -- --apply --yes --project-title <title>
+```
+
+Apply mode only creates a new ProjectV2 board at the resolved owner when all of these are true:
+- `gh` is available and authenticated
+- the repository owner/repository is resolved
+- the repository is readable
+- no local configured ProjectV2 number already exists
+- a non-empty `--project-title` is provided
+
+Created project metadata is reported in `project.remote` output (`number`, `id`, `url`, `title`) for a later helper or operator to persist in `rhapsody.config.ts`.
+
+This helper does not create fields or modify status options; field/status reconciliation remains a later/manual step.
+
+In read-only mode it behaves as before and does not create or modify GitHub Projects, issues, fields, repository settings, files,
+or environment variables.
 
 Before any deploy-preview or remote env apply work, run the read-only deploy readiness helper:
 
