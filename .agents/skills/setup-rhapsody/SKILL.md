@@ -117,6 +117,15 @@ pnpm setup:status
 Use its output to decide whether local configuration or deploy env dry-runs should run before
 authentication inspection.
 
+For every setup helper, treat the emitted JSON as the source of truth:
+- if `ok` is `false`, follow `nextActions` in order before advancing to the next phase;
+- if `blocked` is non-empty, do not guess a workaround from memory; use the helper's concrete
+  recovery command or rerun the same helper after the listed prerequisite is fixed;
+- if `needsUser` is non-empty, hand off only the named values/actions and state which helper command
+  resumes the flow;
+- when a helper reports artifact URLs, run IDs, attempt IDs, issue numbers, or ProjectV2 numbers,
+  carry those exact values into the next command rather than re-discovering them manually.
+
 Then run the read-only inspection helper:
 
 ```bash
@@ -309,6 +318,16 @@ Minimal sequence from remote env readiness to first PR:
 pnpm setup:configure-deploy -- --dry-run
 ```
 
+Use `nextActions` to resolve generated-secret, Vercel auth, Turso/libSQL, GitHub token, or Vercel
+link gaps. Common recoveries are:
+- generated local secret gaps such as `CRON_SECRET`: run
+  `pnpm setup:configure-local -- --apply --yes`, then rerun configure-deploy dry-run;
+- missing `VERCEL_TOKEN` or unauthenticated Vercel CLI: provide `VERCEL_TOKEN` or run
+  `vercel login`, then rerun configure-deploy dry-run;
+- missing Turso/libSQL values: create the database/token and provide `TURSO_DATABASE_URL` and
+  `TURSO_AUTH_TOKEN`;
+- missing Vercel project context: run `vercel link` for the intended project.
+
 2. Apply preview/development Vercel env vars
 
 ```bash
@@ -334,6 +353,10 @@ pnpm setup:deploy-preview -- --apply --yes
 pnpm setup:smoke-test -- --url <https://your-preview-url.vercel.app>
 ```
 
+If smoke-test reports `/api/v1/state` status 500 or `admin-auth-missing`, configure `ROOT_PASSWORD`
+in the preview deployment env, redeploy if needed, and rerun smoke-test with
+`--use-root-password` before creating the first issue.
+
 6. Seed deployed Codex credentials (dry run)
 
 ```bash
@@ -351,6 +374,10 @@ pnpm setup:seed-codex -- --url <https://your-preview-url.vercel.app> --apply --y
 ```bash
 pnpm setup:create-first-issue -- --apply --yes --title "Rhapsody smoke test"
 ```
+
+If issue creation succeeds but ProjectV2 item-add fails, do not create a duplicate issue. Use the
+reported issue number/URL and follow the helper's `nextActions` to continue with
+`setup:first-issue`.
 
 9. Create first run manually (dry run)
 
@@ -403,7 +430,14 @@ Success signals for this path:
 - `setup:first-issue` returns `runId` and `attemptId`.
 - `setup:start-attempt` returns `runnerWorkflowRunId` or an idempotent/conflict signal that directs you to inspect dashboard evidence.
 - `setup:verify-run` outputs `runnerWorkflowRunId`, attempts, events, artifacts, and links; later runs should also show PR/handoff references when present.
-- `setup:verify-run` with auth outputs explicit PR handoff signals: pull request artifact count, branch artifact count, pull request URL/number from artifact metadata, and pull_request_ready/pull_request_missing/pull_request_failed event presence.
+- `setup:verify-run` with auth outputs explicit PR handoff signals: pull request artifact count,
+  branch artifact count, branch artifact URLs, pull request URL/number from artifact metadata, and
+  `pull_request_ready` event presence.
+- Treat branch artifacts as progress, not final success. Final success requires pull request
+  evidence (`pullRequestUrl`/`pullRequestNumber`, pull request artifact metadata, or
+  `pull_request_ready`).
+- Treat `pull_request_missing` and `pull_request_failed` as failure/recovery signals even when a
+  branch artifact exists; inspect the branch artifact URL and follow `verify-run.nextActions`.
 
 Blocked handling:
 - Missing generated local secrets or deploy runtime values → return to `setup:status`,

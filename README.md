@@ -92,6 +92,8 @@ This button creates/clones a Vercel project from this repo, and you still use `$
 
 Security note: never put secret values in this deploy URL; provide secrets only in Vercel setup flows or prompted deploy fields.
 
+Each setup helper emits JSON with `ok`, `blocked`, `needsUser`, and `nextActions`. Treat `nextActions` as the resume queue: fix those items before moving to the next phase, and carry emitted IDs such as ProjectV2 numbers, issue numbers, run IDs, attempt IDs, branch URLs, and PR URLs into the following commands.
+
 If you started from the Vercel Template, use this path after deployment:
 
 1. Deploy your own Vercel project for this repository (use your own Vercel account and team).
@@ -110,10 +112,13 @@ If you started from the Vercel Template, use this path after deployment:
    - `pnpm setup:configure-github -- --apply --yes --create-status-field` (if your status field is missing)
    - `pnpm setup:configure-deploy -- --apply --yes`
    - use `--include-codex-seed` only if you explicitly want to upload `INITIAL_CHATGPT_AUTH_JSON` to Vercel env.
+   - if `configure-deploy` reports missing `CRON_SECRET`, rerun `pnpm setup:configure-local -- --apply --yes` and then repeat the configure-deploy dry-run.
+   - if `configure-deploy` reports missing `VERCEL_TOKEN`, provide a Vercel API token or authenticate with `vercel login` before applying remote env.
 5. Deploy a preview build only (no production by default):
    - `pnpm setup:deploy-preview -- --apply --yes` (includes `pnpm db:migrate`)
 6. Smoke-test the preview with the output URL:
    - `pnpm setup:smoke-test -- --url <https://your-preview-url.vercel.app>`
+   - if `/api/v1/state` returns 500/admin-auth-missing, configure `ROOT_PASSWORD` in the preview env, redeploy if needed, and rerun smoke-test with `--use-root-password`.
 7. Seed Codex credentials on the deployed preview (safe dry-run, then apply):
    - `pnpm setup:seed-codex -- --url <https://your-preview-url.vercel.app>`
    - `pnpm setup:seed-codex -- --url <https://your-preview-url.vercel.app> --apply --yes --use-root-password`
@@ -139,7 +144,8 @@ After a successful first run, you should see:
 - A claimed GitHub Project item in the Rhapsody dashboard.
 - A recorded runner attempt with event logs.
 - A branch created in the target repository.
-- A pull request or handoff artifact linked from the run detail page.
+- A pull request artifact linked from the run detail page. Branch artifacts alone show progress;
+  final success requires PR evidence such as a PR URL/number or `pull_request_ready`.
 
 The setup experience is still early-adopter oriented, and security-sensitive actions (including secrets and credential seeding) remain operator-confirmed.
 
@@ -166,6 +172,7 @@ Required for the MVP:
 | --- | --- |
 | `ROOT_PASSWORD` | Password for the Rhapsody admin dashboard and bearer-protected admin endpoints. |
 | `AUTH_SECRET` | Secret used to sign admin session cookies. |
+| `CRON_SECRET` | Secret expected by cron/admin refresh endpoints. |
 | `TURSO_DATABASE_URL` | libSQL state store URL. |
 | `TURSO_AUTH_TOKEN` | libSQL auth token. |
 | `GITHUB_TOKEN` | Server-side GitHub credential for repository and ProjectV2 access. |
@@ -184,7 +191,6 @@ Common optional variables:
 
 | Name | Purpose |
 | --- | --- |
-| `CRON_SECRET` | Secret expected by cron/admin refresh endpoints. |
 | `RHAPSODY_CODEX_BASE_SNAPSHOT_ID` | Optional Sandbox snapshot ID used as a Codex-ready base image. |
 | `VERCEL_PROTECTION_BYPASS_SECRET` | Optional Vercel Deployment Protection bypass for callback brokering. |
 | `VERCEL_OIDC_ISSUER` | Optional issuer for Vercel OIDC verification. |
