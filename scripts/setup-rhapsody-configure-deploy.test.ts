@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import {
+	buildConfigureDeployBlockedNextActions,
 	buildPlannedChanges,
 	buildConfigureDeployUnsupportedNextActions,
 	getConfigureDeployWriteKeys,
@@ -64,6 +65,27 @@ test("builds concrete unsupported-args next actions", () => {
 	expect(buildConfigureDeployUnsupportedNextActions()).toEqual([
 		"Run `pnpm setup:configure-deploy -- --dry-run` to inspect deploy environment readiness.",
 		"Run `pnpm setup:configure-deploy -- --apply --yes` only after the dry-run blockers are resolved.",
+	]);
+});
+
+test("builds concrete blocked next actions for missing deploy prerequisites", () => {
+	expect(
+		buildConfigureDeployBlockedNextActions({
+			blocked: ["Vercel auth is not available."],
+			authOk: false,
+			runtimeRequiredMissing: ["CRON_SECRET", "VERCEL_TOKEN"],
+			needsUser: [
+				"Missing generated local secrets; run `pnpm setup:configure-local -- --apply --yes` first if you want those values populated locally.",
+				"Provide VERCEL_TOKEN before any deploy apply step.",
+			],
+			mode: "dry-run",
+		}),
+	).toEqual([
+		"Create a Vercel API token as VERCEL_TOKEN or run `vercel login`, then rerun `pnpm setup:configure-deploy -- --dry-run`.",
+		"Run `pnpm setup:configure-local -- --apply --yes` to write missing generated local secrets, then rerun `pnpm setup:configure-deploy -- --dry-run`.",
+		"Provide VERCEL_TOKEN or authenticate the Vercel CLI before applying remote env.",
+		"Cannot apply required runtime Vercel env keys until all sourceable values exist: CRON_SECRET, VERCEL_TOKEN.",
+		"Collect the missing operator-provided values, then rerun `pnpm setup:configure-deploy -- --dry-run`.",
 	]);
 });
 

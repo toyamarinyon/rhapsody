@@ -761,6 +761,92 @@ export function getConfigureDeployWriteKeys(includeCodexSeed: boolean) {
 	return includeCodexSeed ? RUNTIME_AND_SEED_KEYS : REQUIRED_RUNTIME_KEYS;
 }
 
+export function buildConfigureDeployBlockedNextActions(args: {
+	blocked: string[];
+	authOk: boolean;
+	runtimeRequiredMissing: string[];
+	needsUser: string[];
+	mode: Mode;
+}) {
+	const nextActions: string[] = [];
+	const missing = new Set(args.runtimeRequiredMissing);
+
+	if (args.blocked.includes("Vercel CLI is unavailable.")) {
+		nextActions.push(
+			"Install the Vercel CLI, then rerun `pnpm setup:configure-deploy -- --dry-run`.",
+		);
+	}
+	if (!args.authOk) {
+		nextActions.push(
+			"Create a Vercel API token as VERCEL_TOKEN or run `vercel login`, then rerun `pnpm setup:configure-deploy -- --dry-run`.",
+		);
+	}
+	if (args.blocked.includes("package.json is missing.")) {
+		nextActions.push(
+			"Run this helper from the Rhapsody repository root where package.json is present.",
+		);
+	}
+	if (args.blocked.includes("db:migrate script is missing.")) {
+		nextActions.push(
+			"Restore the `db:migrate` package script before configuring deployment env.",
+		);
+	}
+	if (args.blocked.includes("Local Vercel project link state is missing.")) {
+		nextActions.push(
+			"Run `vercel link` for the target Vercel project, then rerun `pnpm setup:configure-deploy -- --dry-run`.",
+		);
+	}
+	if (
+		missing.has("ROOT_PASSWORD") ||
+		missing.has("AUTH_SECRET") ||
+		missing.has("CRON_SECRET") ||
+		missing.has("MEDIATOR_SECRET")
+	) {
+		nextActions.push(
+			"Run `pnpm setup:configure-local -- --apply --yes` to write missing generated local secrets, then rerun `pnpm setup:configure-deploy -- --dry-run`.",
+		);
+	}
+	if (missing.has("TURSO_DATABASE_URL") || missing.has("TURSO_AUTH_TOKEN")) {
+		nextActions.push(
+			"Provide TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in process env or .env.local after creating the Turso/libSQL database.",
+		);
+	}
+	if (missing.has("GITHUB_TOKEN")) {
+		nextActions.push(
+			"Provide GITHUB_TOKEN with repository and ProjectV2 access before configuring Vercel env.",
+		);
+	}
+	if (missing.has("VERCEL_TOKEN")) {
+		nextActions.push(
+			"Provide VERCEL_TOKEN or authenticate the Vercel CLI before applying remote env.",
+		);
+	}
+	if (missing.has("VERCEL_TEAM_ID") || missing.has("VERCEL_PROJECT_ID")) {
+		nextActions.push(
+			"Run `vercel link` or set VERCEL_TEAM_ID and VERCEL_PROJECT_ID before applying remote env.",
+		);
+	}
+	if (args.runtimeRequiredMissing.length > 0) {
+		nextActions.push(
+			`Cannot apply required runtime Vercel env keys until all sourceable values exist: ${args.runtimeRequiredMissing.join(", ")}.`,
+		);
+	}
+	if (args.needsUser.length > 0) {
+		nextActions.push(
+			"Collect the missing operator-provided values, then rerun `pnpm setup:configure-deploy -- --dry-run`.",
+		);
+	}
+	if (nextActions.length === 0) {
+		nextActions.push(
+			args.mode === "dry-run"
+				? "Apply mode is available with --apply --yes after prerequisites are satisfied."
+				: "Re-run dry-run to confirm no further remote state changes needed.",
+		);
+	}
+
+	return [...new Set(nextActions)];
+}
+
 function buildAppliedChangeFromStatus(params: {
 	key: string;
 	environment: "development" | "preview";
@@ -1076,24 +1162,17 @@ function main() {
 		plannedChanges,
 		needsUser: [...new Set(needsUser)],
 		blocked,
-		nextActions: [
-			...(blocked.length > 0 ? ["Resolve blocked prerequisites first."] : []),
-			...(!auth.vercel.ok
-				? [
-						"Create a Vercel API token as VERCEL_TOKEN or run `vercel login`, then rerun `pnpm setup:configure-deploy -- --dry-run`.",
-					]
-				: []),
-			...(runtimeRequiredMissing.length > 0
-				? [
-						`Cannot apply required runtime Vercel env keys until all sourceable values exist: ${runtimeRequiredMissing.join(
-							", ",
-						)}.`,
-					]
-				: []),
-			...(needsUser.length > 0
-				? [
-						"Collect the missing operator-provided values, then re-run the helper with --dry-run.",
-					]
+		nextActions:
+			blocked.length > 0 ||
+			runtimeRequiredMissing.length > 0 ||
+			needsUser.length > 0
+				? buildConfigureDeployBlockedNextActions({
+						blocked,
+						authOk: auth.vercel.ok,
+						runtimeRequiredMissing,
+						needsUser,
+						mode,
+					})
 				: seedNeedsUser.length > 0
 					? [
 							mode === "dry-run"
@@ -1104,8 +1183,7 @@ function main() {
 							mode === "dry-run"
 								? "Apply mode is available with --apply --yes after prerequisites are satisfied."
 								: "Re-run dry-run to confirm no further remote state changes needed.",
-						]),
-		],
+						],
 	};
 
 	if (mode === "dry-run") {
@@ -1298,12 +1376,18 @@ function main() {
 
 	applyReport.nextActions = [
 		...(applyReport.blocked.length > 0
-			? ["Resolve blocked items and re-run with --apply --yes."]
+			? buildConfigureDeployBlockedNextActions({
+					blocked: applyReport.blocked,
+					authOk: auth.vercel.ok,
+					runtimeRequiredMissing,
+					needsUser,
+					mode,
+				})
 			: []),
 		...(applyReport.ok
 			? ["Re-run dry-run to confirm stable remote env state."]
 			: [
-					"Fix blocked keys and rerun with --apply --yes to continue, then run --dry-run.",
+					"After the blocked keys are resolved, rerun `pnpm setup:configure-deploy -- --apply --yes`, then run `pnpm setup:configure-deploy -- --dry-run`.",
 				]),
 	];
 
