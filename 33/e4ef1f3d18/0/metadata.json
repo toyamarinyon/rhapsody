@@ -1,0 +1,43 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "33e4ef1f3d18",
+  "session_id": "019e6ee5-09b4-7430-a46a-58e27ddb4189",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-30T04:16:59.286521Z",
+  "branch": "codex-add-seed-codex-helper",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Codex",
+  "model": "gpt-5.3-codex-spark",
+  "turn_id": "7211e4a75ce0",
+  "token_usage": {
+    "input_tokens": 221226,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 4945792,
+    "output_tokens": 36311,
+    "api_call_count": 76
+  },
+  "session_metrics": {
+    "turn_count": 37
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 974,
+      "user_lines_removed": 13,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".agents/skills/setup-rhapsody/SKILL.md": 25,
+        "README.md": 12,
+        "package.json": 1,
+        "scripts/setup-rhapsody-seed-codex.test.ts": 144,
+        "scripts/setup-rhapsody-seed-codex.ts": 792
+      },
+      "user_removed_per_file": {
+        ".agents/skills/setup-rhapsody/SKILL.md": 10,
+        "README.md": 3
+      }
+    }
+  ]
+}
