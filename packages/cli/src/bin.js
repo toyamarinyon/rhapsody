@@ -31,6 +31,118 @@ if (command === "setup") {
 		printSetupPlan({ json, plan: planned });
 		process.exit(planned.ok ? 0 : 0);
 	}
+	if (subcommand === "deploy-preview") {
+		const parse = parseDeployPreviewArgs(cliArgs);
+		if (!parse.ok) {
+			console.error(parse.error);
+			process.exit(1);
+		}
+
+		const status = collectSetupStatus();
+		const plan = buildDeployPreviewPlan({ status });
+		const mode = parse.dryRun ? "dry-run" : "apply";
+		const statePath = plan.statePath;
+
+		recordSetupState({
+			command: "deploy-preview",
+			mode,
+			appRoot: plan.appRoot,
+			statePath,
+			plannedCommands: plan.plannedCommands,
+			blockers: plan.blockers,
+			before: {
+				commandCount: plan.plannedCommands.length,
+			},
+			nextAction: plan.ok ? "ready" : "blocked",
+		});
+
+		if (!parse.dryRun && !parse.yes) {
+			console.error(
+				"rhapsody setup deploy-preview requires confirmation in apply mode. Pass --yes to execute.",
+			);
+			recordSetupState({
+				command: "deploy-preview",
+				mode,
+				appRoot: plan.appRoot,
+				statePath,
+				plannedCommands: plan.plannedCommands,
+				blockers: plan.blockers,
+				nextAction: "blocked",
+				nextActions: plan.nextActions,
+			});
+			process.exit(1);
+		}
+
+		if (parse.dryRun || !plan.ok) {
+			printDeployPreviewPlan({
+				json: parse.json,
+				mode,
+				plan,
+			});
+			recordSetupState({
+				command: "deploy-preview",
+				mode,
+				appRoot: plan.appRoot,
+				statePath,
+				plannedCommands: plan.plannedCommands,
+				blockers: plan.blockers,
+				nextAction: plan.ok ? "ready" : "blocked",
+				nextActions: plan.nextActions,
+			});
+			process.exit(plan.ok ? 0 : 1);
+		}
+
+		const appliedSteps = [];
+		let failed = false;
+		for (const step of plan.commandPlan) {
+			const result = runCommandFromApp({
+				cwd: plan.appRoot,
+				argv: step.argv,
+			});
+			appliedSteps.push({
+				command: step.name,
+				exitCode: result.exitCode,
+				signal: result.signal,
+			});
+			if (!result.ok) {
+				failed = true;
+				break;
+			}
+		}
+		const ok = !failed;
+		recordSetupState({
+			command: "deploy-preview",
+			mode,
+			appRoot: plan.appRoot,
+			statePath,
+			plannedCommands: plan.plannedCommands,
+			blockers: plan.blockers,
+			appliedSteps: appliedSteps.map((step) => ({
+				command: step.command,
+				exitCode: step.exitCode,
+				signal: step.signal,
+			})),
+			nextAction: ok ? "complete" : "failed",
+			nextActions: ok
+				? ["Deployment completed. Check app logs and deployment URL."]
+				: [
+						"Re-run `rhapsody setup deploy-preview --yes` after resolving blocking issues.",
+					],
+		});
+
+		printDeployPreviewPlan({
+			json: parse.json,
+			mode,
+			plan: {
+				...plan,
+				appliedSteps: appliedSteps.map((step) => ({
+					command: step.command,
+					exitCode: step.exitCode,
+				})),
+			},
+		});
+		process.exit(ok ? 0 : 1);
+	}
 	if (subcommand === "wait-env") {
 		const parse = parseWaitEnvArgs(cliArgs);
 		if (!parse.ok) {
@@ -185,6 +297,8 @@ function printSetupHelp() {
   rhapsody setup status [--json]
   rhapsody setup plan [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]
   rhapsody setup wait-env [--json] [--timeout <seconds>] [--interval <seconds>]
+  rhapsody setup deploy-preview --dry-run [--json]
+  rhapsody setup deploy-preview --yes [--json]
   rhapsody setup provision-turso --dry-run [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]
   rhapsody setup provision-turso --yes [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]
 
@@ -251,6 +365,53 @@ Region: ${plan.region}`);
 		console.log(`  - ${envKey}`);
 	}
 
+	console.log("\nNext actions:");
+	for (const action of plan.nextActions) {
+		console.log(`  - ${action}`);
+	}
+}
+
+function printDeployPreviewPlan({ json, mode, plan }) {
+	if (json) {
+		const payload = {
+			ok: plan.ok,
+			mode,
+			appRoot: plan.appRoot,
+			statePath: plan.statePath,
+			plannedCommands: plan.plannedCommands,
+			blockers: plan.blockers,
+			nextActions: plan.nextActions,
+		};
+		if (mode === "apply") {
+			payload.appliedSteps = plan.appliedSteps ?? [];
+		}
+		console.log(JSON.stringify(payload, null, 2));
+		return;
+	}
+
+	console.log(
+		`Rhapsody setup deploy-preview (${mode === "dry-run" ? "dry-run" : "apply"})`,
+	);
+	console.log(`App root: ${plan.appRoot}`);
+	console.log(`State path: ${plan.statePath}`);
+	console.log("\nPlanned command names:");
+	for (const command of plan.plannedCommands) {
+		console.log(`  - ${command}`);
+	}
+	console.log("\nBlockers:");
+	if (plan.blockers.length === 0) {
+		console.log("  none");
+	} else {
+		for (const blocker of plan.blockers) {
+			console.log(`  - ${blocker}`);
+		}
+	}
+	if (mode === "apply" && plan.appliedSteps) {
+		console.log("\nApplied steps:");
+		for (const step of plan.appliedSteps) {
+			console.log(`  - ${step.command}: exit ${step.exitCode}`);
+		}
+	}
 	console.log("\nNext actions:");
 	for (const action of plan.nextActions) {
 		console.log(`  - ${action}`);
@@ -324,6 +485,23 @@ function parseProvisionTursoArgs(args) {
 		region: parsedRegion.region,
 		dryRun,
 		yes: args.includes("--yes"),
+	};
+}
+
+function parseDeployPreviewArgs(args) {
+	if (args.includes("--help") || args.includes("-h")) {
+		return {
+			ok: false,
+			error: "Usage: rhapsody setup deploy-preview (--dry-run|--yes) [--json]",
+		};
+	}
+	const dryRun = args.includes("--dry-run");
+	const yes = args.includes("--yes");
+	return {
+		ok: true,
+		json: args.includes("--json"),
+		dryRun,
+		yes,
 	};
 }
 
@@ -522,6 +700,85 @@ function waitForEnv({ timeoutSeconds, intervalSeconds }) {
 			sleepSync(intervalMs);
 		}
 	}
+}
+
+function buildDeployPreviewPlan({ status }) {
+	const statePath = getSetupStatePath();
+	const vercelToken = getVercelTokenForDeployPreview(status.paths.appRoot);
+	const blockers = collectDeployPreviewBlockers(status);
+	const commandPlan = [
+		{
+			name: "pnpm db:migrate",
+			argv: ["pnpm", "db:migrate"],
+		},
+		{
+			name: vercelToken
+				? "vercel deploy --yes --token <redacted>"
+				: "vercel deploy --yes",
+			argv: vercelToken
+				? ["vercel", "deploy", "--yes", "--token", vercelToken]
+				: ["vercel", "deploy", "--yes"],
+		},
+	];
+
+	return {
+		ok: blockers.length === 0,
+		appRoot: status.paths.appRoot,
+		statePath,
+		blockers,
+		plannedCommands: commandPlan.map((entry) => entry.name),
+		commandPlan,
+		nextActions: blockers.length
+			? blockers
+			: [
+					"Run `rhapsody setup deploy-preview --yes` to migrate the DB and deploy.",
+					"Review setup state after each step.",
+				],
+	};
+}
+
+function collectDeployPreviewBlockers(status) {
+	const blockers = [];
+	if (!status.paths.appExists) {
+		blockers.push("Run this command from the Rhapsody repository root.");
+	}
+	if (!status.tools.vercel.installed) {
+		blockers.push(
+			"Install the Vercel CLI (`vercel`) before running deploy-preview.",
+		);
+	}
+	if (!status.tools.vercel.tokenPresent) {
+		blockers.push(
+			"Run `vercel login` or set VERCEL_TOKEN before running deploy-preview.",
+		);
+	}
+	if (!status.app.vercelProjectLink.exists) {
+		blockers.push(
+			"Link this app to a Vercel project (`vercel link`) before deploy-preview.",
+		);
+	}
+	if (
+		!status.app.env.tursoDatabaseUrlPresent ||
+		!status.app.env.tursoAuthTokenPresent
+	) {
+		blockers.push(
+			"Provision Turso and write TURSO_DATABASE_URL / TURSO_AUTH_TOKEN to .env.local.",
+		);
+	}
+	return blockers;
+}
+
+function getVercelTokenForDeployPreview(appRoot) {
+	if (process.env.VERCEL_TOKEN) {
+		return process.env.VERCEL_TOKEN;
+	}
+	if (appRoot) {
+		const env = readDotEnv(path.join(appRoot, ".env.local"));
+		if (env.VERCEL_TOKEN) {
+			return env.VERCEL_TOKEN;
+		}
+	}
+	return readVercelTokenFromDisk();
 }
 
 function gatherEnvStatus({ status, requiredEnvKeys }) {
@@ -724,14 +981,10 @@ function buildSetupPlan({ status, region }) {
 			status: status.app.env.tursoDatabaseUrlPresent ? "ready" : "ready",
 		},
 		{
-			name: "Database migration",
-			command: "pnpm db:migrate",
-			status: "ready",
-		},
-		{
-			name: "Deploy",
-			command: "vercel deploy",
-			status: "ready",
+			name: "Database migration and deploy preview",
+			command: "rhapsody setup deploy-preview --dry-run",
+			status:
+				collectDeployPreviewBlockers(status).length === 0 ? "ready" : "blocked",
 		},
 		{
 			name: "Smoke test",
@@ -803,7 +1056,8 @@ function collectSetupStatus() {
 	const ghVersion = run(["gh", "--version"]);
 	const ghToken = run(["gh", "auth", "token"]);
 	const vercelVersion = run(["vercel", "--version"]);
-	const vercelToken = process.env.VERCEL_TOKEN ?? readVercelTokenFromDisk();
+	const vercelToken =
+		process.env.VERCEL_TOKEN ?? env.VERCEL_TOKEN ?? readVercelTokenFromDisk();
 	const vercelProject = readJson(vercelProjectPath);
 	const nextActions = [];
 
@@ -946,7 +1200,6 @@ function recordSetupState(payload) {
 		...previous,
 		lastUpdatedAt: timestamp,
 		commandState: {
-			...previous.commandState,
 			...payload,
 			updatedAt: timestamp,
 		},
@@ -980,6 +1233,19 @@ function prepareTursoLinkDirectory({ linkDir, projectJsonPath }) {
 
 function runProvisionTursoApply({ commandArgv, cwd }) {
 	const result = spawnSync(commandArgv[0], commandArgv.slice(1), {
+		cwd,
+		stdio: "inherit",
+		encoding: "utf8",
+	});
+	return {
+		ok: result.status === 0,
+		exitCode: result.status ?? 1,
+		signal: result.signal,
+	};
+}
+
+function runCommandFromApp({ cwd, argv }) {
+	const result = spawnSync(argv[0], argv.slice(1), {
 		cwd,
 		stdio: "inherit",
 		encoding: "utf8",
