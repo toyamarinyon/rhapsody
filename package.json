@@ -7,6 +7,7 @@
 		"build": "next build",
 		"start": "next start",
 		"db:migrate": "tsx scripts/db-migrate.ts",
+		"setup:plan": "node --import tsx scripts/setup-rhapsody-plan.ts",
 		"setup:inspect": "node --import tsx scripts/setup-rhapsody-inspect.ts",
 		"setup:configure-local": "node --import tsx scripts/setup-rhapsody-configure-local.ts",
 		"setup:configure-github": "node --import tsx scripts/setup-rhapsody-configure-github.ts",
