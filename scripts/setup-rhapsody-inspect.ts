@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 
 type CommandCheck = {
 	name: string;
@@ -101,7 +103,46 @@ function checkGitHubAuth(): AuthCheck {
 	};
 }
 
-function checkVercelAuth(): AuthCheck {
+function parseEnvFileKeys(filePath: string) {
+	if (!existsSync(filePath)) {
+		return new Set<string>();
+	}
+
+	const keys = new Set<string>();
+	for (const rawLine of readFileSync(filePath, "utf8").split(/\r?\n/)) {
+		const line = rawLine.trim();
+		if (!line || line.startsWith("#")) {
+			continue;
+		}
+
+		const entry = line.startsWith("export ") ? line.slice(7).trim() : line;
+		const equalsIndex = entry.indexOf("=");
+		if (equalsIndex <= 0) {
+			continue;
+		}
+
+		const key = entry.slice(0, equalsIndex).trim();
+		if (key) {
+			keys.add(key);
+		}
+	}
+
+	return keys;
+}
+
+function hasEnvKey(key: string, envLocalKeys: ReadonlySet<string>) {
+	return Boolean(process.env[key]?.trim()) || envLocalKeys.has(key);
+}
+
+function checkVercelAuth(envLocalKeys: ReadonlySet<string>): AuthCheck {
+	if (hasEnvKey("VERCEL_TOKEN", envLocalKeys)) {
+		return {
+			name: "vercel",
+			ok: true,
+			detail: "VERCEL_TOKEN present",
+		};
+	}
+
 	const result = run("vercel", ["whoami"], 10_000);
 
 	return {
@@ -164,6 +205,42 @@ function redactGitRemoteUrl(remoteUrl: string | null) {
 	);
 }
 
+function buildNeedsUser(args: { commands: CommandCheck[]; auth: AuthCheck[] }) {
+	const needsUser: string[] = [];
+	if (!args.commands.find((command) => command.name === "gh")?.available) {
+		needsUser.push(
+			"Install the GitHub CLI (`gh`) before GitHub Project setup.",
+		);
+	}
+	if (!args.commands.find((command) => command.name === "vercel")?.available) {
+		needsUser.push(
+			"Install the Vercel CLI or provide VERCEL_TOKEN before deploy setup.",
+		);
+	}
+	if (!args.auth.find((item) => item.name === "github")?.ok) {
+		needsUser.push(
+			"Run `gh auth login` with repository and ProjectV2 access, then rerun `pnpm setup:inspect`.",
+		);
+	}
+	if (!args.auth.find((item) => item.name === "vercel")?.ok) {
+		needsUser.push(
+			"Run `vercel login` or provide VERCEL_TOKEN in process env or .env.local, then rerun `pnpm setup:inspect`.",
+		);
+	}
+	return needsUser;
+}
+
+function buildNextActions(args: { needsUser: string[] }) {
+	if (args.needsUser.length > 0) {
+		return args.needsUser;
+	}
+
+	return [
+		"Proceed to configure-local, configure-github, and configure-deploy dry-runs.",
+	];
+}
+
+const envLocalKeys = parseEnvFileKeys(path.join(process.cwd(), ".env.local"));
 const commands = [
 	checkCommand("gh"),
 	checkCommand("vercel", ["--version"]),
@@ -176,17 +253,21 @@ const auth = [
 		? checkGitHubAuth()
 		: { name: "github", ok: false, detail: "gh is not available" },
 	commands.find((command) => command.name === "vercel")?.available
-		? checkVercelAuth()
+		? checkVercelAuth(envLocalKeys)
 		: { name: "vercel", ok: false, detail: "vercel is not available" },
 ];
+const needsUser = buildNeedsUser({ commands, auth });
 
 const report = {
 	ok:
 		commands.every((command) => command.available) &&
 		auth.every((item) => item.ok),
+	phase: "inspect",
 	commands,
 	auth,
 	git: readGitContext(),
+	needsUser,
+	nextActions: buildNextActions({ needsUser }),
 };
 
 console.log(JSON.stringify(report, null, 2));
