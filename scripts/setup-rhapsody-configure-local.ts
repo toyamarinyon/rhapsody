@@ -753,6 +753,60 @@ function buildPlannedChanges(args: {
 	];
 }
 
+function buildExternalInputGuidance(missingExternalInputs: readonly string[]) {
+	const guidance = missingExternalInputs.map(
+		(key) => `Provide ${key} in process env or .env.local.`,
+	);
+
+	if (missingExternalInputs.includes("VERCEL_TOKEN")) {
+		guidance.push(
+			"Create a Vercel API token in Vercel account settings, then expose it as VERCEL_TOKEN for configure-deploy and deploy-preview.",
+		);
+	}
+
+	return guidance;
+}
+
+function buildDryRunNextActions(args: {
+	blocked: string[];
+	planProjectNumber: boolean;
+	projectNumberWouldWrite: boolean;
+	missingGeneratedSecrets: readonly string[];
+	missingExternalInputs: readonly string[];
+	needsUser: readonly string[];
+}) {
+	const nextActions: string[] = [];
+
+	if (args.blocked.length > 0) {
+		nextActions.push("Resolve blocked items before any write step.");
+	}
+
+	if (args.planProjectNumber && args.projectNumberWouldWrite) {
+		nextActions.push(
+			"Review the planned rhapsody.config.ts project number change, then rerun with --apply --yes --project-number <number>.",
+		);
+	}
+
+	if (args.missingGeneratedSecrets.length > 0 && args.blocked.length === 0) {
+		nextActions.push(
+			`Missing generated local secrets: ${args.missingGeneratedSecrets.join(", ")}.`,
+			"After reviewing this dry-run, run pnpm setup:configure-local -- --apply --yes to write only missing generated local secrets.",
+		);
+	}
+
+	if (args.missingExternalInputs.length > 0) {
+		nextActions.push(...buildExternalInputGuidance(args.missingExternalInputs));
+	}
+
+	if (nextActions.length === 0 && args.needsUser.length === 0) {
+		nextActions.push(
+			"Proceed to configure-github, then configure-deploy when the operator is ready.",
+		);
+	}
+
+	return nextActions;
+}
+
 function buildPostWritePlannedChanges(args: { files: Facts["files"] }) {
 	return buildPlannedChanges({
 		pendingGeneratedSecrets: [],
@@ -831,6 +885,11 @@ function main() {
 	const needsUser = externalInputsPresence.missing.map(
 		(key) => `Provide ${key} in process env or .env.local.`,
 	);
+	if (externalInputsPresence.missing.includes("VERCEL_TOKEN")) {
+		needsUser.push(
+			"Create a Vercel API token in Vercel account settings, then expose it as VERCEL_TOKEN for configure-deploy and deploy-preview.",
+		);
+	}
 	if (!remote?.owner || !remote.repository) {
 		needsUser.push(
 			"Confirm the GitHub owner/repository if the remote is not a GitHub origin.",
@@ -889,6 +948,13 @@ function main() {
 	});
 
 	const ok = localWriteBlocked.length === 0 && setupBlocked.length === 0;
+	const dryRunBlocked = [
+		...localWriteBlocked,
+		...setupBlocked,
+		...(planProjectNumber && projectNumberPlan?.blockedReason
+			? [projectNumberPlan.blockedReason]
+			: []),
+	];
 
 	if (mode.mode === "apply") {
 		if (applyProjectNumber) {
@@ -1173,34 +1239,15 @@ function main() {
 		checks,
 		plannedChanges,
 		needsUser,
-		blocked: [
-			...localWriteBlocked,
-			...setupBlocked,
-			...(planProjectNumber && projectNumberPlan?.blockedReason
-				? [projectNumberPlan.blockedReason]
-				: []),
-		],
-		nextActions: [
-			...([
-				...localWriteBlocked,
-				...setupBlocked,
-				...(planProjectNumber && projectNumberPlan?.blockedReason
-					? [projectNumberPlan.blockedReason]
-					: []),
-			].length > 0
-				? ["Resolve blocked items before any write step."]
-				: []),
-			...(planProjectNumber && projectNumberPlan?.wouldWrite
-				? [
-						"Review the planned rhapsody.config.ts project number change, then rerun with --apply --yes --project-number <number>.",
-					]
-				: []),
-			...(needsUser.length > 0
-				? ["Provide the missing external inputs before remote configuration."]
-				: [
-						"Proceed to configure-github, then configure-deploy when the operator is ready.",
-					]),
-		],
+		blocked: [...dryRunBlocked],
+		nextActions: buildDryRunNextActions({
+			blocked: dryRunBlocked,
+			planProjectNumber: Boolean(planProjectNumber),
+			projectNumberWouldWrite: Boolean(projectNumberPlan?.wouldWrite),
+			missingGeneratedSecrets: generatedSecretsPresence.missing,
+			missingExternalInputs: externalInputsPresence.missing,
+			needsUser,
+		}),
 	};
 
 	process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
