@@ -1,0 +1,16 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "05cd709360cc",
+  "strategy": "manual-commit",
+  "branch": "codex-create-first-issue-auth-guidance",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/05/cd709360cc/0/metadata.json",
+      "transcript": "/05/cd709360cc/0/full.jsonl",
+      "content_hash": "/05/cd709360cc/0/content_hash.txt",
+      "prompt": "/05/cd709360cc/0/prompt.txt"
+    }
+  ]
+}
