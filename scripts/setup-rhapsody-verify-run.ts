@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 type Report = {
 	ok: boolean;
@@ -480,7 +481,7 @@ async function fetchRunDetail(args: {
 	}
 }
 
-function buildEvidenceSignals(detail: unknown): {
+export function buildEvidenceSignals(detail: unknown): {
 	runStatus: string | null;
 	runnerWorkflowRunId: string | null;
 	latestAttemptId: string | null;
@@ -636,6 +637,32 @@ function buildEvidenceSignals(detail: unknown): {
 		handoffEvidence,
 	};
 }
+
+function buildNextActionsFromEvidence(evidence: {
+	pullRequestEvidenceFound: boolean;
+	pullRequestMissingEventPresent: boolean;
+	pullRequestFailedEventPresent: boolean;
+	runnerWorkflowRunId: string | null;
+}): string {
+	if (
+		evidence.pullRequestMissingEventPresent ||
+		evidence.pullRequestFailedEventPresent
+	) {
+		return "Inspect runner events and logs; handoff events indicate pull request creation is missing or failed.";
+	}
+
+	if (evidence.pullRequestEvidenceFound) {
+		return "Open the PR URL(s) and dashboard to confirm handoff completion.";
+	}
+
+	if (evidence.runnerWorkflowRunId) {
+		return "Runner workflow started but PR evidence is not visible yet. Wait briefly, rerun verify-run with --use-root-password, and inspect events/artifacts in the dashboard.";
+	}
+
+	return "If the run is still in progress, inspect the dashboard for attempts, events, and artifacts before looking for the PR.";
+}
+
+export { buildNextActionsFromEvidence };
 
 function invalidArgsError(message: string) {
 	emit(
@@ -855,14 +882,15 @@ async function main() {
 	}
 
 	nextActions.push(
-		evidence.handoff?.pullRequestMissingEventPresent ||
-			evidence.handoff?.pullRequestFailedEventPresent
-			? "Inspect runner events and logs; handoff events indicate pull request creation is missing or failed."
-			: evidence.handoff?.pullRequestEvidenceFound
-				? "Open the PR URL(s) and dashboard to confirm handoff completion."
-				: evidence.runnerWorkflowRunId
-					? "Runner workflow started but PR evidence is not visible yet. Wait briefly, rerun verify-run with --use-root-password, and inspect events/artifacts in the dashboard."
-					: "If the run is still in progress, inspect the dashboard for attempts, events, and artifacts before looking for the PR.",
+		buildNextActionsFromEvidence({
+			pullRequestEvidenceFound:
+				evidence.handoff?.pullRequestEvidenceFound ?? false,
+			pullRequestMissingEventPresent:
+				evidence.handoff?.pullRequestMissingEventPresent ?? false,
+			pullRequestFailedEventPresent:
+				evidence.handoff?.pullRequestFailedEventPresent ?? false,
+			runnerWorkflowRunId: evidence.runnerWorkflowRunId,
+		}),
 	);
 
 	emit({
@@ -941,4 +969,6 @@ async function main() {
 	});
 }
 
-void main();
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
+	void main();
+}
