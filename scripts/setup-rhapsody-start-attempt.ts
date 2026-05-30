@@ -937,7 +937,7 @@ async function main() {
 		);
 	} else if (ok) {
 		nextActions.push(
-			"Continue to dashboard and PR verification after confirming the runner workflow started.",
+			`Verify run handoff with: pnpm setup:verify-run -- --url ${normalizedBaseUrl} --run-id ${parsed.runId} --use-root-password --wait`,
 		);
 	}
 

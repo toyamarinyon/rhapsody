@@ -647,9 +647,15 @@ async function main() {
 			"Open the existing run in the dashboard rather than creating a duplicate handoff.",
 		);
 	} else if (ok) {
-		nextActions.push(
-			"Continue to scheduler or PR verification after confirming the run exists in the dashboard.",
-		);
+		if (result.runId && result.attemptId) {
+			nextActions.push(
+				`Start the first attempt with: pnpm setup:start-attempt -- --url ${normalizedBaseUrl} --run-id ${result.runId} --attempt-id ${result.attemptId} --apply --yes --use-root-password`,
+			);
+		} else {
+			nextActions.push(
+				"Continue to scheduler or PR verification after confirming the run exists in the dashboard.",
+			);
+		}
 	}
 
 	emit(
