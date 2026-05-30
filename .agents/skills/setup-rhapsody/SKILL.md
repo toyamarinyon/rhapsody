@@ -59,6 +59,15 @@ Treat setup as resumable phases:
    - dry-run to confirm the manual run request before mutation;
    - apply only with `--use-root-password` and explicit confirmation;
    - verify the manual handoff response before moving on to scheduler or PR verification.
+8. `first-attempt-start`
+   - use the start-attempt helper with the manual run `runId`, `attemptId`, and the run's
+     `claimToken`;
+   - set `RHAPSODY_CLAIM_TOKEN` in the environment before running the helper;
+   - dry-run first to confirm the endpoint, redacted payload shape, and whether the operator still
+     needs to supply the claim token or root password;
+   - apply only with `--apply --yes --use-root-password` when the claim token is available;
+   - verify the attempt start response, then inspect the dashboard and PR state to confirm the
+     runner workflow has started.
 
 ## Inspect Phase
 
@@ -132,6 +141,23 @@ pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-nu
 This helper is read-only in dry-run mode. It prepares the manual first issue handoff against
 `POST /api/v1/runs` and, with `--apply --yes --use-root-password`, performs the manual run creation
 against the deployed preview API.
+
+After you have the resulting `runId`, `attemptId`, and `claimToken`, set
+`RHAPSODY_CLAIM_TOKEN` in the environment and run:
+
+```bash
+pnpm setup:start-attempt -- --url <https://your-preview-url.vercel.app> --run-id <runId> --attempt-id <attemptId>
+```
+
+This helper is read-only in dry-run mode. It prepares the manual attempt start against
+`POST /api/v1/runs/:runId/attempts/:attemptId/start` and, with `--apply --yes --use-root-password`,
+performs the authenticated attempt start against the deployed preview API.
+
+To apply the start after setting `RHAPSODY_CLAIM_TOKEN`, run:
+
+```bash
+pnpm setup:start-attempt -- --url <https://your-preview-url.vercel.app> --run-id <runId> --attempt-id <attemptId> --apply --yes --use-root-password
+```
 
 When using `pnpm setup:deploy-preview -- --apply --yes`, this phase is explicitly limited to:
 - `pnpm db:migrate`
