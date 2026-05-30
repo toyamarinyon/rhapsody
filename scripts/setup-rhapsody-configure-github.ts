@@ -186,6 +186,14 @@ function emitJSON(report: Report, exitCode = 0) {
 	process.exitCode = exitCode;
 }
 
+function buildUnsupportedArgsNextActions(): string[] {
+	return [
+		"Run `pnpm setup:configure-github -- --dry-run` to inspect GitHub Project readiness.",
+		"Run `pnpm setup:configure-github -- --apply --yes --project-title <title>` only when creating a missing ProjectV2 board.",
+		"Run `pnpm setup:configure-github -- --apply --yes --create-status-field` only when adding the configured missing status field.",
+	];
+}
+
 function unsupportedArgsError() {
 	emitJSON(
 		{
@@ -256,9 +264,11 @@ function unsupportedArgsError() {
 			},
 			checks: [],
 			plannedChanges: [],
-			needsUser: [],
-			blocked: [],
-			nextActions: [],
+			needsUser: [
+				"Use no args or --dry-run for inspection, or an exact apply form for the narrow GitHub mutation.",
+			],
+			blocked: ["Unsupported or missing arguments."],
+			nextActions: buildUnsupportedArgsNextActions(),
 		},
 		1,
 	);
