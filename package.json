@@ -15,6 +15,7 @@
 		"setup:smoke-test": "node --import tsx scripts/setup-rhapsody-smoke-test.ts",
 		"setup:first-issue": "node --import tsx scripts/setup-rhapsody-first-issue.ts",
 		"setup:start-attempt": "node --import tsx scripts/setup-rhapsody-start-attempt.ts",
+		"setup:verify-run": "node --import tsx scripts/setup-rhapsody-verify-run.ts",
 		"lint": "eslint",
 		"test": "vitest",
 		"format:check": "biome format .",
