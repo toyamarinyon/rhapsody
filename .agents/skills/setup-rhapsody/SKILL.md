@@ -406,7 +406,12 @@ Success signals for this path:
 - `setup:verify-run` with auth outputs explicit PR handoff signals: pull request artifact count, branch artifact count, pull request URL/number from artifact metadata, and pull_request_ready/pull_request_missing/pull_request_failed event presence.
 
 Blocked handling:
-- Missing Turso/Vercel/GitHub/Codex seed values → return to `setup:configure-local` or `setup:configure-github`, then resume.
+- Missing generated local secrets or deploy runtime values → return to `setup:status`,
+  `setup:configure-local`, or `setup:configure-deploy`, then resume.
+- Missing GitHub auth or ProjectV2 access → run `gh auth login`, then return to
+  `setup:configure-github` or `setup:create-first-issue`.
+- Missing Codex seed material is not a deploy-readiness blocker; handle it only through
+  `setup:seed-codex` when the operator explicitly opts into credential seeding.
 - Preview, auth, or network errors during reachability checks → re-run `setup:smoke-test` and `setup:deploy-preview` checks before retrying next step.
 - No claim token returned from run detail → verify `runId`, then rerun authenticated `setup:verify-run` to confirm run visibility.
 
