@@ -34,7 +34,7 @@ type Facts = {
 	};
 	claimToken: {
 		available: boolean;
-		source: "process" | ".env.local" | "missing";
+		source: "process" | ".env.local" | "run-detail" | "missing";
 		availableWithOptIn: boolean;
 	};
 	request: {
@@ -276,6 +276,17 @@ function classifyStatus(status: number): string {
 	return `status-${status}`;
 }
 
+type RunDetailFetchResult = {
+	status: number | null;
+	contentType: string | null;
+	classification: string;
+	objectKeys: string[] | null;
+	claimToken: string | null;
+	hasRunObject: boolean;
+	hasRunClaimToken: boolean;
+	error?: string;
+};
+
 function summarizeNetworkError(error: unknown): string {
 	const message = error instanceof Error ? error.message : String(error);
 	return `network error: ${message}`;
@@ -361,11 +372,98 @@ async function startAttempt(args: {
 	}
 }
 
+async function fetchRunClaimToken(args: {
+	endpoint: string;
+	token: string;
+}): Promise<RunDetailFetchResult> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+	try {
+		const response = await fetch(args.endpoint, {
+			method: "GET",
+			headers: {
+				Authorization: `Bearer ${args.token}`,
+			},
+			redirect: "manual",
+			signal: controller.signal,
+		});
+
+		const contentType = response.headers.get("content-type");
+		let objectKeys: string[] | null = null;
+		let claimToken: string | null = null;
+		let hasRunObject = false;
+		let hasRunClaimToken = false;
+
+		if (contentType?.includes("application/json")) {
+			try {
+				const parsed = (await response.json()) as unknown;
+				if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+					const record = parsed as Record<string, unknown>;
+					objectKeys = Object.keys(record);
+					const runRecord = record.run;
+					if (
+						runRecord &&
+						typeof runRecord === "object" &&
+						!Array.isArray(runRecord)
+					) {
+						hasRunObject = true;
+						const maybeRun = runRecord as Record<string, unknown>;
+						const candidate = maybeRun.claimToken;
+						if (typeof candidate === "string" && candidate.trim()) {
+							claimToken = candidate;
+							hasRunClaimToken = true;
+						}
+					}
+				}
+			} catch (error) {
+				return {
+					status: response.status,
+					contentType,
+					classification: classifyStatus(response.status),
+					objectKeys: null,
+					hasRunObject,
+					hasRunClaimToken,
+					claimToken: null,
+					error:
+						error instanceof Error
+							? error.message
+							: "failed to parse run detail JSON response",
+				};
+			}
+		}
+
+		return {
+			status: response.status,
+			contentType,
+			classification: classifyStatus(response.status),
+			objectKeys,
+			hasRunObject,
+			hasRunClaimToken,
+			claimToken,
+		};
+	} catch (error) {
+		return {
+			status: null,
+			contentType: null,
+			classification: "network-error",
+			objectKeys: null,
+			hasRunObject: false,
+			hasRunClaimToken: false,
+			claimToken: null,
+			error: summarizeNetworkError(error),
+		};
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
 function baseReport(input: {
 	ok: boolean;
 	mode: Mode;
 	phase: "first-attempt-start";
 	facts: Facts;
+	response?: Report["facts"]["response"];
 	checks?: Check[];
 	plannedChanges?: PlannedChange[];
 	needsUser?: string[];
@@ -377,7 +475,10 @@ function baseReport(input: {
 		ok: input.ok,
 		mode: input.mode,
 		phase: input.phase,
-		facts: input.facts,
+		facts: {
+			...input.facts,
+			...(input.response ? { response: input.response } : {}),
+		},
 		checks: input.checks ?? [],
 		plannedChanges: input.plannedChanges ?? [],
 		needsUser: input.needsUser ?? [],
@@ -435,7 +536,7 @@ function invalidArgsError(message: string) {
 async function main() {
 	const parsed = parseArgs(process.argv);
 	if (!parsed.ok) {
-		invalidArgsError(parsed.error);
+		invalidArgsError((parsed as { error: string }).error);
 		return;
 	}
 
@@ -443,8 +544,10 @@ async function main() {
 	const rootPasswordSource = rootPassword?.source ?? "missing";
 	const rootPasswordAvailable = Boolean(rootPassword);
 	const claimToken = resolveClaimToken();
-	const claimTokenSource = claimToken?.source ?? "missing";
-	const claimTokenAvailable = Boolean(claimToken);
+	let claimTokenSource: "process" | ".env.local" | "run-detail" | "missing" =
+		claimToken?.source ?? "missing";
+	let claimTokenAvailable = Boolean(claimToken);
+	let resolvedClaimToken = claimToken?.value ?? null;
 	const normalizedBaseUrl = (() => {
 		try {
 			return normalizeBaseUrl(parsed.url);
@@ -535,12 +638,6 @@ async function main() {
 		wouldWrite: parsed.apply,
 	});
 
-	if (!claimTokenAvailable) {
-		needsUser.push(
-			"Set RHAPSODY_CLAIM_TOKEN in process env or .env.local before applying.",
-		);
-	}
-
 	if (!parsed.useRootPassword) {
 		needsUser.push(
 			"Pass --use-root-password to authorize the attempt start with ROOT_PASSWORD.",
@@ -549,7 +646,7 @@ async function main() {
 
 	if (!parsed.apply) {
 		nextActions.push(
-			"Rerun with RHAPSODY_CLAIM_TOKEN set, plus --apply --yes --use-root-password, when you are ready to start the attempt; dry-run will not mutate.",
+			"Rerun with --apply --yes --use-root-password when you are ready to start the attempt; run token is derived from the authenticated run detail when RHAPSODY_CLAIM_TOKEN is not already set.",
 		);
 		emit(
 			baseReport({
@@ -605,9 +702,8 @@ async function main() {
 	}
 
 	if (!claimTokenAvailable) {
-		blocked.push("RHAPSODY_CLAIM_TOKEN is missing.");
-		nextActions.push(
-			"Set RHAPSODY_CLAIM_TOKEN and rerun with --apply --yes --use-root-password.",
+		needsUser.push(
+			"RHAPSODY_CLAIM_TOKEN is not set in process env or .env.local; attempt start can derive it from the run detail in apply mode.",
 		);
 	}
 
@@ -654,10 +750,95 @@ async function main() {
 		return;
 	}
 
+	if (!claimTokenAvailable) {
+		const claimLookup = await fetchRunClaimToken({
+			endpoint: `${normalizedBaseUrl}/api/v1/runs/${parsed.runId}`,
+			token: rootPassword!.value,
+		});
+
+		const runLookupSummary = {
+			status: claimLookup.status,
+			contentType: claimLookup.contentType,
+			classification: claimLookup.classification,
+			hasRunObject: claimLookup.hasRunObject,
+			hasRunClaimToken: claimLookup.hasRunClaimToken,
+			...(claimLookup.objectKeys
+				? { objectKeys: claimLookup.objectKeys.slice(0, 16) }
+				: {}),
+			...(claimLookup.error ? { error: claimLookup.error } : {}),
+		};
+
+		if (claimLookup.status !== 200 || !claimLookup.claimToken) {
+			const reason =
+				claimLookup.status === null
+					? "Failed to fetch run detail."
+					: !claimLookup.claimToken
+						? "Run detail did not include a non-empty claimToken."
+						: "Run detail fetch failed with an unexpected status.";
+
+			blocked.push(reason);
+			nextActions.push(
+				"Confirm the run ID and preview URL, then rerun with --apply --yes --use-root-password after the run detail endpoint returns a claim token.",
+			);
+
+			emit(
+				baseReport({
+					ok: false,
+					mode: parsed.mode,
+					phase: "first-attempt-start",
+					facts: {
+						input: {
+							providedUrl: parsed.url,
+							normalizedBaseUrl,
+							runId: parsed.runId,
+							attemptId: parsed.attemptId,
+							useRootPasswordRequested: parsed.useRootPassword,
+							applyRequested: parsed.apply,
+							yesFlagPresent: parsed.yes,
+						},
+						rootPassword: {
+							available: rootPasswordAvailable,
+							source: rootPasswordSource,
+							availableWithOptIn:
+								rootPasswordAvailable && parsed.useRootPassword,
+						},
+						claimToken: {
+							available: false,
+							source: "missing",
+							availableWithOptIn: false,
+						},
+						request: {
+							endpoint,
+							method: "POST",
+							payloadShape,
+						},
+					},
+					checks,
+					plannedChanges,
+					needsUser,
+					blocked,
+					nextActions,
+					response: runLookupSummary,
+				}),
+				1,
+			);
+			return;
+		}
+
+		claimTokenAvailable = true;
+		claimTokenSource = "run-detail";
+		resolvedClaimToken = claimLookup.claimToken;
+		checks.splice(1, 1, {
+			name: "claim-token",
+			ok: true,
+			detail: "available from run-detail",
+		});
+	}
+
 	const result = await startAttempt({
 		endpoint: endpoint!,
 		token: rootPassword!.value,
-		claimToken: claimToken!.value,
+		claimToken: resolvedClaimToken!,
 	});
 
 	const responseSummary = {

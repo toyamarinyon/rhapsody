@@ -62,7 +62,8 @@ Treat setup as resumable phases:
 8. `first-attempt-start`
    - use the start-attempt helper with the manual run `runId`, `attemptId`, and the run's
      `claimToken`;
-   - set `RHAPSODY_CLAIM_TOKEN` in the environment before running the helper;
+   - if `RHAPSODY_CLAIM_TOKEN` is not already available in process env or `.env.local`, derive it
+     from authenticated `GET /api/v1/runs/:runId` during apply;
    - dry-run first to confirm the endpoint, redacted payload shape, and whether the operator still
      needs to supply the claim token or root password;
    - apply only with `--apply --yes --use-root-password` when the claim token is available;
@@ -153,8 +154,7 @@ This helper is read-only in dry-run mode. It prepares the manual first issue han
 `POST /api/v1/runs` and, with `--apply --yes --use-root-password`, performs the manual run creation
 against the deployed preview API.
 
-After you have the resulting `runId`, `attemptId`, and `claimToken`, set
-`RHAPSODY_CLAIM_TOKEN` in the environment and run:
+After you have the resulting `runId` and `attemptId`, run:
 
 ```bash
 pnpm setup:start-attempt -- --url <https://your-preview-url.vercel.app> --run-id <runId> --attempt-id <attemptId>
@@ -164,11 +164,16 @@ This helper is read-only in dry-run mode. It prepares the manual attempt start a
 `POST /api/v1/runs/:runId/attempts/:attemptId/start` and, with `--apply --yes --use-root-password`,
 performs the authenticated attempt start against the deployed preview API.
 
-To apply the start after setting `RHAPSODY_CLAIM_TOKEN`, run:
+Dry-run then apply:
 
 ```bash
 pnpm setup:start-attempt -- --url <https://your-preview-url.vercel.app> --run-id <runId> --attempt-id <attemptId> --apply --yes --use-root-password
 ```
+
+If `RHAPSODY_CLAIM_TOKEN` is already available in process env or `.env.local`, the helper uses it
+directly.
+
+If it is missing, the helper derives it from `GET /api/v1/runs/:runId` in the same apply invocation.
 
 After the attempt starts, verify the run detail:
 
