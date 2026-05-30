@@ -112,6 +112,30 @@ test("builds concrete verify-run fetch failure next actions", () => {
 	]);
 });
 
+test("does not treat missing or failed PR events as successful PR evidence", () => {
+	const missingOnly = buildEvidenceSignals({
+		events: [{ type: "sandbox_codex_runner.pull_request_missing" }],
+	});
+
+	expect(missingOnly.handoff).toEqual({
+		pullRequestEvidenceFound: false,
+		pullRequestReadyEventPresent: false,
+		pullRequestMissingEventPresent: true,
+		pullRequestFailedEventPresent: false,
+	});
+
+	const failedOnly = buildEvidenceSignals({
+		events: [{ type: "sandbox_codex_runner.pull_request_failed" }],
+	});
+
+	expect(failedOnly.handoff).toEqual({
+		pullRequestEvidenceFound: false,
+		pullRequestReadyEventPresent: false,
+		pullRequestMissingEventPresent: false,
+		pullRequestFailedEventPresent: true,
+	});
+});
+
 test("parses verify-run args with default values", () => {
 	const result = parseArgs([
 		"node",

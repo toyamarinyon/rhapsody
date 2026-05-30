@@ -780,9 +780,7 @@ export function buildEvidenceSignals(detail: unknown): {
 		Boolean(pullRequestUrls.first) ||
 		Boolean(pullRequestUrls.latest) ||
 		Boolean(pullRequestNumber) ||
-		pullRequestReadyEventPresent ||
-		pullRequestMissingEventPresent ||
-		pullRequestFailedEventPresent;
+		pullRequestReadyEventPresent;
 
 	const runnerWorkflowRunId =
 		run && getString(run.runnerWorkflowRunId)
