@@ -1,0 +1,690 @@
+Implement the next reviewable setup increment: a first issue handoff helper MVP.
+
+Context:
+- Goal is `$setup-rhapsody` path from deployed preview to first GitHub Project issue becoming an agent-created PR.
+- Recent merged PRs added:
+  - `setup:deploy-preview`
+  - `setup:smoke-test`
+- This PR should add the next step after smoke-test: prepare/perform a manual first issue handoff to the deployed preview API.
+- Keep it small and safe. English-only repo content. Do not touch `.codex/agents/builder.toml` if modified.
+
+Existing relevant API:
+- `POST /api/v1/runs` accepts admin auth and either `{ issueNumber }` or manual work item fields. It creates a claimed manual run. See `app/api/v1/runs/route.ts`.
+- Admin auth can use `Authorization: Bearer <ROOT_PASSWORD>`.
+- Starting worker attempts may be separate; do not overreach unless there is already a clear manual start endpoint pattern.
+
+Task:
+1. Add a package script, likely `setup:first-issue`, backed by a new TypeScript script in `scripts/`.
+2. Supported args:
+   - `--url <preview base URL>` or `--url=<...>` required
+   - `--issue-number <positive integer>` or `--issue-number=<n>` required
+   - no secret CLI args
+   - `--dry-run` optional/default: do not mutate, only report plan
+   - `--apply --yes` optional: perform the manual handoff
+   - `--use-root-password` required for apply, and uses ROOT_PASSWORD from process first then `.env.local`; do not print it
+   - reject unsupported args as JSON-only error
+3. Dry-run behavior:
+   - normalize URL
+   - verify root password availability and whether `--use-root-password` is set
+   - report exact endpoint that would be called (`POST /api/v1/runs`) and payload shape without secrets
+   - do not call remote API
+   - produce JSON shape similar to setup helpers: ok/mode/phase/facts/checks/plannedChanges/needsUser/blocked/nextActions
+4. Apply behavior:
+   - require valid URL, issue number, ROOT_PASSWORD availability, and `--use-root-password`
+   - POST to `${baseUrl}/api/v1/runs` with JSON `{ issueNumber, claimedBy: "setup-rhapsody" }` and Bearer root password
+   - summarize response status/content-type and safe JSON shape/keys; include returned run id / attempt id only if those fields are present and non-secret
+   - classify 201 success, 401 unauthorized, 409 existing run, 400 validation, network error
+   - do not trigger scheduler tick or start attempts in this PR unless implementation already obviously requires it
+5. Update `.agents/skills/setup-rhapsody/SKILL.md` to place this after smoke-test and before scheduler/PR verification.
+6. Verification:
+   - missing args JSON
+   - unsupported args JSON
+   - dry-run with dummy URL/issue number JSON
+   - apply without `--use-root-password` blocks before network
+   - format/lint/typecheck
+
+Keep code straightforward; avoid shared refactors. Report changed files and verification. Do not commit/PR; parent will review.
+
+---
+
+Good shape. Please fix these before PR:
+
+1. Tighten mode parsing: `--apply` without `--yes` should be rejected as unsupported args, not treated as apply mode with a later blocker. Supported forms should be no `--dry-run`/`--dry-run` for dry-run, and exact `--apply --yes` for apply (order can be flexible if you want, but both must be present). `--yes` without `--apply` should also be unsupported.
+
+2. Do not include raw JSON response in `facts.response.error`. Current code can set `error: JSON.stringify(parsed)` for HTTP >=400. That may expose future server details. Replace with a safe summary only, e.g. `response returned JSON object with keys: error, existingRunId`, or just omit error and rely on status/classification/objectKeys.
+
+3. The top-level catch should not emit raw exception messages if they could include request data. Summarize as `unexpected script error` or include only error name. Normal network errors in `postRun` are already summarized.
+
+4. Add a check for `--use-root-password` in dry-run: it can be accepted, but nextActions should still be dry-run focused; no mutation.
+
+Please rerun:
+- missing args JSON
+- unsupported `--apply` without `--yes` JSON
+- dry-run dummy URL/issue
+- apply without `--use-root-password` with exact `--apply --yes` blocks before network
+- format/lint/typecheck
+
+---
+
+builder subagent, gpt-5.3-codex-sparkの方が仕事速いし精度もいいのでそっち使ってください。
+
+---
+
+Implement the next reviewable setup increment: first attempt start helper MVP.
+
+Context:
+- We are using `builder`, which is the fast gpt-5.3-codex-spark role.
+- Goal is `$setup-rhapsody` path from deployed preview to first issue -> PR.
+- PR #151 added `setup:first-issue`, which can create a manual run through `POST /api/v1/runs` and returns runId/attemptId when present.
+- Existing endpoint: `POST /api/v1/runs/[runId]/attempts/[attemptId]/start` starts the runner workflow. It requires admin auth and JSON body with `claimToken`.
+- Need a safe helper that can dry-run and optionally start the attempt when operator has the IDs/token.
+- English-only repo content. Do not touch `.codex/agents/builder.toml` if modified.
+
+Task:
+1. Add package script, likely `setup:start-attempt`, backed by new `scripts/setup-rhapsody-start-attempt.ts`.
+2. Supported args:
+   - `--url <preview base URL>` or `--url=<...>` required
+   - `--run-id <id>` or `--run-id=<id>` required
+   - `--attempt-id <id>` or `--attempt-id=<id>` required
+   - `--claim-token <token>` or `--claim-token=<token>` required for apply, but do not print it; consider allowing dry-run to report missing claim-token as needsUser
+   - no root password CLI arg; uses ROOT_PASSWORD from process first then `.env.local`
+   - `--use-root-password` required for apply
+   - dry-run default / `--dry-run` only reports plan
+   - exact `--apply --yes` performs POST; `--apply` without `--yes` or `--yes` without `--apply` should be JSON-only unsupported args
+   - reject unsupported args JSON-only
+3. Dry-run behavior:
+   - normalize URL
+   - report endpoint `/api/v1/runs/:runId/attempts/:attemptId/start`
+   - payload shape should include `claimToken: "redacted"`, not value
+   - report whether root password and claim token are available, without printing values
+   - no network
+4. Apply behavior:
+   - require exact `--apply --yes`, `--use-root-password`, ROOT_PASSWORD available, and claim token present
+   - POST with Authorization Bearer ROOT_PASSWORD and body `{ claimToken }`
+   - summarize response status/content-type/classification/object keys and `runnerWorkflowRunId` if present
+   - classify 202/200 success, 400 validation, 401 unauthorized, 409 conflict/idempotent, network error
+   - no raw response body, no secrets
+5. Update `.agents/skills/setup-rhapsody/SKILL.md` after `first-issue` to explain using runId/attemptId/claimToken to start the first attempt, then dashboard/PR verification.
+6. Verification:
+   - missing args JSON
+   - unsupported `--apply` without `--yes` JSON
+   - dry-run dummy values JSON
+   - apply without `--use-root-password` blocks before network
+   - format/lint/typecheck
+
+Keep straightforward, no shared refactor. Report changed files and verification; parent will review/commit/PR.
+
+---
+
+Good overall, but please change claim-token handling for the same reason as ROOT_PASSWORD: do not accept secrets on the command line.
+
+Required fixes:
+1. Remove support for `--claim-token <token>` and `--claim-token=<token>` entirely. Treat them as unsupported args.
+2. Read claim token from `RHAPSODY_CLAIM_TOKEN` in process env first, then `.env.local`. Do not print it.
+3. Facts should show claimToken source/availability only, e.g. `source: "process" | ".env.local" | "missing"`, not `provided` from CLI.
+4. Dry-run nextActions should tell the operator to set `RHAPSODY_CLAIM_TOKEN` for apply.
+5. Skill doc command example must not include `--claim-token <claimToken>`. Instead say set `RHAPSODY_CLAIM_TOKEN` in the environment, then run `pnpm setup:start-attempt -- --url ... --run-id ... --attempt-id ...` for dry-run, and add `--apply --yes --use-root-password` for apply.
+6. Top-level output must remain JSON-only and no raw secret values.
+
+Please rerun verification including unsupported `--claim-token nope` rejection, dry-run dummy values, apply without env claim token blocking before network, format/lint/typecheck.
+
+---
+
+Parent verification looks safe, but one output-quality fix:
+
+Apply without RHAPSODY_CLAIM_TOKEN currently emits duplicate needsUser entries:
+- "Set RHAPSODY_CLAIM_TOKEN in process env or .env.local before applying."
+- "Set RHAPSODY_CLAIM_TOKEN before applying."
+
+Please dedupe/consolidate to one clear needsUser message. Also add a blocked-mode nextAction like "Set RHAPSODY_CLAIM_TOKEN and rerun with ..." instead of empty nextActions.
+
+Rerun apply-without-token smoke, format/lint/typecheck.
+
+---
+
+Implement the next setup increment: first run verification helper MVP.
+
+Context:
+- Goal is `$setup-rhapsody` end-to-end setup path to first GitHub Project issue becoming an agent-created PR.
+- Merged helpers now cover deploy preview, smoke-test, first issue manual run creation, and first attempt start.
+- Existing APIs include authenticated `GET /api/v1/runs/:runId`, dashboard pages, and work-item graph APIs. Please inspect routes/types as needed.
+- This PR should add read-only verification after `setup:start-attempt`: fetch a run and summarize whether the attempt/runner workflow/handoff evidence is visible.
+- English-only repo. Do not touch `.codex/agents/builder.toml` if modified.
+
+Task:
+1. Add package script, likely `setup:verify-run`, backed by `scripts/setup-rhapsody-verify-run.ts`.
+2. Supported args:
+   - `--url <preview base URL>` or `--url=<...>` required
+   - `--run-id <id>` or `--run-id=<id>` required
+   - no secret CLI args
+   - optional `--use-root-password` to send ROOT_PASSWORD from process first then `.env.local`
+   - read-only only; no apply mode
+   - reject unsupported args JSON-only
+3. Behavior:
+   - normalize URL
+   - dry/read-only GET `${baseUrl}/api/v1/runs/${runId}`
+   - without `--use-root-password`, report the endpoint and that authenticated fetch is skipped/available if ROOT_PASSWORD exists; do not network unless you think unauthenticated classification is useful and safe
+   - with `--use-root-password`, require ROOT_PASSWORD and GET with Bearer token
+   - summarize status/content-type/object keys; no raw body or secrets
+   - If JSON shape includes run/attempts/events/artifacts/links etc, summarize key signals:
+     - run status, runnerWorkflowRunId if present
+     - latest attempt id/status if present
+     - branch/handoff/PR evidence if visible by safe key inspection (do not overfit; use robust optional access)
+   - Output JSON shape: ok/mode:"dry-run"/phase:"verify-run"/facts/checks/needsUser/blocked/nextActions.
+   - `ok` should be true if fetch succeeds and there is at least a run/attempt or useful shape; not necessarily PR complete. Include `readyForNext` or `signals` if useful.
+4. Update setup skill after `first-attempt-start` to run verify-run and use it to decide whether to wait, inspect dashboard, or look for PR.
+5. Verification:
+   - missing args JSON
+   - unsupported args JSON
+   - dry-run without --use-root-password JSON, no network mutation
+   - with --use-root-password but no ROOT_PASSWORD available should block before network (can simulate env -u ROOT_PASSWORD if needed, but .env.local may still have it; if so document)
+   - format/lint/typecheck
+
+Keep straightforward, no shared refactor. Report files/results. Parent will review/commit/PR.
+
+---
+
+ダメだな、5.4-miniでsubagentが起動しているので一度再起動するのでキリのいいところでストップしてください。
+
+---
+
+[builder.toml](.codex/agents/builder.toml) を更新したので、PRにこれを含めておいてください。あとはこれまで通り続けてください。
+
+---
+
+Implement the next setup increment: let setup:start-attempt derive the claim token from authenticated run detail.
+
+Context:
+- We discovered a flow gap: `setup:first-issue` intentionally does not print raw `claimToken`, but `setup:start-attempt` currently requires `RHAPSODY_CLAIM_TOKEN` from env/.env.local.
+- Existing `GET /api/v1/runs/:runId` includes `run.claimToken` in the authenticated run detail. The helper can fetch it with ROOT_PASSWORD and use it without printing it.
+- Goal: make first-issue -> start-attempt flow work without requiring the operator to manually handle the claim token.
+- English-only repo. Do not touch unrelated files.
+
+Task:
+1. Update `scripts/setup-rhapsody-start-attempt.ts`:
+   - Keep current support for `RHAPSODY_CLAIM_TOKEN` from process/.env.local as first priority.
+   - If claim token is missing and apply mode has `--use-root-password` plus ROOT_PASSWORD available, perform a read-only authenticated GET `${baseUrl}/api/v1/runs/${runId}` before POSTing start.
+   - Extract `run.claimToken` only if it is a non-empty string.
+   - Never print the claim token or raw response body.
+   - Facts/checks should show claim token source as `process | .env.local | run-detail | missing` and availability only.
+   - If run-detail lookup fails or does not contain claim token, block before start POST with sanitized status/classification/object keys.
+   - Dry-run should not fetch network; it should explain that apply can derive claim token from run detail when `--use-root-password` is used.
+2. Update `.agents/skills/setup-rhapsody/SKILL.md`:
+   - Remove the implication that the operator must manually set `RHAPSODY_CLAIM_TOKEN` after first-issue.
+   - Explain preferred flow: run start-attempt dry-run, then apply with `--apply --yes --use-root-password`; helper will use `RHAPSODY_CLAIM_TOKEN` if set, otherwise derive from authenticated run detail.
+3. Verification:
+   - dry-run dummy values shows no network and explains derivation path
+   - apply without `--use-root-password` still blocks before network
+   - apply with `--use-root-password` and no `RHAPSODY_CLAIM_TOKEN` against `https://example.com` should perform sanitized run-detail fetch failure and block before start POST (network/404/etc ok, but no secret output)
+   - unsupported args still JSON
+   - format/lint/typecheck
+
+Keep small and focused. Report changed files and verification. Parent will review/commit/PR.
+
+---
+
+Important fix needed:
+
+`GET /api/v1/runs/:runId` returns run detail with the token at `run.claimToken`, not top-level `claimToken`. Current `fetchRunClaimToken` reads `record.claimToken`, so the derivation path will always fail for the real API.
+
+Please update it to extract `record.run.claimToken` when `record.run` is an object. Keep output sanitized and objectKeys top-level only (or include safe nested key presence booleans if useful, no values).
+
+Also fix the setup skill list indentation in the `first-attempt-start` section: it switched to tabs and one bullet is missing a semicolon/period consistency. Match surrounding markdown style.
+
+Rerun:
+- dry-run dummy values
+- apply with --use-root-password and no RHAPSODY_CLAIM_TOKEN against https://example.com should attempt run-detail fetch and block before POST with sanitized response
+- format/lint/typecheck
+
+---
+
+Implement a small setup-rhapsody skill runbook polish PR.
+
+Context:
+- Goal is `$setup-rhapsody` path from deployed preview to first issue -> PR.
+- Recent merged helpers: setup:deploy-preview, setup:smoke-test, setup:first-issue, setup:start-attempt, setup:verify-run.
+- The helper path is now technically connected, but `.agents/skills/setup-rhapsody/SKILL.md` has grown organically and should be made easier for an agent/operator to follow.
+- English-only repo. Keep this PR docs-only unless you find a tiny command typo in package scripts. Do not touch unrelated files.
+
+Task:
+1. Update `.agents/skills/setup-rhapsody/SKILL.md` to add a concise "Preview First Run Runbook" or similar section after the existing helper descriptions.
+2. The runbook should list the exact order and minimal commands:
+   - deploy preview dry-run/apply
+   - smoke-test preview URL
+   - first-issue dry-run/apply
+   - start-attempt dry-run/apply (mention claim token is derived from authenticated run detail when RHAPSODY_CLAIM_TOKEN is absent)
+   - verify-run without auth and with --use-root-password
+3. Add clear success signals for the first-run path:
+   - first-issue returns runId/attemptId
+   - start-attempt returns runnerWorkflowRunId or an idempotent/conflict signal to inspect dashboard
+   - verify-run shows runnerWorkflowRunId, attempts/events/artifacts/links, and eventually PR/handoff evidence if present
+4. Add concise blocked-handling guidance:
+   - missing Turso/Vercel/GitHub/Codex seed values go back to configure helpers
+   - preview/auth/network errors go back to smoke-test/deploy-preview
+   - no claimToken from run detail means verify run ID and authenticated API visibility
+5. Preserve existing safety rules and do not add fake secrets or actual URLs.
+6. Run format check for the skill doc.
+
+Return changed files and verification. Do not commit/PR; parent will review.
+
+---
+
+Implement the next reviewable setup increment: strengthen `setup:verify-run` PR/handoff evidence detection.
+
+Context:
+- Goal is the setup skill path from Vercel Template prerequisites to first GitHub Project issue becoming an agent-created PR.
+- Current helper `scripts/setup-rhapsody-verify-run.ts` fetches `GET /api/v1/runs/:runId` and summarizes run/attempt/events/artifacts/links counts, but PR/handoff evidence is generic.
+- The runner records pull request handoff as artifact kind `pull_request` with `externalUrl`, metadata like `pullRequestNumber`, and events such as `sandbox_codex_runner.pull_request_ready`. It also records branch artifacts.
+- Need a small focused PR to make verify-run output tell setup whether the first issue has reached PR/handoff evidence.
+- English-only repo. Do not touch unrelated files.
+
+Task:
+1. Update `scripts/setup-rhapsody-verify-run.ts`.
+2. Add robust safe evidence extraction from authenticated run detail body:
+   - pull request artifact count
+   - branch artifact count
+   - first/latest pull request URL if visible from artifact `externalUrl` or metadata URL fields
+   - pull request number if visible from artifact `externalId` or metadata `pullRequestNumber`
+   - whether pull-request-ready/missing/failed events are present by event type, without printing raw event data
+   - keep existing counts and run/attempt fields
+3. Include these in `facts.response`, e.g. `pullRequestEvidence`, `branchEvidence`, or `handoff` object. No raw bodies, no secrets.
+4. Update nextActions:
+   - if PR evidence found: tell operator to open/inspect the PR and dashboard.
+   - if runnerWorkflowRunId exists but no PR evidence: tell operator to wait/rerun verify-run and inspect events/artifacts.
+   - if pull_request_missing/failed event exists: tell operator to inspect runner events/logs.
+5. Update `.agents/skills/setup-rhapsody/SKILL.md` success signals to mention the stronger PR evidence fields.
+6. Verification:
+   - run `pnpm setup:verify-run -- --url https://example.test --run-id run_123` no-auth path
+   - if convenient, add a tiny unit-ish script-free check is not required; rely on lint/typecheck/format
+   - run format/lint/typecheck
+
+Keep it small. Report changed files and verification. Parent will review/commit/PR.
+
+---
+
+Implement the next PR-sized increment for Rhapsody setup onboarding: add focused regression coverage for the new `setup:verify-run` PR/handoff evidence extraction currently on main.
+
+Scope:
+- Inspect existing test patterns and package scripts.
+- Add a small, maintainable test that proves authenticated run-detail-like data with pull_request and branch artifacts plus pull_request_ready/missing/failed events is summarized into the expected `facts.response.pullRequestEvidence`, `facts.response.handoff`, and `nextActions` signals.
+- Prefer testing a pure helper if practical; if the script currently needs a tiny export/refactor to test cleanly, keep it narrow and avoid changing CLI behavior.
+- Do not add external dependencies unless already present.
+- Keep repo content English-only.
+- You are not alone in the codebase. Do not revert edits made by others; work with the current main state.
+
+Verification expected before final:
+- format/lint/typecheck and the relevant test command.
+
+Final response: summarize files changed, design choices, and verification results. Do not create a PR or merge; parent will review and handle git/PR.
+
+---
+
+Implement the next PR-sized increment for Rhapsody setup onboarding: add a narrow GitHub ProjectV2 creation apply path to `pnpm setup:configure-github`.
+
+Goal:
+- Today `scripts/setup-rhapsody-configure-github.ts` is read-only and tells the operator to create/reconfigure a ProjectV2 manually. Add the smallest safe mutation path so `$setup-rhapsody` can create a GitHub ProjectV2 when the operator explicitly asks.
+
+Scope / desired behavior:
+- Extend args to support dry-run as-is, plus apply with explicit confirmation, e.g. `--apply --yes --project-title <title>` (exact naming is your judgment if local patterns suggest otherwise).
+- In apply mode, only create a ProjectV2 board when prerequisites are satisfied: gh available, gh auth ok, GitHub owner resolved, repo readable, no local configured project number already exists, and a project title is provided.
+- Prefer `gh project create --owner <owner> --title <title> --format json` if available. If you use GraphQL instead, keep it isolated and safe.
+- Do not create fields/options in this PR. Report that field/status reconciliation remains a later/manual step.
+- Do not write local config in this PR. Output the created project number/id/url/title so a later helper or operator can update `rhapsody.config.ts`.
+- Preserve read-only default behavior. Unsupported args should explain supported forms.
+- Keep outputs redacted and structured like existing setup helpers: `plannedChanges`, `appliedChanges` if needed, `needsUser`, `blocked`, `nextActions`.
+- Update `.agents/skills/setup-rhapsody/SKILL.md` to document the new apply path and its limits.
+- Add focused tests if the script can be tested cleanly without excessive refactor; otherwise keep implementation minimal and rely on local CLI dry-run verification.
+- Keep repo content English-only.
+- You are not alone in the codebase. Do not revert edits made by others; work with current main.
+
+Verification expected before final:
+- relevant setup command dry-run(s)
+- format/lint/typecheck and any tests you add
+
+Final response: summarize files changed, behavior, and verification. Do not create PR/merge; parent will review.
+
+---
+
+Implement the next PR-sized increment for Rhapsody setup onboarding: add a safe way to persist a newly-created GitHub ProjectV2 number into local config after `setup:configure-github --apply` creates a board.
+
+Context:
+- `setup:configure-github -- --apply --yes --project-title <title>` now creates a ProjectV2 board and outputs its number, but the setup flow still asks the operator to manually update `rhapsody.config.ts`.
+- We want to avoid that break in the `$setup-rhapsody` path.
+
+Scope / desired behavior:
+- Extend `scripts/setup-rhapsody-configure-local.ts` with a narrowly scoped explicit apply mode to update `rhapsody.config.ts` tracker project number, e.g. `--apply --yes --project-number <number>` or similar. Keep existing generated-secret apply behavior working unchanged.
+- Safety constraints:
+  - Only update `rhapsody.config.ts`, not `.rhapsody/config.toml` or remote state.
+  - Only replace an existing `projectNumber` value inside the `tracker` block, or if local patterns make it safe, insert it in the tracker block. Prefer replacing if present and blocking otherwise if insertion is too brittle.
+  - Require explicit `--apply --yes` and a positive integer project number.
+  - Include dry-run/plan output that describes what would change without writing.
+  - Preserve external-input and .env.local behavior; do not accidentally generate secrets unless the existing apply mode is invoked without project-number or in a documented combined mode. Choose the least surprising shape and document it in output.
+- Update `.agents/skills/setup-rhapsody/SKILL.md` to connect the new GitHub project creation output to this local persistence step.
+- Add focused tests if practical. If not, verify with dry-run and apply against a temporary fixture/worktree-safe approach without modifying the real `rhapsody.config.ts`, or explain why not.
+- Keep repo content English-only.
+- You are not alone in the codebase. Do not revert edits made by others; work with current main.
+
+Verification expected before final:
+- relevant setup command(s)
+- format/lint/typecheck and tests if added
+
+Final response: summarize files changed, behavior, and verification. Do not create PR/merge; parent will review.
+
+---
+
+Implement the next PR-sized increment for Rhapsody setup onboarding: add a safe apply path to create the configured GitHub ProjectV2 Status single-select field when the project exists but the field is missing.
+
+Context:
+- `setup:configure-github` now has a narrow ProjectV2 board creation apply path.
+- `setup:configure-local` can persist the project number.
+- Remaining setup gap: if the configured ProjectV2 exists but the configured status field is missing, the user still has to create it manually.
+
+Scope / desired behavior:
+- Update `scripts/setup-rhapsody-configure-github.ts`.
+- Add an explicit apply mode for creating the configured status field, e.g. `--apply --yes --create-status-field` (or similar, following existing parser style).
+- Only create the field when all prerequisites are met:
+  - gh available and authenticated
+  - repository readable
+  - local config identifies a GitHub ProjectV2 number
+  - remote project read succeeds and exists
+  - configured status field name is present
+  - remote project does NOT already have that field
+  - at least one active or terminal status option is configured
+- Use `gh project field-create <number> --owner <owner> --name <statusField> --data-type SINGLE_SELECT --single-select-options <comma-separated-options> --format json`.
+- Do NOT modify existing fields or add missing options to an existing field in this PR. If the field exists but options are missing, continue to report that as manual/later.
+- Preserve existing dry-run and project-create apply behavior.
+- Add structured `appliedChanges` output for successful field creation and blocked output for unmet preconditions.
+- Update `.agents/skills/setup-rhapsody/SKILL.md` to document this optional apply path and its limits.
+- Add focused tests if practical; otherwise verify with blocked local command paths and format/lint/typecheck.
+- Keep repo content English-only.
+- You are not alone in the codebase. Do not revert edits made by others; work with current main.
+
+Verification expected before final:
+- relevant setup commands including the new apply mode in the current environment (blocked is okay if no auth/project state)
+- format/lint/typecheck and tests if added
+
+Final response: summarize files changed, behavior, and verification. Do not create PR/merge; parent will review.
+
+---
+
+Implement the next PR-sized increment for Rhapsody setup onboarding: add a helper to prepare the first smoke-test GitHub issue and add it to the configured ProjectV2 board.
+
+Goal:
+- The current runbook requires an existing `--issue-number` for `setup:first-issue`. Add a safe helper so `$setup-rhapsody` can create the first smoke-test issue and add it to the configured project.
+
+Scope / desired behavior:
+- Add a new script and package script, likely `scripts/setup-rhapsody-create-first-issue.ts` and `pnpm setup:create-first-issue`.
+- Dry-run default must be read-only and structured JSON like other setup helpers.
+- Apply mode should require explicit `--apply --yes`.
+- Supported args should include optional `--title <title>` and maybe `--body <body>`; choose sensible defaults if omitted.
+- Preconditions for apply:
+  - `gh` available and authenticated
+  - repo owner/repository resolved from local config or git remote
+  - repository readable
+  - local config identifies `tracker.projectNumber`
+  - project owner resolved
+- Apply behavior:
+  - create a GitHub issue in the configured repo using `gh issue create --repo owner/repo --title ... --body ... --json number,url` or compatible gh CLI behavior; inspect current gh help if needed.
+  - add the created issue URL to the configured ProjectV2 with `gh project item-add <projectNumber> --owner <owner> --url <issueUrl> --format json`.
+  - output `issueNumber`, `issueUrl`, project item add result summary, and next action to run `pnpm setup:first-issue -- --url <preview-url> --issue-number <number>`.
+- If issue creation succeeds but project item add fails, report that clearly with `blocked`/`needsUser` and include the created issue number/url so the operator can recover; do not hide partial success.
+- Do not mutate project fields/statuses in this helper.
+- Update `.agents/skills/setup-rhapsody/SKILL.md` runbook to include this helper before `setup:first-issue`.
+- Keep repo content English-only.
+- You are not alone in the codebase. Do not revert edits made by others; work with current main.
+
+Verification expected before final:
+- dry-run command
+- apply command in current env can be blocked due gh auth; verify it blocks before remote mutation
+- format/lint/typecheck
+
+Final response: summarize files changed, behavior, and verification. Do not create PR/merge; parent will review.
+
+---
+
+Implement the next PR-sized increment for Rhapsody setup onboarding: add focused regression coverage for `setup:create-first-issue`.
+
+Context:
+- `scripts/setup-rhapsody-create-first-issue.ts` was added recently.
+- It parses gh issue-create stdout URLs, handles blocked dry-runs, and reports partial success when issue creation succeeds but project item-add fails.
+- We want confidence before extending the setup path further.
+
+Scope:
+- Add tests for the important pure logic in `scripts/setup-rhapsody-create-first-issue.ts`.
+- Prefer a small refactor that exports pure helpers and guards CLI execution on direct invocation, following the pattern used in `scripts/setup-rhapsody-verify-run.ts`.
+- Cover at least:
+  - parsing a GitHub issue URL from gh issue-create stdout into issue number/url
+  - argument parsing for dry-run/apply/title/body, including rejecting apply without yes
+  - partial-success reporting or the helper that builds partial-success next actions, if practical without heavy refactor
+- Do not hit the network or invoke gh in tests.
+- Preserve CLI behavior.
+- Keep repo content English-only.
+- You are not alone in the codebase; do not revert others' changes.
+
+Verification expected before final:
+- `pnpm test <new test file>`
+- `pnpm setup:create-first-issue -- --dry-run`
+- format/lint/typecheck
+
+Final response: summarize files changed, test coverage, and verification. Do not create PR/merge; parent will review.
+
+---
+
+Implement the next small PR-sized increment for Rhapsody setup onboarding: remove stale manual placeholders in setup guidance and connect helper outputs to next commands.
+
+Scope:
+- Update `.agents/skills/setup-rhapsody/SKILL.md` so the first-run runbook no longer uses `--issue-number <1>` after `setup:create-first-issue`. It should tell the operator/agent to capture `facts.issue.number` (or `issueNumber` if that is the output shape) from `setup:create-first-issue` and pass it as `<issueNumber>` to `setup:first-issue` dry-run/apply.
+- Update `scripts/setup-rhapsody-configure-github.ts` next action after project creation. It currently says to manually set `tracker.projectNumber`; change it to point to `pnpm setup:configure-local -- --dry-run --project-number <number>` then `--apply --yes --project-number <number>`, while still noting field/status reconciliation limits where relevant.
+- Search for stale guidance like `--issue-number <1>` and `Manually set tracker.projectNumber` in setup docs/scripts and update only setup-path guidance.
+- Keep behavior unchanged except improved messages.
+- Keep repo content English-only.
+
+Verification expected:
+- relevant `rg` search showing stale placeholders removed or intentionally retained elsewhere
+- `pnpm setup:configure-github -- --apply --yes --project-title "Rhapsody Setup Test"` can remain blocked locally, but output should show the updated wording only if reachable; if not reachable, explain.
+- format/lint/typecheck if code changed; format check is enough if only markdown, but run lint/typecheck for script message edits.
+
+Final response: summarize files changed and verification. Do not create PR/merge; parent will review.
+
+---
+
+Implement the next small PR-sized increment for Rhapsody setup onboarding: make `setup:inspect` output more actionable when auth commands fail or time out.
+
+Context:
+- `pnpm setup:inspect` now runs through `node --import tsx`, but current output says e.g. `spawnSync vercel ETIMEDOUT`, which is technically accurate but not very useful for an agent/operator.
+
+Scope:
+- Update `scripts/setup-rhapsody-inspect.ts` only unless package/docs truly need tiny edits.
+- Improve auth/command error summaries so timeout errors produce actionable text, e.g. `vercel whoami timed out after 10000ms; run vercel login or rerun when the CLI is responsive`.
+- Keep JSON shape backward-compatible as much as possible. Adding `nextActions` or `blocked` is okay if useful, but avoid breaking existing fields.
+- Keep command checks and auth checks read-only.
+- Consider adding a small pure helper export/test if practical, but do not over-refactor.
+- Preserve current exit code behavior: nonzero when required command/auth checks fail.
+- Keep repo content English-only.
+
+Verification expected:
+- `pnpm setup:inspect` in current env should still return JSON and exit nonzero due auth, but with clearer timeout/auth detail.
+- format/lint/typecheck, and tests if added.
+
+Final response: summarize files changed and verification. Do not create PR/merge; parent will review.
+
+---
+
+Implement the next PR-sized increment for Rhapsody setup onboarding: update README quickstart/status to match the current setup helper flow.
+
+Context:
+- README still says the guided setup skill is in progress and expects manual wiring / scheduler trigger by hand.
+- The repo now has setup helpers: setup:inspect, configure-local, configure-github, configure-deploy, deploy-preview, smoke-test, create-first-issue, first-issue, start-attempt, verify-run.
+- Goal is public/template readiness: README should not contradict the setup skill.
+
+Scope:
+- Update README.md only unless you find a tiny package/script reference issue.
+- Revise "Can I Try It Today?" to say yes, through the setup helpers, with Turso/libSQL and Codex credential seeding still operator-controlled where true.
+- Revise "Quick Start" to point to the setup skill/helpers rather than purely manual steps. Keep it concise and early-adopter honest.
+- Include the essential command sequence, but do not duplicate the full skill runbook in too much detail. Mention `$setup-rhapsody`/setup skill and the key pnpm helpers.
+- Preserve MVP caveats and security wording.
+- Keep repo content English-only.
+
+Verification expected:
+- `rg` showing stale claims like "setup skill are still in progress" / "trigger scheduler endpoint by hand" removed or no longer misleading.
+- format check for README.
+
+Final response: summarize changes and verification. Do not create PR/merge; parent will review.
+
+---
+
+Implement a small documentation-only PR for Rhapsody's Vercel Template onboarding readiness.
+
+Context:
+- Worktree: /Users/toyamarinyon/Documents/rhapsody
+- Repository content should remain English-only.
+- The active product goal is to guide a user from Vercel Template deployment prerequisites through first GitHub Project issue becoming an agent-created PR.
+- Recent README already has a Quick Start with setup helpers, but the Roadmap still says future items like adding setup skill / doctor / first-run guide even though those helpers now exist. This is confusing for template users.
+- `setup-rhapsody` skill exists at `.agents/skills/setup-rhapsody/SKILL.md` and package scripts exist in `package.json`.
+
+Task:
+1. Update `README.md` only, unless you find a clearly necessary adjacent docs-only file.
+2. Make the README's public/template onboarding story consistent with current implementation:
+   - Add or refine a short Vercel Template / first-run entrypoint section so someone arriving from a template understands: deploy your own Vercel project, run `$setup-rhapsody` or scripts, create/provide Turso manually, configure GitHub Project, deploy preview, smoke test, create first issue, verify PR handoff.
+   - Remove or revise Roadmap bullets that now describe already-existing setup helpers as future work. Keep truly future items as future.
+   - Do not overpromise hosted SaaS, production hardening, automatic Turso creation, or fully polished OAuth/install flows.
+   - Keep wording grounded in the current early-adopter MVP state.
+3. Do not add fake deploy URLs or unverified Vercel deploy-button markup.
+4. Run `pnpm format:check` and a relevant lightweight verification (docs-only means no full build needed unless formatting/lint points to it). If format check fails because of pre-existing unrelated files, report it.
+
+Please edit files directly in your workspace and final with changed paths and verification results. Do not commit or create a PR.
+
+---
+
+Implement the next security-focused setup helper increment.
+
+Context:
+- Worktree: /Users/toyamarinyon/Documents/rhapsody
+- Repo content is English-only.
+- Active goal: make setup flow safely guide a Vercel Template user through first issue -> PR.
+- Current issue: `scripts/setup-rhapsody-configure-deploy.ts` includes `INITIAL_CHATGPT_AUTH_JSON` in `RUNTIME_AND_SEED_KEYS`, so generic `pnpm setup:configure-deploy -- --apply --yes` can upload the Codex/ChatGPT seed to Vercel env if it is sourceable. But README/skill/ADR say Codex credential seeding is explicit operator opt-in and the skill must not silently upload this seed.
+
+Task:
+1. Update `scripts/setup-rhapsody-configure-deploy.ts` so uploading `INITIAL_CHATGPT_AUTH_JSON` requires an explicit dedicated flag, e.g. `--include-codex-seed`, in addition to `--apply --yes`.
+   - Default dry-run and default apply should still detect/report whether the seed is available, but should not plan or write it by default.
+   - When the seed is available but the opt-in flag is not supplied, report a clear `needsUser`/`nextActions` style message explaining how to opt in.
+   - When the opt-in flag is supplied in dry-run, planned changes should clearly say that the seed would be included.
+   - When the opt-in flag is supplied in apply, include it in the Vercel env write loop.
+   - Keep required runtime env behavior unchanged.
+   - Do not print raw seed values.
+2. Refactor minimally to make argument parsing testable. If needed, guard `main()` like existing tested scripts do.
+3. Add focused tests for argument parsing and seed inclusion/exclusion behavior. Prefer testing pure helpers instead of invoking real Vercel.
+4. Update `.agents/skills/setup-rhapsody/SKILL.md` and/or README only if needed to document the new flag. Keep docs concise and safety-oriented.
+5. Run `pnpm format`, `pnpm lint`, and the relevant test command(s). If a broad command fails due unrelated existing issues, report clearly.
+
+Please edit directly. Do not commit or open PR. Final with changed paths, behavior summary, and verification results.
+
+---
+
+Good implementation direction. Please refine two review points:
+
+1. Argument parsing should reject conflicting mode flags. `--dry-run --apply --yes` (with or without pnpm's `--`) should return null instead of applying. Keep valid forms:
+   - no args => dry-run, includeCodexSeed false
+   - `--dry-run` => dry-run
+   - `--include-codex-seed` => dry-run with opt-in planning
+   - `--dry-run --include-codex-seed` => dry-run with opt-in planning
+   - `--apply --yes` => apply without seed
+   - `--apply --yes --include-codex-seed` => apply with seed
+   - `-- --apply --yes --include-codex-seed` should also work
+
+2. When `INITIAL_CHATGPT_AUTH_JSON` is available but `--include-codex-seed` is not supplied, the helper should not imply missing operator values. The current generic nextActions path sees any `needsUser` and says “Collect the missing operator-provided values...”, which is misleading for seed opt-in. Please separate missing-values guidance from optional seed opt-in guidance so default apply can still be okay and say something like “Seed upload skipped by default; rerun with --include-codex-seed only if you intentionally want to upload INITIAL_CHATGPT_AUTH_JSON.”
+
+Also please update `.agents/skills/setup-rhapsody/SKILL.md` briefly to mention that `configure-deploy --apply --yes` does not upload `INITIAL_CHATGPT_AUTH_JSON` unless `--include-codex-seed` is present. README already has a sentence, keep it if still accurate.
+
+Run `pnpm format`, `pnpm lint`, and `pnpm test --run scripts/setup-rhapsody-configure-deploy.test.ts` again. Do not commit.
+
+---
+
+Implement the next PR-sized setup helper: a Codex credential seed helper.
+
+Context:
+- Worktree: /Users/toyamarinyon/Documents/rhapsody
+- Repo content English-only.
+- Active goal: setup flow should guide a Vercel Template user from prerequisites through first GitHub Project issue becoming a PR.
+- Current gap: README tells operators to call `POST /api/v1/admin/codex-chatgpt-credentials/seed-from-env` manually after setting `INITIAL_CHATGPT_AUTH_JSON`. Since `setup:configure-deploy` now requires explicit `--include-codex-seed`, the flow still needs a helper to perform the safe explicit seed call and health check against the deployed preview.
+- Relevant existing helper patterns:
+  - `scripts/setup-rhapsody-smoke-test.ts` for URL normalization and root password source checks.
+  - `scripts/setup-rhapsody-first-issue.ts`, `scripts/setup-rhapsody-start-attempt.ts`, `scripts/setup-rhapsody-verify-run.ts` for `--url`, `--apply --yes`, `--use-root-password`, JSON report shape, and safe auth behavior.
+- Relevant routes:
+  - `POST /api/v1/admin/codex-chatgpt-credentials/seed-from-env` requires admin auth and returns `{ seeded, accountIdPresent, updatedAt }` or safe errors.
+  - `GET` or `POST /api/v1/admin/codex-chatgpt-credentials/health-check` accepts admin auth or cron auth and returns refresh health JSON.
+
+Task:
+1. Add `scripts/setup-rhapsody-seed-codex.ts`.
+   - Support dry-run by default: `pnpm setup:seed-codex -- --url <preview-url>`.
+   - Support apply only with: `--apply --yes --use-root-password`.
+   - Require `--url <url>`.
+   - Read `ROOT_PASSWORD` from process env or `.env.local` only when `--use-root-password` is supplied, following existing helper conventions.
+   - Do not read, print, or validate raw `INITIAL_CHATGPT_AUTH_JSON` locally. This helper only calls deployed endpoints.
+   - Dry-run should report the seed endpoint and health endpoint it would call, whether root password is available, and clear blockers/nextActions.
+   - Apply should POST seed-from-env, then call health-check, and emit a JSON report with safe summarized fields: HTTP statuses, seeded boolean, accountIdPresent, updatedAt, health ok/status if present, no raw bodies/secrets.
+   - On non-2xx responses, include safe error/detail snippets if they are already safe JSON strings, but avoid dumping raw bodies.
+2. Add package script: `"setup:seed-codex": "node --import tsx scripts/setup-rhapsody-seed-codex.ts"`.
+3. Add focused tests for pure helpers (argument parsing, URL normalization/endpoints, safe response summary), similar to the other script tests. Do not require network.
+4. Update `.agents/skills/setup-rhapsody/SKILL.md` and README Quick Start/Codex Credentials sections to include the new helper after deploy env setup/preview deploy and before first issue handoff. Keep the docs concise and safety-oriented.
+5. Run `pnpm format`, `pnpm lint`, `pnpm test --run <new test file>`, and `pnpm typecheck` if feasible. Report verification.
+
+Please edit directly. Do not commit or open a PR.
+
+---
+
+Good helper shape. Please refine before PR:
+
+1. Guard execution with `fileURLToPath(import.meta.url) === process.argv[1]` like other tested scripts. Right now `main()` is unconditional, which is unsafe when importing pure helpers from tests.
+
+2. Tighten `parseArgs` so conflicting mode flags are rejected:
+   - valid dry-run: no mode flag, `--dry-run`, optionally `--use-root-password` if desired
+   - valid apply: `--apply --yes --use-root-password`
+   - reject `--dry-run --apply --yes`, `--apply --yes` without `--use-root-password`, `--yes` without `--apply`, `--apply` without `--yes`
+   This helper is credential-sensitive, so invalid apply combinations should fail during parsing, not later if practical.
+
+3. `normalizeBaseUrl` or argument validation should require `https:` URLs because the user-facing guidance says preview HTTPS URLs and this sends bearer auth. Add a focused test for rejecting/handling `http://` as invalid.
+
+4. Fix README numbering if duplicated/raw sequence became confusing.
+
+Run `pnpm format`, `pnpm lint`, `pnpm test --run scripts/setup-rhapsody-seed-codex.test.ts`, and `pnpm typecheck` again. Do not commit.
+
+---
+
+Implement the next PR-sized setup flow improvement: add a wait/poll mode to `setup:verify-run`.
+
+Context:
+- Worktree: /Users/toyamarinyon/Documents/rhapsody
+- Repo content English-only.
+- Active goal: setup should guide a Vercel Template user from first deployment through first GitHub Project issue becoming an agent-created PR.
+- Current gap: `scripts/setup-rhapsody-verify-run.ts` can inspect PR handoff evidence once, but the setup flow still depends on an operator/agent manually waiting and rerunning. A small polling mode will make the final first issue -> PR handoff more continuous.
+
+Task:
+1. Update `scripts/setup-rhapsody-verify-run.ts` to support optional wait mode:
+   - Existing behavior unchanged by default.
+   - New flags:
+     - `--wait` enables polling.
+     - `--timeout-ms <ms>` optional, default around 300000 (5 minutes), enforce sane positive integer range.
+     - `--interval-ms <ms>` optional, default around 10000, enforce sane positive integer range.
+   - Wait mode should require `--use-root-password` because it needs authenticated run detail fetches.
+   - Poll `GET /api/v1/runs/:runId` until one of these terminal conditions:
+     - PR evidence found (`handoff.pullRequestEvidenceFound`) => success
+     - `pullRequestMissingEventPresent` or `pullRequestFailedEventPresent` => stop with failure and clear nextActions
+     - timeout => stop with nonzero exit and include attempts count / last summary
+   - Keep output JSON safe and compact: include mode/dry-run phase as currently, plus maybe `wait` facts such as enabled, attempts, timeoutMs, intervalMs, elapsedMs. Do not dump raw response bodies.
+   - Keep the existing single-fetch output shape as compatible as practical.
+2. Export/test pure helpers as needed. Add focused tests for parse args and terminal wait decision logic; do not require network.
+3. Update `.agents/skills/setup-rhapsody/SKILL.md` and README to mention `--wait` as the recommended final setup verification after starting the attempt, while keeping one-shot verify still valid.
+4. Run `pnpm format`, `pnpm lint`, `pnpm test --run scripts/setup-rhapsody-verify-run.test.ts`, and `pnpm typecheck` if feasible. Report verification.
+
+Please edit directly. Do not commit or create PR.
+
+---
+
+One small review refinement before PR:
+
+In `main()`, the code fetches run detail once unconditionally, then if `parsed.wait` it calls `runWaitPoll()` which fetches again and discards the first response. Please avoid the double fetch in wait mode so `wait.attempts` matches actual requests and the helper does not make an unnecessary first authenticated request.
+
+Preferred shape: if `parsed.wait`, call `runWaitPoll()` directly and use its response/evidence; otherwise do the existing single `fetchRunDetail()`. Keep the one-shot output unchanged. Update tests only if needed.
+
+Run the verify-run test again. Do not commit.
