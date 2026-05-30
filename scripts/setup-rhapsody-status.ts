@@ -207,19 +207,38 @@ function buildRecommendedNextCommand(args: {
 
 function buildNextActions(args: {
 	recommendedNextCommand: string;
+	generatedSecrets: EnvPresence;
+	externalInputs: EnvPresence;
 	codexSeed: EnvPresence;
 }) {
-	const { recommendedNextCommand, codexSeed } = args;
+	const {
+		recommendedNextCommand,
+		generatedSecrets,
+		externalInputs,
+		codexSeed,
+	} = args;
 	if (recommendedNextCommand.includes("setup:configure-local")) {
-		return [
+		const nextActions = [
 			"Run pnpm setup:configure-local -- --dry-run to review missing local files and generated secrets.",
-			"Apply local setup only after reviewing the planned file changes.",
 		];
+		if (generatedSecrets.missing.length > 0) {
+			nextActions.push(
+				`Missing generated local secrets: ${generatedSecrets.missing.join(", ")}.`,
+				"After reviewing the dry-run, run pnpm setup:configure-local -- --apply --yes to write only missing generated local secrets.",
+			);
+		}
+		if (externalInputs.missing.length > 0) {
+			nextActions.push(
+				`Missing external inputs: ${externalInputs.missing.join(", ")}.`,
+				"Provide missing external inputs through process env or .env.local before remote configuration.",
+			);
+		}
+		return nextActions;
 	}
 
 	if (recommendedNextCommand.includes("setup:configure-deploy")) {
 		return [
-			"Provide missing external deploy inputs through process env or .env.local.",
+			`Provide missing external deploy inputs through process env or .env.local: ${externalInputs.missing.join(", ")}.`,
 			"Run pnpm setup:configure-deploy -- --dry-run before any Vercel env write.",
 		];
 	}
@@ -303,6 +322,8 @@ const report = {
 	recommendedNextCommand,
 	nextActions: buildNextActions({
 		recommendedNextCommand,
+		generatedSecrets,
+		externalInputs,
 		codexSeed,
 	}),
 };
