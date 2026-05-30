@@ -22,6 +22,14 @@ type Report = {
 			method: "GET";
 			auth: "skipped" | "bearer";
 		};
+		wait?: {
+			enabled: boolean;
+			attempts: number;
+			timeoutMs: number;
+			intervalMs: number;
+			elapsedMs: number;
+			timeoutHit?: boolean;
+		};
 		response?: {
 			status: number | null;
 			contentType: string | null;
@@ -62,12 +70,28 @@ type Report = {
 	error?: string;
 };
 
+const DEFAULT_WAIT_TIMEOUT_MS = 300_000;
+const DEFAULT_WAIT_INTERVAL_MS = 10_000;
+const MIN_WAIT_TIMEOUT_MS = 1_000;
+const MAX_WAIT_TIMEOUT_MS = 3_600_000;
+const MIN_WAIT_INTERVAL_MS = 250;
+const MAX_WAIT_INTERVAL_MS = 120_000;
+
+type WaitDecision =
+	| { kind: "handoff-evidence-found"; terminal: true }
+	| { kind: "pull-request-missing"; terminal: true }
+	| { kind: "pull-request-failed"; terminal: true }
+	| { kind: "continue"; terminal: false };
+
 type Args =
 	| {
 			ok: true;
 			url: string;
 			runId: string;
 			useRootPassword: boolean;
+			wait: boolean;
+			timeoutMs: number;
+			intervalMs: number;
 	  }
 	| { ok: false; error: string };
 
@@ -89,6 +113,19 @@ function parseArgs(argv: string[]): Args {
 	let url = "";
 	let runId = "";
 	let useRootPassword = false;
+	let wait = false;
+	let timeoutMs = DEFAULT_WAIT_TIMEOUT_MS;
+	let intervalMs = DEFAULT_WAIT_INTERVAL_MS;
+
+	const parsePositiveInteger = (
+		argName: string,
+		value: string,
+	): number | string => {
+		if (!/^\d+$/.test(value)) {
+			return `${argName} must be a positive integer.`;
+		}
+		return Number.parseInt(value, 10);
+	};
 
 	for (let index = 0; index < args.length; index += 1) {
 		const arg = args[index];
@@ -125,6 +162,60 @@ function parseArgs(argv: string[]): Args {
 			useRootPassword = true;
 			continue;
 		}
+		if (arg === "--wait") {
+			wait = true;
+			continue;
+		}
+		if (arg === "--timeout-ms") {
+			const value = args[index + 1];
+			if (!value) {
+				return {
+					ok: false,
+					error: "The --timeout-ms argument requires a value.",
+				};
+			}
+			const parsed = parsePositiveInteger("--timeout-ms", value);
+			if (typeof parsed === "string") {
+				return { ok: false, error: parsed };
+			}
+			timeoutMs = parsed;
+			index += 1;
+			continue;
+		}
+		if (arg.startsWith("--timeout-ms=")) {
+			const parsed = parsePositiveInteger(
+				"--timeout-ms",
+				arg.slice("--timeout-ms=".length),
+			);
+			if (typeof parsed === "string") return { ok: false, error: parsed };
+			timeoutMs = parsed;
+			continue;
+		}
+		if (arg === "--interval-ms") {
+			const value = args[index + 1];
+			if (!value) {
+				return {
+					ok: false,
+					error: "The --interval-ms argument requires a value.",
+				};
+			}
+			const parsed = parsePositiveInteger("--interval-ms", value);
+			if (typeof parsed === "string") {
+				return { ok: false, error: parsed };
+			}
+			intervalMs = parsed;
+			index += 1;
+			continue;
+		}
+		if (arg.startsWith("--interval-ms=")) {
+			const parsed = parsePositiveInteger(
+				"--interval-ms",
+				arg.slice("--interval-ms=".length),
+			);
+			if (typeof parsed === "string") return { ok: false, error: parsed };
+			intervalMs = parsed;
+			continue;
+		}
 		return { ok: false, error: `Unsupported argument: ${arg}` };
 	}
 
@@ -134,9 +225,80 @@ function parseArgs(argv: string[]): Args {
 	if (!runId.trim()) {
 		return { ok: false, error: "Missing required --run-id argument." };
 	}
+	if (wait && intervalMs >= timeoutMs) {
+		return {
+			ok: false,
+			error: "--interval-ms must be less than --timeout-ms.",
+		};
+	}
+	if (!Number.isInteger(timeoutMs) || timeoutMs < MIN_WAIT_TIMEOUT_MS) {
+		return {
+			ok: false,
+			error: `The --timeout-ms value must be at least ${MIN_WAIT_TIMEOUT_MS}ms.`,
+		};
+	}
+	if (!Number.isInteger(timeoutMs) || timeoutMs > MAX_WAIT_TIMEOUT_MS) {
+		return {
+			ok: false,
+			error: `The --timeout-ms value must be at most ${MAX_WAIT_TIMEOUT_MS}ms.`,
+		};
+	}
+	if (!Number.isInteger(intervalMs) || intervalMs < MIN_WAIT_INTERVAL_MS) {
+		return {
+			ok: false,
+			error: `The --interval-ms value must be at least ${MIN_WAIT_INTERVAL_MS}ms.`,
+		};
+	}
+	if (!Number.isInteger(intervalMs) || intervalMs > MAX_WAIT_INTERVAL_MS) {
+		return {
+			ok: false,
+			error: `The --interval-ms value must be at most ${MAX_WAIT_INTERVAL_MS}ms.`,
+		};
+	}
+	if (
+		!wait &&
+		(timeoutMs !== DEFAULT_WAIT_TIMEOUT_MS ||
+			intervalMs !== DEFAULT_WAIT_INTERVAL_MS)
+	) {
+		return {
+			ok: false,
+			error:
+				"`--timeout-ms` and `--interval-ms` require `--wait` to be enabled.",
+		};
+	}
+	if (wait && !useRootPassword) {
+		return { ok: false, error: "--wait requires --use-root-password." };
+	}
 
-	return { ok: true, url, runId, useRootPassword };
+	return { ok: true, url, runId, useRootPassword, wait, timeoutMs, intervalMs };
 }
+
+export { parseArgs };
+
+function delayMs(ms: number) {
+	return new Promise((resolve) => {
+		setTimeout(resolve, ms);
+	});
+}
+
+function evaluateWaitDecision(evidence: {
+	pullRequestEvidenceFound: boolean;
+	pullRequestMissingEventPresent: boolean;
+	pullRequestFailedEventPresent: boolean;
+}): WaitDecision {
+	if (evidence.pullRequestMissingEventPresent) {
+		return { kind: "pull-request-missing", terminal: true };
+	}
+	if (evidence.pullRequestFailedEventPresent) {
+		return { kind: "pull-request-failed", terminal: true };
+	}
+	if (evidence.pullRequestEvidenceFound) {
+		return { kind: "handoff-evidence-found", terminal: true };
+	}
+	return { kind: "continue", terminal: false };
+}
+
+export { evaluateWaitDecision };
 
 function readEnvLocalValue(key: string) {
 	const envLocal = ".env.local";
@@ -664,6 +826,61 @@ function buildNextActionsFromEvidence(evidence: {
 
 export { buildNextActionsFromEvidence };
 
+type WaitPollResult = {
+	attempts: number;
+	elapsedMs: number;
+	response: Awaited<ReturnType<typeof fetchRunDetail>>;
+	evidence: ReturnType<typeof buildEvidenceSignals>;
+	timeoutHit: boolean;
+};
+
+async function runWaitPoll(
+	parsed: Extract<Args, { ok: true }>,
+	rootPassword: NonNullable<RootPassword>,
+	normalizedBaseUrl: string,
+): Promise<WaitPollResult> {
+	const startMs = Date.now();
+	let attempts = 0;
+
+	while (true) {
+		attempts += 1;
+		const response = await fetchRunDetail({
+			endpoint: `${normalizedBaseUrl}/api/v1/runs/${parsed.runId}`,
+			token: rootPassword.value,
+		});
+		const evidence = buildEvidenceSignals(response.body);
+		const decision = evaluateWaitDecision({
+			pullRequestEvidenceFound: evidence.handoff.pullRequestEvidenceFound,
+			pullRequestMissingEventPresent:
+				evidence.handoff.pullRequestMissingEventPresent,
+			pullRequestFailedEventPresent:
+				evidence.handoff.pullRequestFailedEventPresent,
+		});
+
+		const elapsedMs = Date.now() - startMs;
+		if (decision.terminal) {
+			return {
+				attempts,
+				elapsedMs,
+				response,
+				evidence,
+				timeoutHit: false,
+			};
+		}
+		if (elapsedMs >= parsed.timeoutMs) {
+			return {
+				attempts,
+				elapsedMs,
+				response,
+				evidence,
+				timeoutHit: true,
+			};
+		}
+
+		await delayMs(parsed.intervalMs);
+	}
+}
+
 function invalidArgsError(message: string) {
 	emit(
 		{
@@ -692,7 +909,7 @@ function invalidArgsError(message: string) {
 			needsUser: ["Provide --url <https://...> and --run-id <id>."],
 			blocked: ["Unsupported or missing arguments."],
 			nextActions: [
-				"Supported args: --url, --run-id, and optional --use-root-password.",
+				"Supported args: --url, --run-id, --wait, optional --timeout-ms/--interval-ms, and --use-root-password.",
 			],
 			error: message,
 		},
@@ -851,11 +1068,39 @@ async function main() {
 		return;
 	}
 
-	const response = await fetchRunDetail({
-		endpoint: endpoint ?? `${normalizedBaseUrl}/api/v1/runs/${parsed.runId}`,
-		token: rootPassword.value,
-	});
-	const evidence = buildEvidenceSignals(response.body);
+	let response;
+	let evidence;
+	let waitState: {
+		attempts: number;
+		elapsedMs: number;
+		timeoutHit: boolean;
+	} = {
+		attempts: 1,
+		elapsedMs: 0,
+		timeoutHit: false,
+	};
+
+	if (parsed.wait) {
+		const pollResult = await runWaitPoll(
+			parsed,
+			rootPassword,
+			normalizedBaseUrl,
+		);
+		response = pollResult.response;
+		evidence = pollResult.evidence;
+		waitState = {
+			attempts: pollResult.attempts,
+			elapsedMs: pollResult.elapsedMs,
+			timeoutHit: pollResult.timeoutHit,
+		};
+	} else {
+		const singleResponse = await fetchRunDetail({
+			endpoint: endpoint ?? `${normalizedBaseUrl}/api/v1/runs/${parsed.runId}`,
+			token: rootPassword.value,
+		});
+		response = singleResponse;
+		evidence = buildEvidenceSignals(singleResponse.body);
+	}
 	const objectKeys =
 		response.objectKeys?.slice(0, 16) ?? (asRecord(response.body) ? [] : null);
 	const usefulShape =
@@ -892,81 +1137,120 @@ async function main() {
 			runnerWorkflowRunId: evidence.runnerWorkflowRunId,
 		}),
 	);
+	if (
+		parsed.wait &&
+		(evidence.handoff.pullRequestMissingEventPresent ||
+			evidence.handoff.pullRequestFailedEventPresent)
+	) {
+		nextActions.length = 0;
+	}
+	if (parsed.wait) {
+		nextActions.push(
+			`Wait mode: ${waitState.attempts} attempt(s) and ${waitState.elapsedMs}ms elapsed.`,
+		);
+	}
+	if (parsed.wait && waitState.timeoutHit) {
+		blocked.push("Timed out while waiting for PR handoff evidence.");
+	}
+	const exitCode = parsed.wait
+		? Number(
+				waitState.timeoutHit ||
+					evidence.handoff.pullRequestMissingEventPresent ||
+					evidence.handoff.pullRequestFailedEventPresent,
+			)
+		: 0;
 
-	emit({
-		ok:
-			response.status !== null &&
-			response.status < 300 &&
-			(usefulShape || Boolean(response.objectKeys?.length)),
-		mode: "dry-run",
-		phase: "verify-run",
-		facts: {
-			input: {
-				providedUrl: parsed.url,
-				normalizedBaseUrl,
-				runId: parsed.runId,
-				useRootPasswordRequested: true,
-			},
-			rootPassword: {
-				available: true,
-				source: rootPassword.source,
-				availableWithOptIn: true,
-			},
-			request: {
-				endpoint,
-				method: "GET",
-				auth: "bearer",
-			},
-			response: {
-				status: response.status,
-				contentType: response.contentType,
-				classification: response.classification,
-				objectKeys:
-					objectKeys && objectKeys.length > 0
-						? objectKeys.slice(0, 16)
-						: undefined,
-				runStatus: evidence.runStatus,
-				runnerWorkflowRunId: evidence.runnerWorkflowRunId,
-				latestAttemptId: evidence.latestAttemptId,
-				latestAttemptStatus: evidence.latestAttemptStatus,
-				artifactsCount: evidence.artifactsCount,
-				linksCount: evidence.linksCount,
-				eventsCount: evidence.eventsCount,
-				pullRequestEvidence: evidence.pullRequestEvidence,
-				handoff: {
-					pullRequestEvidenceFound: evidence.handoff.pullRequestEvidenceFound,
-					pullRequestReadyEventPresent:
-						evidence.handoff.pullRequestReadyEventPresent,
-					pullRequestMissingEventPresent:
-						evidence.handoff.pullRequestMissingEventPresent,
-					pullRequestFailedEventPresent:
-						evidence.handoff.pullRequestFailedEventPresent,
-					runnerWorkflowRunId: evidence.runnerWorkflowRunId,
+	emit(
+		{
+			ok:
+				response.status !== null &&
+				response.status < 300 &&
+				(usefulShape || Boolean(response.objectKeys?.length)) &&
+				!(
+					parsed.wait &&
+					(evidence.handoff.pullRequestMissingEventPresent ||
+						evidence.handoff.pullRequestFailedEventPresent)
+				) &&
+				!(parsed.wait && waitState.timeoutHit),
+			mode: "dry-run",
+			phase: "verify-run",
+			facts: {
+				input: {
+					providedUrl: parsed.url,
+					normalizedBaseUrl,
+					runId: parsed.runId,
+					useRootPasswordRequested: true,
 				},
-				handoffEvidence:
-					evidence.handoffEvidence.length > 0
-						? evidence.handoffEvidence
-						: undefined,
+				rootPassword: {
+					available: true,
+					source: rootPassword.source,
+					availableWithOptIn: true,
+				},
+				request: {
+					endpoint,
+					method: "GET",
+					auth: "bearer",
+				},
+				wait: {
+					enabled: parsed.wait,
+					attempts: waitState.attempts,
+					timeoutMs: parsed.timeoutMs,
+					intervalMs: parsed.intervalMs,
+					elapsedMs: waitState.elapsedMs,
+					timeoutHit: waitState.timeoutHit ? true : undefined,
+				},
+				response: {
+					status: response.status,
+					contentType: response.contentType,
+					classification: response.classification,
+					objectKeys:
+						objectKeys && objectKeys.length > 0
+							? objectKeys.slice(0, 16)
+							: undefined,
+					runStatus: evidence.runStatus,
+					runnerWorkflowRunId: evidence.runnerWorkflowRunId,
+					latestAttemptId: evidence.latestAttemptId,
+					latestAttemptStatus: evidence.latestAttemptStatus,
+					artifactsCount: evidence.artifactsCount,
+					linksCount: evidence.linksCount,
+					eventsCount: evidence.eventsCount,
+					pullRequestEvidence: evidence.pullRequestEvidence,
+					handoff: {
+						pullRequestEvidenceFound: evidence.handoff.pullRequestEvidenceFound,
+						pullRequestReadyEventPresent:
+							evidence.handoff.pullRequestReadyEventPresent,
+						pullRequestMissingEventPresent:
+							evidence.handoff.pullRequestMissingEventPresent,
+						pullRequestFailedEventPresent:
+							evidence.handoff.pullRequestFailedEventPresent,
+						runnerWorkflowRunId: evidence.runnerWorkflowRunId,
+					},
+					handoffEvidence:
+						evidence.handoffEvidence.length > 0
+							? evidence.handoffEvidence
+							: undefined,
+				},
 			},
+			checks: [
+				...checks,
+				{
+					name: "authenticated-fetch",
+					ok: response.status !== null && response.status < 300,
+					detail:
+						response.error ??
+						`${response.classification}${response.status ? ` (${response.status})` : ""}`,
+				},
+			],
+			needsUser,
+			blocked,
+			nextActions:
+				nextActions.length > 0
+					? nextActions
+					: ["Inspect the dashboard for the run and attempt details."],
+			error: response.error,
 		},
-		checks: [
-			...checks,
-			{
-				name: "authenticated-fetch",
-				ok: response.status !== null && response.status < 300,
-				detail:
-					response.error ??
-					`${response.classification}${response.status ? ` (${response.status})` : ""}`,
-			},
-		],
-		needsUser,
-		blocked,
-		nextActions:
-			nextActions.length > 0
-				? nextActions
-				: ["Inspect the dashboard for the run and attempt details."],
-		error: response.error,
-	});
+		exitCode,
+	);
 }
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {
