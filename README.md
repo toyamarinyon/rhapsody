@@ -82,28 +82,35 @@ The scheduler polls or refreshes the configured GitHub Project, normalizes eligi
 
 Rhapsody keeps sensitive credentials in trusted server-side code. Sandboxed runs use mediated access for GitHub writes and Codex credential access instead of receiving broad long-lived secrets directly.
 
-## Quick Start
+## Vercel Template First-Run Onboarding
 
-This is the current first-run path:
+If you started from the Vercel Template, use this path after deployment:
 
-1. `pnpm setup:inspect` to validate local tooling and repo context.
-2. `pnpm setup:configure-local -- --dry-run`.
-3. `pnpm setup:configure-github -- --dry-run`.
-4. `pnpm setup:configure-deploy -- --dry-run`.
-5. Apply local bootstrap inputs with:
+1. Deploy your own Vercel project for this repository (use your own Vercel account and team).
+2. Run the setup flow against your fresh checkout and deployment target:
+   - `pnpm setup:inspect`
+   - `pnpm setup:configure-local -- --dry-run`
+   - `pnpm setup:configure-github -- --dry-run`
+   - `pnpm setup:configure-deploy -- --dry-run`
+3. Provision Turso/libSQL yourself and add `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` to local env/secrets.
+4. Finish project mapping and deploy readiness:
    - `pnpm setup:configure-local -- --apply --yes`
-6. Apply project/deploy readiness with:
-   - `pnpm setup:configure-github -- --apply --yes --project-title "Rhapsody"` (if you need a new ProjectV2 board)
-   - `pnpm setup:configure-local -- --dry-run --project-number <number>` and `pnpm setup:configure-local -- --apply --yes --project-number <number>` after board creation
-   - `pnpm setup:configure-github -- --apply --yes --create-status-field` (if needed)
+   - create/use a GitHub ProjectV2 with `pnpm setup:configure-github -- --apply --yes --project-title "Rhapsody"` (if needed),
+     then persist the board number with `pnpm setup:configure-local -- --apply --yes --project-number <number>`
+   - `pnpm setup:configure-github -- --apply --yes --create-status-field` (if your status field is missing)
    - `pnpm setup:configure-deploy -- --apply --yes`
-7. `pnpm setup:deploy-preview -- --apply --yes` (includes `pnpm db:migrate`).
-8. `pnpm setup:smoke-test -- --url <https://your-preview-url.vercel.app>`.
-9. Start the first handoff:
+5. Deploy a preview build only (no production by default):
+   - `pnpm setup:deploy-preview -- --apply --yes` (includes `pnpm db:migrate`)
+6. Smoke-test the preview with the output URL:
+   - `pnpm setup:smoke-test -- --url <https://your-preview-url.vercel.app>`
+7. Create and hand off a first issue:
    - `pnpm setup:create-first-issue -- --apply --yes --title "Rhapsody smoke test"`
    - `pnpm setup:first-issue -- --url <https://your-preview-url.vercel.app> --issue-number <issueNumber> --apply --yes --use-root-password`
    - `pnpm setup:start-attempt -- --url <https://your-preview-url.vercel.app> --run-id <runId> --attempt-id <attemptId> --apply --yes --use-root-password`
-10. Verify: `pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId> [--use-root-password]`.
+8. Verify PR handoff evidence:
+   - `pnpm setup:verify-run -- --url <https://your-preview-url.vercel.app> --run-id <runId> [--use-root-password]`
+
+This path keeps to current MVP limits: no hosted auto-onboarding service, no automatic Turso provisioning, and no production auto-deploy.
 
 Use the `number` emitted by `setup:configure-github`, `facts.issue.number` emitted by `setup:create-first-issue`, and the `runId`/`attemptId` emitted by `setup:first-issue` in the following commands.
 
@@ -318,12 +325,8 @@ This is not yet a hardened multi-tenant SaaS architecture. Treat a Rhapsody depl
 
 Near-term work:
 
-- Publish a Vercel Template flow.
-- Add a setup skill for target repositories.
-- Improve the first-run setup guide.
+- Publish a polished template onboarding walkthrough with screenshots and a short demo path.
 - Add clearer database initialization docs.
-- Add a setup/doctor command for environment and Project validation.
-- Add screenshots and a short demo walkthrough.
 - Continue hardening credential refresh, mediator authorization, and sandbox policy.
 
 Later work:
