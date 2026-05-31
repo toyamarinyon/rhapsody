@@ -437,10 +437,12 @@ async function ensureProject(args: {
 	}
 
 	if (existing.ok === "not_found") {
-		const shouldCreate = await confirm({
-			message: `Create Vercel project ${args.projectName}?`,
-			initialValue: args.yes,
-		});
+		const shouldCreate = args.yes
+			? true
+			: await confirm({
+					message: `Create Vercel project ${args.projectName}?`,
+					initialValue: false,
+				});
 		if (isCancel(shouldCreate) || !shouldCreate) {
 			return {
 				ok: false,
@@ -475,10 +477,12 @@ async function ensureProject(args: {
 			};
 		}
 
-		const doRelink = await confirm({
-			message: `Project ${args.projectName} is linked to ${linked ?? "another repository"}. Relink it to ${args.repo}?`,
-			initialValue: args.yes,
-		});
+		const doRelink = args.yes
+			? true
+			: await confirm({
+					message: `Project ${args.projectName} is linked to ${linked ?? "another repository"}. Relink it to ${args.repo}?`,
+					initialValue: false,
+				});
 		if (isCancel(doRelink) || !doRelink) {
 			return {
 				ok: false,
