@@ -9,6 +9,7 @@ import { runCreateFirstIssueCommand } from "./setup/commands/create-first-issue.
 import { runFirstIssueCommand } from "./setup/commands/first-issue.js";
 import { runStartAttemptCommand } from "./setup/commands/start-attempt.js";
 import { runCheckProjectsCommand } from "./setup/commands/check-projects.js";
+import { runDestroyCommand } from "./setup/commands/destroy.js";
 import type { LegacyExitCode } from "./setup/types.js";
 import { runSetupOrchestratorCommand } from "./setup/commands/setup.js";
 import {
@@ -79,6 +80,10 @@ async function dispatch(): Promise<LegacyExitCode> {
 
 	if (command === "deploy-preview") {
 		return runDeployPreviewCommand(rest);
+	}
+
+	if (command === "destroy") {
+		return runDestroyCommand(rest);
 	}
 
 	if (command === "smoke-test") {

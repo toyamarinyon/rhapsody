@@ -13,7 +13,7 @@
 	"scripts": {
 		"check": "pnpm exec tsc --project tsconfig.json --noEmit && pnpm run build",
 		"build": "pnpm exec tsup --config tsup.config.ts",
-		"smoke:setup-help": "pnpm run build && node dist/bin.js --help && node dist/bin.js setup --help && node dist/bin.js doctor --help"
+		"smoke:setup-help": "pnpm run build && node dist/bin.js --help && node dist/bin.js setup --help && node dist/bin.js doctor --help && node dist/bin.js destroy --help"
 	},
 	"dependencies": {
 		"@clack/prompts": "^0.7.0"
