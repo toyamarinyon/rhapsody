@@ -92,7 +92,9 @@ export async function POST(request: Request) {
 			);
 		}
 
-		const snapshot = await createVercelSandboxSnapshot(sandbox);
+		const snapshot = await createVercelSandboxSnapshot(sandbox, {
+			expiration: 0,
+		});
 
 		return Response.json({
 			sandboxId: getVercelSandboxId(sandbox),

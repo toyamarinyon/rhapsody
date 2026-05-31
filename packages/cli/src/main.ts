@@ -9,6 +9,7 @@ import { runCreateFirstIssueCommand } from "./setup/commands/create-first-issue.
 import { runFirstIssueCommand } from "./setup/commands/first-issue.js";
 import { runStartAttemptCommand } from "./setup/commands/start-attempt.js";
 import { runCheckProjectsCommand } from "./setup/commands/check-projects.js";
+import { runDestroyCommand } from "./setup/commands/destroy.js";
 import type { LegacyExitCode } from "./setup/types.js";
 import { runSetupOrchestratorCommand } from "./setup/commands/setup.js";
 import {
@@ -34,7 +35,9 @@ async function dispatch(): Promise<LegacyExitCode> {
 		}
 		if (subcommand && !subcommand.startsWith("-")) {
 			console.error(`Unknown top-level setup subcommand: ${subcommand}`);
-			console.error("Use `rhapsody setup [--yes] [--json]` only.");
+			console.error(
+				"Use `rhapsody setup [--yes] [--json] [--project-name <name>]` only.",
+			);
 			console.error("Run `rhapsody setup --help` for usage.");
 			return 1;
 		}
@@ -77,6 +80,10 @@ async function dispatch(): Promise<LegacyExitCode> {
 
 	if (command === "deploy-preview") {
 		return runDeployPreviewCommand(rest);
+	}
+
+	if (command === "destroy") {
+		return runDestroyCommand(rest);
 	}
 
 	if (command === "smoke-test") {

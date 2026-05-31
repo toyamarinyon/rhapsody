@@ -19,6 +19,7 @@ import {
 	runProvisionTursoApply,
 } from "../vercel.js";
 import { collectProjectReadiness, collectSetupStatus } from "./status.js";
+import { resolveVercelProjectForSetup } from "../vercel-project.js";
 import type { LegacyExitCode, ParseResult, SetupJourney } from "../types.js";
 
 type SetupExecution = {
@@ -28,6 +29,17 @@ type SetupExecution = {
 	steps: string[];
 	blockers: string[];
 	nextActions: string[];
+	vercelProject?: {
+		ok: boolean;
+		blockers: string[];
+		nextActions: string[];
+		plannedAction?: string;
+		project?: {
+			projectId: string;
+			orgId: string;
+			projectName: string;
+		};
+	};
 	statePath: string;
 	journeySummary?: SetupJourney | null;
 };
@@ -39,7 +51,7 @@ export async function runSetupOrchestratorCommand(
 	if (!parse.ok) {
 		if (parse.help) {
 			console.log(`Usage:
-  rhapsody setup [--yes] [--json]
+  rhapsody setup [--yes] [--json] [--project-name <name>]
 
 Run setup end-to-end until the next required manual step.
 `);
@@ -49,7 +61,11 @@ Run setup end-to-end until the next required manual step.
 		return 1;
 	}
 
-	const result = runSetupOrchestrator({ yes: parse.yes });
+	const result = await runSetupOrchestrator({
+		yes: parse.yes,
+		json: parse.json,
+		projectName: parse.projectName,
+	});
 	if (parse.json) {
 		console.log(JSON.stringify(result, null, 2));
 		return result.ok ? 0 : 1;
@@ -79,21 +95,49 @@ Run setup end-to-end until the next required manual step.
 function parseSetupArgs(args: string[]): ParseResult<{
 	yes: boolean;
 	json: boolean;
+	projectName?: string;
 }> & { help?: true } {
 	if (args.includes("--help") || args.includes("-h")) {
 		return { ok: false, help: true, error: "help requested" };
 	}
 
-	const allowed = new Set(["--yes", "--json"]);
-	for (const arg of args) {
+	let projectName: string | undefined;
+	for (let index = 0; index < args.length; index++) {
+		const arg = args[index];
 		if (arg === "setup") {
 			continue;
 		}
-		if (!allowed.has(arg)) {
+		if (arg === "--yes" || arg === "--json") {
+			continue;
+		}
+		if (arg === "--project-name") {
+			const value = args[index + 1];
+			if (!value || value.startsWith("-")) {
+				return {
+					ok: false,
+					error: "Missing value for --project-name",
+				};
+			}
+			projectName = value;
+			index++;
+			continue;
+		}
+		if (arg.startsWith("--project-name=")) {
+			const value = arg.slice("--project-name=".length).trim();
+			if (!value) {
+				return {
+					ok: false,
+					error: "Missing value for --project-name",
+				};
+			}
+			projectName = value;
+			continue;
+		}
+		{
 			return {
 				ok: false,
 				error: `Unsupported argument: ${arg}
-Use: rhapsody setup [--yes] [--json]`,
+Use: rhapsody setup [--yes] [--json] [--project-name <name>]`,
 			};
 		}
 	}
@@ -102,10 +146,19 @@ Use: rhapsody setup [--yes] [--json]`,
 		ok: true,
 		yes: args.includes("--yes"),
 		json: args.includes("--json"),
+		projectName,
 	};
 }
 
-function runSetupOrchestrator({ yes }: { yes: boolean }): SetupExecution {
+async function runSetupOrchestrator({
+	yes,
+	json,
+	projectName,
+}: {
+	yes: boolean;
+	json: boolean;
+	projectName?: string;
+}): Promise<SetupExecution> {
 	const statePath = getSetupStatePath();
 	const state = readSetupState(statePath);
 	const journeySummary = summarizeSetupJourney(state);
@@ -121,13 +174,76 @@ function runSetupOrchestrator({ yes }: { yes: boolean }): SetupExecution {
 
 	steps.push("collect-status");
 	const status = collectSetupStatus();
+	const initialStatusBlockers = dedupe(
+		normalizeSetupActions(status.nextActions).filter(
+			(item) =>
+				!item.includes("Local setup prerequisites look present") &&
+				!isTursoProvisionNextAction(item) &&
+				!isVercelProjectNextAction(item),
+		),
+	);
+
+	if (!status.paths.appExists) {
+		const blockers = initialStatusBlockers;
+		recordSetupState({
+			command: "setup",
+			currentStep: "collect-status",
+			nextAction: "blocked",
+			steps,
+			blockers,
+			nextActions: blockers.length > 0 ? blockers : [],
+		});
+
+		return {
+			ok: false,
+			phase: "preflight",
+			currentStep: "collect-status",
+			steps,
+			blockers,
+			nextActions: [
+				"Fix blockers above and rerun `rhapsody setup`.",
+				"Run `rhapsody doctor --json` for full diagnostic details.",
+			],
+			statePath,
+			journeySummary,
+		};
+	}
+
+	const vercelProject = await resolveVercelProjectForSetup({
+		json,
+		yes,
+		workspaceRoot: status.paths.workspaceRoot,
+		projectName,
+	});
+	if (vercelProject.ok && vercelProject.project) {
+		recordSetupState({
+			command: "setup",
+			currentStep: "collect-status",
+			nextAction: "ready",
+			vercelProjectAction: vercelProject.plannedAction,
+			vercelProjectId: vercelProject.project.projectId,
+			vercelProjectName: vercelProject.project.projectName,
+			vercelProjectOrgId: vercelProject.project.orgId,
+		});
+	}
+
+	const postVercelStatus = vercelProject.ok ? collectSetupStatus() : status;
 	const readiness = collectProjectReadiness();
+	const readinessBlockers = dedupe(
+		normalizeSetupActions(readiness.blockers).filter(
+			(item) => !item.includes("Local setup prerequisites look present"),
+		),
+	);
 	const initialBlockers = dedupe(
 		normalizeSetupActions([
-			...status.nextActions,
-			...readiness.blockers,
+			...postVercelStatus.nextActions,
+			...readinessBlockers,
+			...vercelProject.blockers,
 		]).filter(
-			(item) => !item.includes("Local setup prerequisites look present"),
+			(item) =>
+				!item.includes("Local setup prerequisites look present") &&
+				!isTursoProvisionNextAction(item) &&
+				!(vercelProject.ok && isVercelProjectNextAction(item)),
 		),
 	);
 
@@ -141,7 +257,25 @@ function runSetupOrchestrator({ yes }: { yes: boolean }): SetupExecution {
 			initialBlockers.length > 0
 				? initialBlockers
 				: ["Status checks passed, continuing setup."],
+		vercelProjectAction: vercelProject.plannedAction,
 	});
+
+	if (!vercelProject.ok) {
+		return {
+			ok: false,
+			phase: "collect-status",
+			currentStep: "collect-status",
+			steps,
+			blockers: initialBlockers,
+			nextActions: [
+				"Fix blockers above and rerun `rhapsody setup`.",
+				"Run `rhapsody doctor --json` for full diagnostic details.",
+			],
+			vercelProject,
+			statePath,
+			journeySummary,
+		};
+	}
 
 	if (initialBlockers.length > 0) {
 		return {
@@ -248,6 +382,22 @@ function runSetupOrchestrator({ yes }: { yes: boolean }): SetupExecution {
 		statePath,
 		journeySummary: getJourneySummary(statePath),
 	};
+}
+
+function isTursoProvisionNextAction(value: string): boolean {
+	return value.includes(
+		"Turso is not configured yet; setup will provision it through Vercel Marketplace.",
+	);
+}
+
+function isVercelProjectNextAction(value: string): boolean {
+	return (
+		value.includes("setup can create or link a Vercel project") ||
+		value.includes("setup can create/link a Vercel project") ||
+		value.includes(
+			"setup can create or link a Vercel project, or run manual `vercel link`.",
+		)
+	);
 }
 
 function getJourneySummary(statePath: string): SetupJourney | null {

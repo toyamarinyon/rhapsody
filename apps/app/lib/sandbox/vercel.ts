@@ -57,6 +57,12 @@ export type CreateVercelSandboxInput = {
 	timeout?: number;
 	env?: Record<string, string>;
 	networkPolicy?: NetworkPolicy;
+	persistent?: boolean;
+	snapshotExpiration?: number;
+};
+
+export type CreateVercelSandboxSnapshotInput = {
+	expiration?: number;
 };
 
 export type RhapsodyVercelSandbox = Awaited<ReturnType<typeof Sandbox.create>>;
@@ -65,6 +71,7 @@ export type WithVercelSandboxOptions = CreateVercelSandboxInput & {
 };
 
 const DEFAULT_SANDBOX_RUNTIME = "node24";
+export const DEFAULT_SANDBOX_SNAPSHOT_EXPIRATION_MS = 24 * 60 * 60 * 1000;
 // updateNetworkPolicy resolves when the API accepts the policy, but local probes
 // showed the sandbox dataplane can take a few seconds before forwardURL rules
 // are actually applied to commands running inside the sandbox.
@@ -259,6 +266,9 @@ export async function createVercelSandbox(
 		...(input.source
 			? { source: input.source }
 			: { runtime: input.runtime ?? DEFAULT_SANDBOX_RUNTIME }),
+		persistent: input.persistent ?? false,
+		snapshotExpiration:
+			input.snapshotExpiration ?? DEFAULT_SANDBOX_SNAPSHOT_EXPIRATION_MS,
 		timeout: input.timeout,
 		env: input.env,
 		networkPolicy: input.networkPolicy ? "allow-all" : undefined,
@@ -384,8 +394,9 @@ export function getVercelSandboxId(sandbox: RhapsodyVercelSandbox) {
 
 export async function createVercelSandboxSnapshot(
 	sandbox: RhapsodyVercelSandbox,
+	input: CreateVercelSandboxSnapshotInput = {},
 ) {
-	const snapshot = await sandbox.snapshot();
+	const snapshot = await sandbox.snapshot(input);
 
 	return {
 		snapshotId: snapshot.snapshotId,

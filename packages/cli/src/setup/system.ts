@@ -47,10 +47,11 @@ function printHelp() {
 	console.log(`Rhapsody CLI
 
 Usage:
-  rhapsody setup [--yes] [--json]
+  rhapsody setup [--yes] [--json] [--project-name <name>]
   rhapsody doctor [--json]
   rhapsody plan [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]
   rhapsody deploy-preview [--dry-run|--yes] [--json]
+  rhapsody destroy [--dry-run|--yes] [--json] [--project-name <name>]
   rhapsody provision-turso [--dry-run|--yes] [--json] [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>]
   rhapsody wait-env [--json] [--timeout <seconds>] [--interval <seconds>]
   rhapsody smoke-test --url <preview-url> [--json]
@@ -63,6 +64,7 @@ Commands:
   doctor              Diagnose environment and project state
   plan                Print the detailed setup plan
   deploy-preview      Create or verify a preview deploy
+  destroy             Delete the linked Vercel project and Turso resources
   provision-turso     Provision Turso through Vercel Marketplace
   wait-env            Wait for required Vercel env vars
   smoke-test          Run post-deploy smoke test
@@ -74,10 +76,11 @@ Commands:
 
 function printSetupHelp() {
 	console.log(`Usage:
-  rhapsody setup [--yes] [--json]
+  rhapsody setup [--yes] [--json] [--project-name <name>]
 
 Run setup end-to-end with safe checks first.
 	Pass \`--yes\` to allow remote/external mutations.
+	Pass \`--project-name\` to create or reuse a specific Vercel project.
 `);
 }
 

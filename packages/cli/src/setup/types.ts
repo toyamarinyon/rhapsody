@@ -251,6 +251,10 @@ export type SetupStateFile = {
 	commandState?: {
 		command?: string | null;
 		nextAction?: string | null;
+		vercelProjectAction?: string | null;
+		vercelProjectId?: string | null;
+		vercelProjectOrgId?: string | null;
+		vercelProjectName?: string | null;
 		[x: string]: unknown;
 	};
 	journey?: {

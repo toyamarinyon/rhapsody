@@ -55,12 +55,12 @@ export function collectSetupStatus() {
 	}
 	if (!vercelToken) {
 		nextActions.push(
-			"Run `vercel login` or provide VERCEL_TOKEN before setup can configure Vercel resources.",
+			"setup can create or link a Vercel project; run `vercel login` or provide VERCEL_TOKEN.",
 		);
 	}
 	if (!vercelProject) {
 		nextActions.push(
-			"The app is not linked to a Vercel project yet; setup will create or link one.",
+			"setup can create or link a Vercel project, or run manual `vercel link`.",
 		);
 	}
 	if (!env.TURSO_DATABASE_URL || !env.TURSO_AUTH_TOKEN) {
@@ -134,6 +134,7 @@ export function collectProjectReadiness() {
 	const statePath = getSetupStatePath();
 	const env = readDotEnv(path.join(appRoot, ".env.local"));
 	const vercelProjectPath = path.join(appRoot, ".vercel", "project.json");
+	const vercelProjectFileExists = existsSync(vercelProjectPath);
 	const vercelProject = toJsonObject(readJson(vercelProjectPath));
 	const vercelToken =
 		process.env.VERCEL_TOKEN ?? env.VERCEL_TOKEN ?? readVercelTokenFromDisk();
@@ -210,7 +211,7 @@ export function collectProjectReadiness() {
 	}
 
 	const projectLink = {
-		exists: Boolean(vercelProject),
+		exists: vercelProjectFileExists,
 		orgIdPresent:
 			typeof vercelProject?.orgId === "string" &&
 			vercelProject.orgId.length > 0,
@@ -240,12 +241,12 @@ export function collectProjectReadiness() {
 	}
 	if (!vercel.projectLink.exists) {
 		blockers.push(
-			"Create or link a Vercel project (`vercel link`) before setup can proceed.",
+			"setup can create/link a Vercel project, or run manual `vercel link`.",
 		);
 	}
 	if (
-		!vercel.projectLink.orgIdPresent ||
-		!vercel.projectLink.projectIdPresent
+		vercel.projectLink.exists &&
+		(!vercel.projectLink.orgIdPresent || !vercel.projectLink.projectIdPresent)
 	) {
 		blockers.push(
 			"The Vercel project link file exists but is missing orgId/projectId metadata.",
