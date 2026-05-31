@@ -121,23 +121,28 @@ export type ParseSetupCreateFirstIssueSuccess = Extract<
 >;
 
 export type ParseSetupFirstIssueResult = ParseResult<{
-	url: string;
-	issueNumber: number;
+	url: string | null;
+	issueNumber: number | null;
 	mode: CommandMode;
 	apply: boolean;
 	yes: boolean;
 	useRootPassword: boolean;
+	urlProvided: boolean;
+	issueProvided: boolean;
 	json: boolean;
 }>;
 
 export type ParseSetupStartAttemptResult = ParseResult<{
-	url: string;
-	runId: string;
-	attemptId: string;
+	url: string | null;
+	runId: string | null;
+	attemptId: string | null;
 	mode: CommandMode;
 	apply: boolean;
 	yes: boolean;
 	useRootPassword: boolean;
+	urlProvided: boolean;
+	runIdProvided: boolean;
+	attemptIdProvided: boolean;
 	json: boolean;
 }>;
 
@@ -248,6 +253,47 @@ export type SetupStateFile = {
 		nextAction?: string | null;
 		[x: string]: unknown;
 	};
+	journey?: {
+		firstRun?: {
+			previewUrl?: string;
+			baseUrl?: string;
+			firstIssue?: {
+				number: number;
+				url: string;
+				source: string;
+			};
+			runId?: string;
+			attemptId?: string;
+			currentStep?: string;
+			completedSteps?: string[];
+			nextActions?: string[];
+			blockers?: string[];
+			lastCommand?: string;
+		};
+	};
+};
+
+export type SetupJourneyFirstIssue = {
+	number: number;
+	url: string;
+	source: string;
+};
+
+export type SetupJourneyFirstRun = {
+	previewUrl?: string;
+	baseUrl?: string;
+	firstIssue?: SetupJourneyFirstIssue;
+	runId?: string;
+	attemptId?: string;
+	currentStep?: string;
+	completedSteps?: string[];
+	nextActions?: string[];
+	blockers?: string[];
+	lastCommand?: string;
+};
+
+export type SetupJourney = {
+	firstRun: SetupJourneyFirstRun;
 };
 
 export type FirstIssueRootPasswordState = {
@@ -267,7 +313,7 @@ export type FirstIssueInput = {
 	mode: CommandMode;
 	baseUrl: string | null;
 	endpoint: string | null;
-	issueNumber: number;
+	issueNumber: number | null;
 	statePath: string;
 	rootPassword: FirstIssueRootPasswordState;
 	payloadShape: JsonRecord;
@@ -284,8 +330,8 @@ export type StartAttemptInput = {
 	mode: CommandMode;
 	baseUrl: string | null;
 	endpoint: string | null;
-	runId: string;
-	attemptId: string;
+	runId: string | null;
+	attemptId: string | null;
 	statePath: string;
 	rootPassword: FirstIssueRootPasswordState;
 	claimToken: ClaimTokenState;

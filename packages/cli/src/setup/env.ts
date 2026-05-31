@@ -264,11 +264,11 @@ export function waitForEnv(
 		const nextActions = missingEnvKeys.length
 			? [
 					"Provision Turso through Vercel Marketplace or set missing keys in .env.local.",
-					"Re-run `rhapsody setup wait-env` until all keys are available.",
+					"Re-run `rhapsody wait-env` until all keys are available.",
 				]
 			: [
 					"Turso env vars are available.",
-					"Continue with `rhapsody setup plan` or next setup phase commands.",
+					"Continue with `rhapsody plan` or next setup phase commands.",
 				];
 		const elapsedMs = Date.now() - start;
 

@@ -8,7 +8,12 @@ import {
 	resolveClaimTokenForSetup,
 	resolveRootPasswordForSmoke,
 } from "../env.js";
-import { getSetupStatePath, recordSetupState } from "../state.js";
+import {
+	getSetupStatePath,
+	recordSetupJourneyState,
+	recordSetupState,
+	readSetupState,
+} from "../state.js";
 import type {
 	CommandMode,
 	JsonRecord,
@@ -29,6 +34,15 @@ export async function runStartAttemptCommand(
 
 	const start = Date.now();
 	const statePath = getSetupStatePath();
+	const state = readSetupState(statePath);
+	const resolvedUrl =
+		parse.url ??
+		state.journey?.firstRun?.previewUrl ??
+		state.journey?.firstRun?.baseUrl ??
+		null;
+	const runId = parse.runId ?? state.journey?.firstRun?.runId ?? null;
+	const attemptId =
+		parse.attemptId ?? state.journey?.firstRun?.attemptId ?? null;
 	let baseUrl: string | null = null;
 	let endpoint: string | null = null;
 	let runDetailEndpoint: string | null = null;
@@ -49,11 +63,33 @@ export async function runStartAttemptCommand(
 		available: Boolean(claimTokenLocal),
 		source: claimTokenLocal?.source ?? "missing",
 	};
+	if (!resolvedUrl) {
+		blockers.push(
+			"Missing preview URL. Save one via setup and rerun `start-attempt`, or pass --url explicitly.",
+		);
+		nextActions.push(
+			"Run `rhapsody setup` and retry with `--url <preview-url>`.",
+		);
+	}
+	if (!runId) {
+		blockers.push(
+			"Missing run ID. Save one from a successful `first-issue` or pass --run-id explicitly.",
+		);
+	}
+	if (!attemptId) {
+		blockers.push(
+			"Missing attempt ID. Save one from a successful `first-issue` or pass --attempt-id explicitly.",
+		);
+	}
 
 	try {
-		baseUrl = normalizeBaseUrl(parse.url);
-		endpoint = `${baseUrl}/api/v1/runs/${parse.runId}/attempts/${parse.attemptId}/start`;
-		runDetailEndpoint = `${baseUrl}/api/v1/runs/${parse.runId}`;
+		baseUrl = resolvedUrl ? normalizeBaseUrl(resolvedUrl) : null;
+		endpoint =
+			runId && attemptId && baseUrl
+				? `${baseUrl}/api/v1/runs/${runId}/attempts/${attemptId}/start`
+				: null;
+		runDetailEndpoint =
+			runId && baseUrl ? `${baseUrl}/api/v1/runs/${runId}` : null;
 	} catch {
 		blockers.push("The --url value must be a valid absolute URL.");
 		nextActions.push(
@@ -73,8 +109,8 @@ export async function runStartAttemptCommand(
 			mode: parse.mode,
 			baseUrl,
 			endpoint,
-			runId: parse.runId,
-			attemptId: parse.attemptId,
+			runId,
+			attemptId,
 			rootPassword: rootPasswordMetadata,
 			claimToken: claimTokenMetadata,
 			nextAction: blockers.length ? "blocked" : "ready",
@@ -87,8 +123,8 @@ export async function runStartAttemptCommand(
 			mode: parse.mode,
 			baseUrl,
 			endpoint,
-			runId: parse.runId,
-			attemptId: parse.attemptId,
+			runId,
+			attemptId,
 			statePath,
 			rootPassword: rootPasswordMetadata,
 			claimToken: claimTokenMetadata,
@@ -98,7 +134,7 @@ export async function runStartAttemptCommand(
 			nextActions,
 			elapsedMs: Date.now() - start,
 		});
-		process.exit(0);
+		process.exit(blockers.length > 0 ? 1 : 0);
 	}
 
 	if (!parse.apply || !parse.yes || !parse.useRootPassword) {
@@ -146,7 +182,14 @@ export async function runStartAttemptCommand(
 	}
 
 	let response: StartAttemptPostResponse | null = null;
-	if (blockers.length === 0 && endpoint && resolvedClaimToken && rootPassword) {
+	if (
+		blockers.length === 0 &&
+		endpoint &&
+		resolvedClaimToken &&
+		rootPassword &&
+		runId !== null &&
+		attemptId !== null
+	) {
 		response = await postStartAttempt({
 			endpoint,
 			token: rootPassword.value,
@@ -190,8 +233,8 @@ export async function runStartAttemptCommand(
 		mode: parse.mode,
 		baseUrl,
 		endpoint,
-		runId: parse.runId,
-		attemptId: parse.attemptId,
+		runId,
+		attemptId,
 		rootPassword: rootPasswordMetadata,
 		claimToken: claimTokenMetadata,
 		response: response
@@ -207,14 +250,30 @@ export async function runStartAttemptCommand(
 		blockers,
 		nextActions,
 	});
+
+	recordSetupJourneyState({
+		firstRun: {
+			baseUrl: baseUrl ?? undefined,
+			previewUrl: baseUrl ?? undefined,
+			currentStep: ok ? "first-run-in-progress" : "start-attempt",
+			completedSteps: ok ? ["first-issue", "start-attempt"] : ["first-issue"],
+			nextActions: ok
+				? [
+						"Monitor the first run in dashboard and continue when handoff state changes.",
+					]
+				: ["Retry start-attempt with valid IDs and auth."],
+			blockers: blockers,
+			lastCommand: "start-attempt",
+		},
+	});
 	printSetupStartAttemptResult({
 		json: parse.json,
 		ok,
 		mode: parse.mode,
 		baseUrl,
 		endpoint,
-		runId: parse.runId,
-		attemptId: parse.attemptId,
+		runId,
+		attemptId,
 		statePath,
 		rootPassword: rootPasswordMetadata,
 		claimToken: claimTokenMetadata,
@@ -235,7 +294,7 @@ function parseSetupStartAttemptArgs(
 		return {
 			ok: false,
 			error:
-				"Usage: rhapsody setup start-attempt --url <preview-url> --run-id <runId> --attempt-id <attemptId> [--json] [--use-root-password]\n       rhapsody setup start-attempt --url <preview-url> --run-id <runId> --attempt-id <attemptId> --apply --yes --use-root-password [--json]",
+				"Usage: rhapsody start-attempt [--url <preview-url>] [--run-id <runId>] [--attempt-id <attemptId>] [--json] [--use-root-password]\n       rhapsody start-attempt [--url <preview-url>] [--run-id <runId>] [--attempt-id <attemptId>] --apply --yes --use-root-password [--json]",
 		};
 	}
 
@@ -301,27 +360,9 @@ function parseSetupStartAttemptArgs(
 		return { ok: false, error: `Unsupported argument: ${arg}` };
 	}
 
-	if (!url) {
-		return {
-			ok: false,
-			error:
-				"Missing required --url argument. Example: rhapsody setup start-attempt --url https://preview-url.vercel.app --run-id 123 --attempt-id abc",
-		};
-	}
-	if (!runId) {
-		return {
-			ok: false,
-			error:
-				"Missing required --run-id argument. Example: rhapsody setup start-attempt --url https://preview-url.vercel.app --run-id 123 --attempt-id abc",
-		};
-	}
-	if (!attemptId) {
-		return {
-			ok: false,
-			error:
-				"Missing required --attempt-id argument. Example: rhapsody setup start-attempt --url https://preview-url.vercel.app --run-id 123 --attempt-id abc",
-		};
-	}
+	const hasRunId = runId !== null;
+	const hasAttemptId = attemptId !== null;
+	const hasUrl = url !== null;
 	if (apply !== yes) {
 		return {
 			ok: false,
@@ -340,6 +381,9 @@ function parseSetupStartAttemptArgs(
 		yes,
 		useRootPassword,
 		json: args.includes("--json"),
+		urlProvided: hasUrl,
+		runIdProvided: hasRunId,
+		attemptIdProvided: hasAttemptId,
 	};
 }
 
@@ -360,7 +404,7 @@ function printSetupStartAttemptResult({
 	needsUser,
 	nextActions,
 	elapsedMs,
-}: StartAttemptInput & { attemptId: string; runId: string }) {
+}: StartAttemptInput & { attemptId: string | null; runId: string | null }) {
 	if (json) {
 		const payload = {
 			ok,

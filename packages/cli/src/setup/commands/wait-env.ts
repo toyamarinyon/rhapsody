@@ -41,7 +41,7 @@ function parseWaitEnvArgs(args: string[]): ParseSetupWaitEnvResult {
 		return {
 			ok: false,
 			error:
-				"Usage: rhapsody setup wait-env [--json] [--timeout <seconds>] [--interval <seconds>]",
+				"Usage: rhapsody wait-env [--json] [--timeout <seconds>] [--interval <seconds>]",
 		};
 	}
 	return {

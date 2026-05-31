@@ -134,13 +134,16 @@ function buildSetupPlan({
 			name: "Auth check",
 			command: "gh auth status && vercel whoami",
 			status:
-				status.tools.gh.installed && status.tools.vercel.installed
+				status.tools.gh.installed &&
+				status.tools.vercel.installed &&
+				status.tools.gh.authTokenPresent &&
+				status.tools.vercel.tokenPresent
 					? "ready"
 					: "blocked",
 		},
 		{
 			name: "GitHub repo/project prep",
-			command: "rhapsody setup check-projects --json",
+			command: "rhapsody doctor --json",
 			status:
 				status.tools.gh.installed && status.tools.gh.authTokenPresent
 					? "ready"
@@ -148,7 +151,7 @@ function buildSetupPlan({
 		},
 		{
 			name: "Vercel project link/create",
-			command: "rhapsody setup check-projects --json",
+			command: "rhapsody check-projects --json",
 			status: status.app.vercelProjectLink.exists ? "ready" : "ready",
 		},
 		{
@@ -162,24 +165,24 @@ function buildSetupPlan({
 		},
 		{
 			name: "Vercel env setup",
-			command: "rhapsody setup wait-env",
+			command: "rhapsody wait-env",
 			status: status.app.env.tursoDatabaseUrlPresent ? "ready" : "ready",
 		},
 		{
 			name: "Database migration and deploy preview",
-			command: "rhapsody setup deploy-preview --dry-run",
+			command: "rhapsody deploy-preview --dry-run",
 			status:
 				collectDeployPreviewBlockers(status).length === 0 ? "ready" : "blocked",
 		},
 		{
 			name: "Smoke test",
-			command: "rhapsody setup smoke-test --url <preview-url>",
+			command: "rhapsody smoke-test --url <preview-url>",
 			status: "ready",
 		},
 		{
 			name: "Attempt start",
 			command:
-				"rhapsody setup start-attempt --url <preview-url> --run-id <runId> --attempt-id <attemptId>",
+				"rhapsody start-attempt --url <preview-url> --run-id <runId> --attempt-id <attemptId>",
 			status: "ready",
 		},
 	];

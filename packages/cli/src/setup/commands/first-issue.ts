@@ -1,10 +1,13 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
 
 import { resolveRootPasswordForSmoke } from "../env.js";
 import { normalizeBaseUrl, postRun } from "../http.js";
-import { recordSetupState } from "../state.js";
-import { getSetupStatePath } from "../state.js";
+import {
+	getSetupStatePath,
+	recordSetupJourneyState,
+	recordSetupState,
+	readSetupState,
+} from "../state.js";
 import type {
 	CommandMode,
 	FirstIssueInput,
@@ -25,7 +28,14 @@ export async function runFirstIssueCommand(
 
 	const start = Date.now();
 	const statePath = getSetupStatePath();
-	const issueNumber = parse.issueNumber;
+	const state = readSetupState(statePath);
+	const persistedFirstIssue = state.journey?.firstRun?.firstIssue;
+	const issueNumber = parse.issueNumber ?? persistedFirstIssue?.number ?? null;
+	const resolvedUrl =
+		parse.url ??
+		state.journey?.firstRun?.previewUrl ??
+		state.journey?.firstRun?.baseUrl ??
+		null;
 	let baseUrl: string | null = null;
 	let endpoint: string | null = null;
 	const payloadShape: JsonRecord = {
@@ -35,10 +45,28 @@ export async function runFirstIssueCommand(
 	const blockers: string[] = [];
 	const needsUser: string[] = [];
 	const nextActions: string[] = [];
+	if (!resolvedUrl) {
+		blockers.push(
+			"Missing --url. Save preview URL via setup and rerun, or pass --url explicitly.",
+		);
+		nextActions.push(
+			"Run `rhapsody setup` to get a saved `<preview-url>`, then rerun `first-issue`.",
+		);
+	}
+	if (issueNumber === null) {
+		blockers.push(
+			"Missing --issue-number. Save first issue via `rhapsody create-first-issue --yes` or pass --issue-number explicitly.",
+		);
+		nextActions.push(
+			"Run `rhapsody create-first-issue --yes` and then rerun `rhapsody first-issue --url <preview-url>`.",
+		);
+	}
 
 	try {
-		baseUrl = normalizeBaseUrl(parse.url);
-		endpoint = `${baseUrl}/api/v1/runs`;
+		baseUrl = resolvedUrl ? normalizeBaseUrl(resolvedUrl) : null;
+		if (baseUrl) {
+			endpoint = `${baseUrl}/api/v1/runs`;
+		}
 	} catch {
 		blockers.push("The --url value must be a valid absolute URL.");
 		nextActions.push(
@@ -54,7 +82,7 @@ export async function runFirstIssueCommand(
 		recordSetupState({
 			command: "first-issue",
 			mode: parse.mode,
-			baseUrl: parse.url,
+			baseUrl: resolvedUrl,
 			endpoint: null,
 			issueNumber,
 			rootPassword: {
@@ -70,7 +98,7 @@ export async function runFirstIssueCommand(
 			json: parse.json,
 			ok: false,
 			mode: parse.mode,
-			baseUrl: parse.url,
+			baseUrl: resolvedUrl,
 			endpoint: null,
 			issueNumber,
 			statePath,
@@ -156,11 +184,17 @@ export async function runFirstIssueCommand(
 	}
 
 	let response: FirstIssuePostResponse | null = null;
-	if (blockers.length === 0 && endpoint && rootPassword) {
+	if (
+		blockers.length === 0 &&
+		endpoint &&
+		rootPassword &&
+		issueNumber !== null
+	) {
+		const resolvedIssueNumber = issueNumber;
 		response = await postRun({
 			endpoint,
 			token: rootPassword.value,
-			issueNumber,
+			issueNumber: resolvedIssueNumber,
 		});
 	}
 
@@ -220,6 +254,31 @@ export async function runFirstIssueCommand(
 		nextActions,
 	});
 
+	recordSetupJourneyState({
+		firstRun: {
+			baseUrl: baseUrl ?? undefined,
+			previewUrl: baseUrl ?? undefined,
+			currentStep: ok ? "start-attempt-ready" : "first-issue",
+			completedSteps: ok ? ["first-issue"] : ["smoke-test"],
+			nextActions: [
+				`Run \`rhapsody start-attempt --url ${baseUrl ?? "<preview-url>"} --run-id ${response?.runId ?? "<run-id>"} --attempt-id ${response?.attemptId ?? "<attempt-id>"} --use-root-password\`.`,
+			],
+			blockers: blockers,
+			lastCommand: "first-issue",
+			...(issueNumber !== null
+				? {
+						firstIssue: {
+							number: issueNumber,
+							url: persistedFirstIssue?.url ?? `issue://local/${issueNumber}`,
+							source: parse.issueProvided ? "manual" : "created",
+						},
+					}
+				: {}),
+			...(response?.runId ? { runId: response.runId } : {}),
+			...(response?.attemptId ? { attemptId: response.attemptId } : {}),
+		},
+	});
+
 	printSetupFirstIssueResult({
 		json: parse.json,
 		ok,
@@ -249,7 +308,7 @@ function parseSetupFirstIssueArgs(args: string[]): ParseSetupFirstIssueResult {
 		return {
 			ok: false,
 			error:
-				"Usage: rhapsody setup first-issue --url <preview-url> --issue-number <n> [--json] [--use-root-password]\n       rhapsody setup first-issue --url <preview-url> --issue-number <n> --apply --yes --use-root-password [--json]",
+				"Usage: rhapsody first-issue [--url <preview-url>] [--issue-number <n>] [--json] [--use-root-password]\n       rhapsody first-issue [--url <preview-url>] [--issue-number <n>] --apply --yes --use-root-password [--json]",
 		};
 	}
 
@@ -299,24 +358,13 @@ function parseSetupFirstIssueArgs(args: string[]): ParseSetupFirstIssueResult {
 		return { ok: false, error: `Unsupported argument: ${arg}` };
 	}
 
-	if (!url) {
-		return {
-			ok: false,
-			error:
-				"Missing required --url argument. Example: rhapsody setup first-issue --url https://preview-url.vercel.app --issue-number 123",
-		};
-	}
-	if (!issueNumberText) {
-		return {
-			ok: false,
-			error:
-				"Missing required --issue-number argument. Example: rhapsody setup first-issue --url https://preview-url.vercel.app --issue-number 123",
-		};
-	}
-
-	const issueNumber = Number.parseInt(issueNumberText, 10);
-	if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
-		return { ok: false, error: "--issue-number must be a positive integer." };
+	let issueNumber: number | null = null;
+	if (issueNumberText !== null) {
+		const parsedIssueNumber = Number.parseInt(issueNumberText, 10);
+		if (!Number.isInteger(parsedIssueNumber) || parsedIssueNumber <= 0) {
+			return { ok: false, error: "--issue-number must be a positive integer." };
+		}
+		issueNumber = parsedIssueNumber;
 	}
 
 	if (apply !== yes) {
@@ -336,6 +384,8 @@ function parseSetupFirstIssueArgs(args: string[]): ParseSetupFirstIssueResult {
 		yes,
 		useRootPassword,
 		json: args.includes("--json"),
+		urlProvided: url !== null,
+		issueProvided: issueNumberText !== null,
 	};
 }
 
@@ -354,7 +404,7 @@ function printSetupFirstIssueResult({
 	needsUser,
 	nextActions,
 	elapsedMs,
-}: FirstIssueInput & { issueNumber: number }) {
+}: FirstIssueInput & { issueNumber: number | null }) {
 	if (json) {
 		const payload = {
 			ok,

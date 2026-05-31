@@ -58,6 +58,9 @@ Important boundary:
 - Dispatch work with global, per-project, and per-status concurrency limits.
 - Recover from Vercel Function restarts, workflow retries, sandbox failures, and transient API
   failures.
+- Persist first-run CLI handoff coordinates in `apps/app/.rhapsody/setup-state.json` so a resumed
+  `rhapsody setup` flow and resumed handoff commands can continue from saved `previewUrl`,
+  `firstIssue`, `runId`, and `attemptId` without retyping arguments.
 - Support both Vercel Cron polling and GitHub webhook/manual refresh triggers.
 - Preserve work across attempts using Git branches, sandbox exports, and/or Vercel Sandbox
   snapshots.

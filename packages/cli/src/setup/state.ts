@@ -7,7 +7,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 
-import type { SetupStateFile } from "./types.js";
+import type { SetupStateFile, SetupJourney } from "./types.js";
 import { findWorkspaceRoot } from "./env.js";
 
 const stateFilePath = (startPath: string) =>
@@ -60,6 +60,96 @@ export function recordSetupState(payload: Record<string, unknown>): void {
 
 	mkdirSync(path.dirname(statePath), { recursive: true });
 	writeFileSync(statePath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+}
+
+export function recordSetupJourneyState(
+	journeyPatch: Partial<SetupStateFile["journey"]>,
+): void {
+	const statePath = getSetupStatePath();
+	const previous = readSetupState(statePath);
+	const timestamp = new Date().toISOString();
+
+	const next: SetupStateFile = {
+		...previous,
+		lastUpdatedAt: timestamp,
+		journey: mergeSetupJourney(previous.journey, journeyPatch),
+	};
+
+	mkdirSync(path.dirname(statePath), { recursive: true });
+	writeFileSync(statePath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+}
+
+export function summarizeSetupJourney(
+	state: SetupStateFile,
+): SetupJourney | null {
+	const firstRun = state.journey?.firstRun;
+	if (!firstRun) {
+		return null;
+	}
+	return { firstRun };
+}
+
+function mergeSetupJourney(
+	current: SetupStateFile["journey"] = {},
+	patch: Partial<SetupStateFile["journey"]> = {},
+): SetupStateFile["journey"] {
+	if (!patch.firstRun) {
+		return current;
+	}
+	const currentFirstRun = current?.firstRun ?? {};
+	const hasNextActions = Object.prototype.hasOwnProperty.call(
+		patch.firstRun,
+		"nextActions",
+	);
+	const hasBlockers = Object.prototype.hasOwnProperty.call(
+		patch.firstRun,
+		"blockers",
+	);
+	const hasCompletedSteps = Object.prototype.hasOwnProperty.call(
+		patch.firstRun,
+		"completedSteps",
+	);
+	const nextFirstRun = {
+		...currentFirstRun,
+		...patch.firstRun,
+		completedSteps: mergeSetupStringList(
+			currentFirstRun.completedSteps,
+			hasCompletedSteps ? patch.firstRun.completedSteps : undefined,
+		),
+		nextActions:
+			patch.firstRun.nextActions !== undefined || hasNextActions
+				? patch.firstRun.nextActions
+				: currentFirstRun.nextActions,
+		blockers:
+			patch.firstRun.blockers !== undefined || hasBlockers
+				? patch.firstRun.blockers
+				: currentFirstRun.blockers,
+	};
+	if (patch.firstRun?.firstIssue !== undefined) {
+		nextFirstRun.firstIssue = patch.firstRun.firstIssue;
+	}
+
+	return {
+		...current,
+		firstRun: nextFirstRun,
+	};
+}
+
+function mergeSetupStringList(
+	current: string[] = [],
+	incoming: string[] = [],
+): string[] {
+	const values = [...current, ...incoming];
+	const result: string[] = [];
+	const seen = new Set<string>();
+	for (const value of values) {
+		if (seen.has(value)) {
+			continue;
+		}
+		seen.add(value);
+		result.push(value);
+	}
+	return result;
 }
 
 export function inferTursoProjectJsonPath(): string {

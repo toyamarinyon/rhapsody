@@ -44,7 +44,7 @@ export async function runDeployPreviewCommand(
 
 	if (!parse.dryRun && !parse.yes) {
 		console.error(
-			"rhapsody setup deploy-preview requires confirmation in apply mode. Pass --yes to execute.",
+			"rhapsody deploy-preview requires confirmation in apply mode. Pass --yes to execute.",
 		);
 		recordSetupState({
 			command: "deploy-preview",
@@ -113,7 +113,7 @@ export async function runDeployPreviewCommand(
 		nextActions: ok
 			? ["Deployment completed. Check app logs and deployment URL."]
 			: [
-					"Re-run `rhapsody setup deploy-preview --yes` after resolving blocking issues.",
+					"Re-run `rhapsody deploy-preview --yes` after resolving blocking issues.",
 				],
 	});
 
@@ -136,7 +136,7 @@ function parseDeployPreviewArgs(args: string[]): ParseSetupDeployPreviewResult {
 	if (args.includes("--help") || args.includes("-h")) {
 		return {
 			ok: false,
-			error: "Usage: rhapsody setup deploy-preview (--dry-run|--yes) [--json]",
+			error: "Usage: rhapsody deploy-preview (--dry-run|--yes) [--json]",
 		};
 	}
 	const dryRun = args.includes("--dry-run");
