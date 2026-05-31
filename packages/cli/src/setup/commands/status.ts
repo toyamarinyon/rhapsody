@@ -134,6 +134,7 @@ export function collectProjectReadiness() {
 	const statePath = getSetupStatePath();
 	const env = readDotEnv(path.join(appRoot, ".env.local"));
 	const vercelProjectPath = path.join(appRoot, ".vercel", "project.json");
+	const vercelProjectFileExists = existsSync(vercelProjectPath);
 	const vercelProject = toJsonObject(readJson(vercelProjectPath));
 	const vercelToken =
 		process.env.VERCEL_TOKEN ?? env.VERCEL_TOKEN ?? readVercelTokenFromDisk();
@@ -210,7 +211,7 @@ export function collectProjectReadiness() {
 	}
 
 	const projectLink = {
-		exists: Boolean(vercelProject),
+		exists: vercelProjectFileExists,
 		orgIdPresent:
 			typeof vercelProject?.orgId === "string" &&
 			vercelProject.orgId.length > 0,
@@ -244,8 +245,8 @@ export function collectProjectReadiness() {
 		);
 	}
 	if (
-		!vercel.projectLink.orgIdPresent ||
-		!vercel.projectLink.projectIdPresent
+		vercel.projectLink.exists &&
+		(!vercel.projectLink.orgIdPresent || !vercel.projectLink.projectIdPresent)
 	) {
 		blockers.push(
 			"The Vercel project link file exists but is missing orgId/projectId metadata.",
