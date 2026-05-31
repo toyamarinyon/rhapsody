@@ -1,7 +1,13 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 
-import { getSetupStatePath, recordSetupState } from "../state.js";
+import {
+	getSetupStatePath,
+	readSetupState,
+	recordSetupJourneyState,
+	recordSetupState,
+	summarizeSetupJourney,
+} from "../state.js";
 import {
 	inferTursoProjectJsonPath,
 	prepareTursoLinkDirectory,
@@ -13,7 +19,7 @@ import {
 	runProvisionTursoApply,
 } from "../vercel.js";
 import { collectProjectReadiness, collectSetupStatus } from "./status.js";
-import type { LegacyExitCode, ParseResult } from "../types.js";
+import type { LegacyExitCode, ParseResult, SetupJourney } from "../types.js";
 
 type SetupExecution = {
 	ok: boolean;
@@ -23,6 +29,7 @@ type SetupExecution = {
 	blockers: string[];
 	nextActions: string[];
 	statePath: string;
+	journeySummary?: SetupJourney | null;
 };
 
 export async function runSetupOrchestratorCommand(
@@ -100,7 +107,17 @@ Use: rhapsody setup [--yes] [--json]`,
 
 function runSetupOrchestrator({ yes }: { yes: boolean }): SetupExecution {
 	const statePath = getSetupStatePath();
+	const state = readSetupState(statePath);
+	const journeySummary = summarizeSetupJourney(state);
 	const steps: string[] = [];
+	const firstRun = state.journey?.firstRun;
+	const previewUrl = firstRun?.previewUrl ?? "<preview-url>";
+	const issueNumber = firstRun?.firstIssue?.number
+		? String(firstRun.firstIssue.number)
+		: "<issue-number>";
+	const runId = firstRun?.runId ?? "<run-id>";
+	const attemptId = firstRun?.attemptId ?? "<attempt-id>";
+	const hasPreviewUrl = Boolean(firstRun?.previewUrl);
 
 	steps.push("collect-status");
 	const status = collectSetupStatus();
@@ -138,6 +155,7 @@ function runSetupOrchestrator({ yes }: { yes: boolean }): SetupExecution {
 				"Run `rhapsody doctor --json` for full diagnostic details.",
 			],
 			statePath,
+			journeySummary,
 		};
 	}
 
@@ -152,6 +170,7 @@ function runSetupOrchestrator({ yes }: { yes: boolean }): SetupExecution {
 			blockers: provisionResult.blockers,
 			nextActions: provisionResult.nextActions,
 			statePath,
+			journeySummary,
 		};
 	}
 
@@ -166,6 +185,7 @@ function runSetupOrchestrator({ yes }: { yes: boolean }): SetupExecution {
 			blockers: waitResult.blockers,
 			nextActions: waitResult.nextActions,
 			statePath,
+			journeySummary,
 		};
 	}
 
@@ -180,14 +200,35 @@ function runSetupOrchestrator({ yes }: { yes: boolean }): SetupExecution {
 			blockers: deployResult.blockers,
 			nextActions: deployResult.nextActions,
 			statePath,
+			journeySummary,
 		};
 	}
 
 	const nextActions = [
-		"Run `rhapsody smoke-test --url <preview-url>` to verify the preview deployment.",
-		"Run `rhapsody first-issue --url <preview-url> --issue-number <issue-number> --use-root-password` for the first issue handoff.",
-		"Run `rhapsody start-attempt --url <preview-url> --run-id <run-id> --attempt-id <attempt-id> --use-root-password` to start the first run attempt.",
+		`Run ` +
+			`rhapsody smoke-test --url ${previewUrl} to verify the preview deployment.`,
+		`Run ` +
+			`rhapsody first-issue --url ${previewUrl} --issue-number ${issueNumber} --use-root-password` +
+			` for the first issue handoff.`,
+		`Run ` +
+			`rhapsody start-attempt --url ${previewUrl} --run-id ${runId} --attempt-id ${attemptId} --use-root-password` +
+			` to start the first run attempt.`,
 	];
+	recordSetupJourneyState({
+		firstRun: {
+			...(hasPreviewUrl
+				? {
+						previewUrl,
+						baseUrl: previewUrl,
+					}
+				: {}),
+			currentStep: "smoke-test",
+			completedSteps: ["setup"],
+			nextActions,
+			blockers: [],
+			lastCommand: "setup",
+		},
+	});
 	recordSetupState({
 		command: "setup",
 		currentStep: "smoke-test",
@@ -205,7 +246,12 @@ function runSetupOrchestrator({ yes }: { yes: boolean }): SetupExecution {
 		blockers: [],
 		nextActions,
 		statePath,
+		journeySummary: getJourneySummary(statePath),
 	};
+}
+
+function getJourneySummary(statePath: string): SetupJourney | null {
+	return summarizeSetupJourney(readSetupState(statePath));
 }
 
 function runProvisionTursoStep({ yes }: { yes: boolean }): {

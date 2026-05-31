@@ -55,8 +55,8 @@ Usage:
   rhapsody wait-env [--json] [--timeout <seconds>] [--interval <seconds>]
   rhapsody smoke-test --url <preview-url> [--json]
   rhapsody create-first-issue [--dry-run] [--json]
-  rhapsody first-issue --url <preview-url> --issue-number <n> [--json]
-  rhapsody start-attempt --url <preview-url> --run-id <runId> --attempt-id <attemptId> [--json]
+  rhapsody first-issue [--url <preview-url>] [--issue-number <n>] [--json]
+  rhapsody start-attempt [--url <preview-url>] [--run-id <runId>] [--attempt-id <attemptId>] [--json]
 
 Commands:
   setup               Run the end-to-end setup orchestrator
@@ -103,7 +103,9 @@ function printManualCommandHelp() {
   rhapsody wait-env [--json] [--timeout <seconds>] [--interval <seconds>]
   rhapsody smoke-test --url <preview-url> [--json]
   rhapsody create-first-issue [--dry-run] [--json] [--title <title>] [--body <body>]
-  rhapsody first-issue --url <preview-url> --issue-number <n> [--json] [--use-root-password]
-  rhapsody start-attempt --url <preview-url> --run-id <runId> --attempt-id <attemptId> [--json] [--use-root-password]
+  rhapsody first-issue [--url <preview-url>] [--issue-number <n>] [--json] [--use-root-password]
+  rhapsody first-issue [--url <preview-url>] [--issue-number <n>] --apply --yes --use-root-password [--json]
+  rhapsody start-attempt [--url <preview-url>] [--run-id <runId>] [--attempt-id <attemptId>] [--json] [--use-root-password]
+  rhapsody start-attempt [--url <preview-url>] [--run-id <runId>] [--attempt-id <attemptId>] --apply --yes --use-root-password [--json]
 `);
 }

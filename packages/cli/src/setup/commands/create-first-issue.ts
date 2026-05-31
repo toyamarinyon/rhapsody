@@ -5,7 +5,11 @@ import {
 	getCreateFirstIssueRepository,
 	parseIssueCreateCommandOutput,
 } from "../github.js";
-import { recordSetupState, getSetupStatePath } from "../state.js";
+import {
+	getSetupStatePath,
+	recordSetupJourneyState,
+	recordSetupState,
+} from "../state.js";
 import type {
 	CommandMode,
 	CreateFirstIssuePlanResult,
@@ -72,6 +76,23 @@ export async function runCreateFirstIssueCommand(
 	}
 
 	const apply = runCreateFirstIssueApply(plan);
+	if (apply.ok && apply.issue) {
+		recordSetupJourneyState({
+			firstRun: {
+				firstIssue: {
+					number: apply.issue.number,
+					url: apply.issue.url,
+					source: "created",
+				},
+				currentStep: "create-first-issue",
+				completedSteps: ["create-first-issue"],
+				nextActions: [
+					`Run rhapsody first-issue --url <preview-url> --issue-number ${apply.issue.number} --use-root-password.`,
+				],
+				lastCommand: "create-first-issue",
+			},
+		});
+	}
 	recordSetupState({
 		command: "create-first-issue",
 		mode: plan.mode,
