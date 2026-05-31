@@ -2,6 +2,8 @@
 
 # dependencies
 /node_modules
+/apps/*/node_modules
+/packages/*/node_modules
 /.pnpm-store
 /.pnp
 .pnp.*
@@ -16,10 +18,15 @@
 
 # next.js
 /.next/
+/apps/*/.next/
 /out/
+/apps/*/out/
 
 # production
 /build
+/apps/*/build
+/packages/*/build
+/packages/*/dist
 
 # misc
 .DS_Store
@@ -34,9 +41,14 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+!apps/*/.env.example
 
 # vercel
 .vercel
+apps/*/.vercel
+
+# local setup state
+apps/*/.rhapsody/setup-state.json
 
 # typescript
 *.tsbuildinfo

@@ -1,0 +1,23 @@
+{
+	"name": "@toyamarinyon/rhapsody",
+	"version": "0.1.0",
+	"description": "Setup CLI for self-hosting Rhapsody on Vercel.",
+	"license": "MIT",
+	"type": "module",
+	"bin": {
+		"rhapsody": "./dist/bin.js"
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"check": "pnpm exec tsc --project tsconfig.json --noEmit && pnpm run build",
+		"build": "pnpm exec tsup --config tsup.config.ts",
+		"smoke:setup-help": "pnpm run build && node dist/bin.js setup --help"
+	},
+	"devDependencies": {
+		"@types/node": "^24.0.12",
+		"tsup": "^8.5.0",
+		"typescript": "^5.9.2"
+	}
+}
