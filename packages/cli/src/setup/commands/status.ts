@@ -55,12 +55,12 @@ export function collectSetupStatus() {
 	}
 	if (!vercelToken) {
 		nextActions.push(
-			"Run `vercel login` or provide VERCEL_TOKEN before setup can configure Vercel resources.",
+			"setup can create or link a Vercel project; run `vercel login` or provide VERCEL_TOKEN.",
 		);
 	}
 	if (!vercelProject) {
 		nextActions.push(
-			"The app is not linked to a Vercel project yet; setup will create or link one.",
+			"setup can create or link a Vercel project, or run manual `vercel link`.",
 		);
 	}
 	if (!env.TURSO_DATABASE_URL || !env.TURSO_AUTH_TOKEN) {
@@ -240,7 +240,7 @@ export function collectProjectReadiness() {
 	}
 	if (!vercel.projectLink.exists) {
 		blockers.push(
-			"Create or link a Vercel project (`vercel link`) before setup can proceed.",
+			"setup can create/link a Vercel project, or run manual `vercel link`.",
 		);
 	}
 	if (
