@@ -34,7 +34,9 @@ async function dispatch(): Promise<LegacyExitCode> {
 		}
 		if (subcommand && !subcommand.startsWith("-")) {
 			console.error(`Unknown top-level setup subcommand: ${subcommand}`);
-			console.error("Use `rhapsody setup [--yes] [--json]` only.");
+			console.error(
+				"Use `rhapsody setup [--yes] [--json] [--project-name <name>]` only.",
+			);
 			console.error("Run `rhapsody setup --help` for usage.");
 			return 1;
 		}

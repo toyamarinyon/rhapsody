@@ -62,6 +62,7 @@ export async function resolveVercelProjectForSetup(options: {
 	json: boolean;
 	yes: boolean;
 	workspaceRoot?: string;
+	projectName?: string;
 }): Promise<ResolveVercelProjectResult> {
 	const workspaceRoot =
 		options.workspaceRoot ?? findWorkspaceRoot(process.cwd());
@@ -127,10 +128,12 @@ export async function resolveVercelProjectForSetup(options: {
 	const githubRepo = getGithubRepoFromRemote(workspaceRoot) ?? null;
 	const repositoryLabel = githubRepo ?? "unknown/repo";
 	const defaultProjectName = githubRepo?.split("/").pop() ?? "rhapsody";
+	const shouldUseDefaultProjectName = options.json || options.yes;
 	const projectName =
-		options.json || options.yes
+		options.projectName ??
+		(shouldUseDefaultProjectName
 			? defaultProjectName
-			: await promptProjectName(defaultProjectName);
+			: await promptProjectName(defaultProjectName));
 
 	const projectResult = await ensureProject({
 		token,

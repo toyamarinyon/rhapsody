@@ -51,7 +51,7 @@ export async function runSetupOrchestratorCommand(
 	if (!parse.ok) {
 		if (parse.help) {
 			console.log(`Usage:
-  rhapsody setup [--yes] [--json]
+  rhapsody setup [--yes] [--json] [--project-name <name>]
 
 Run setup end-to-end until the next required manual step.
 `);
@@ -64,6 +64,7 @@ Run setup end-to-end until the next required manual step.
 	const result = await runSetupOrchestrator({
 		yes: parse.yes,
 		json: parse.json,
+		projectName: parse.projectName,
 	});
 	if (parse.json) {
 		console.log(JSON.stringify(result, null, 2));
@@ -94,21 +95,49 @@ Run setup end-to-end until the next required manual step.
 function parseSetupArgs(args: string[]): ParseResult<{
 	yes: boolean;
 	json: boolean;
+	projectName?: string;
 }> & { help?: true } {
 	if (args.includes("--help") || args.includes("-h")) {
 		return { ok: false, help: true, error: "help requested" };
 	}
 
-	const allowed = new Set(["--yes", "--json"]);
-	for (const arg of args) {
+	let projectName: string | undefined;
+	for (let index = 0; index < args.length; index++) {
+		const arg = args[index];
 		if (arg === "setup") {
 			continue;
 		}
-		if (!allowed.has(arg)) {
+		if (arg === "--yes" || arg === "--json") {
+			continue;
+		}
+		if (arg === "--project-name") {
+			const value = args[index + 1];
+			if (!value || value.startsWith("-")) {
+				return {
+					ok: false,
+					error: "Missing value for --project-name",
+				};
+			}
+			projectName = value;
+			index++;
+			continue;
+		}
+		if (arg.startsWith("--project-name=")) {
+			const value = arg.slice("--project-name=".length).trim();
+			if (!value) {
+				return {
+					ok: false,
+					error: "Missing value for --project-name",
+				};
+			}
+			projectName = value;
+			continue;
+		}
+		{
 			return {
 				ok: false,
 				error: `Unsupported argument: ${arg}
-Use: rhapsody setup [--yes] [--json]`,
+Use: rhapsody setup [--yes] [--json] [--project-name <name>]`,
 			};
 		}
 	}
@@ -117,15 +146,18 @@ Use: rhapsody setup [--yes] [--json]`,
 		ok: true,
 		yes: args.includes("--yes"),
 		json: args.includes("--json"),
+		projectName,
 	};
 }
 
 async function runSetupOrchestrator({
 	yes,
 	json,
+	projectName,
 }: {
 	yes: boolean;
 	json: boolean;
+	projectName?: string;
 }): Promise<SetupExecution> {
 	const statePath = getSetupStatePath();
 	const state = readSetupState(statePath);
@@ -181,6 +213,7 @@ async function runSetupOrchestrator({
 		json,
 		yes,
 		workspaceRoot: status.paths.workspaceRoot,
+		projectName,
 	});
 	if (vercelProject.ok && vercelProject.project) {
 		recordSetupState({

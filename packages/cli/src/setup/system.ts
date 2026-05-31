@@ -47,7 +47,7 @@ function printHelp() {
 	console.log(`Rhapsody CLI
 
 Usage:
-  rhapsody setup [--yes] [--json]
+  rhapsody setup [--yes] [--json] [--project-name <name>]
   rhapsody doctor [--json]
   rhapsody plan [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]
   rhapsody deploy-preview [--dry-run|--yes] [--json]
@@ -74,10 +74,11 @@ Commands:
 
 function printSetupHelp() {
 	console.log(`Usage:
-  rhapsody setup [--yes] [--json]
+  rhapsody setup [--yes] [--json] [--project-name <name>]
 
 Run setup end-to-end with safe checks first.
 	Pass \`--yes\` to allow remote/external mutations.
+	Pass \`--project-name\` to create or reuse a specific Vercel project.
 `);
 }
 
