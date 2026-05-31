@@ -1,10 +1,6 @@
 #!/usr/bin/env node
 import { runSetupCommand } from "./setup/system.js";
 import { runPlanCommand } from "./setup/commands/plan.js";
-import {
-	collectSetupStatus,
-	collectProjectReadiness,
-} from "./setup/commands/status.js";
 import { runWaitEnvCommand } from "./setup/commands/wait-env.js";
 import { runProvisionTursoCommand } from "./setup/commands/provision-turso.js";
 import { runDeployPreviewCommand } from "./setup/commands/deploy-preview.js";
@@ -14,6 +10,11 @@ import { runFirstIssueCommand } from "./setup/commands/first-issue.js";
 import { runStartAttemptCommand } from "./setup/commands/start-attempt.js";
 import { runCheckProjectsCommand } from "./setup/commands/check-projects.js";
 import type { LegacyExitCode } from "./setup/types.js";
+import { runSetupOrchestratorCommand } from "./setup/commands/setup.js";
+import {
+	collectProjectReadiness,
+	collectSetupStatus,
+} from "./setup/commands/status.js";
 
 const argv = process.argv.slice(2);
 const command = argv[0] ?? "help";
@@ -28,28 +29,16 @@ async function dispatch(): Promise<LegacyExitCode> {
 	}
 
 	if (command === "setup") {
-		if (subcommand === "--json") {
-			return runPlanCommand(rest);
-		}
-		if (subcommand === undefined || subcommand === "--yes") {
-			if (subcommand === "--yes" && !argv.includes("--json")) {
-				console.log(
-					"`rhapsody setup --yes` is currently non-mutating. Setup orchestration is not yet implemented; this command shows the setup plan and diagnostics only.",
-				);
-			}
-			return runPlanCommand(rest);
-		}
-
 		if (subcommand === "--help" || subcommand === "-h") {
 			return runSetupCommand(["setup", "--help"]);
 		}
-
-		console.error(`Unknown top-level setup subcommand: ${subcommand}`);
-		console.error(
-			"`rhapsody setup` now runs the top-level setup flow directly.",
-		);
-		console.error("Run `rhapsody --help` for available commands.");
-		return 1;
+		if (subcommand && !subcommand.startsWith("-")) {
+			console.error(`Unknown top-level setup subcommand: ${subcommand}`);
+			console.error("Use `rhapsody setup [--yes] [--json]` only.");
+			console.error("Run `rhapsody setup --help` for usage.");
+			return 1;
+		}
+		return runSetupOrchestratorCommand(rest);
 	}
 
 	if (command === "doctor") {
@@ -132,7 +121,11 @@ async function runDoctorCommand(args: string[]): Promise<LegacyExitCode> {
 		);
 
 	if (includeJson) {
-		const blockers = [...projects.blockers];
+		const blockers = dedupeNormalize([
+			...normalizeTopLevelNextActions(status.nextActions),
+			...normalizeTopLevelNextActions(projects.nextActions),
+			...normalizeTopLevelNextActions(projects.blockers),
+		]).filter(Boolean);
 		const nextActions = [
 			...normalizeTopLevelNextActions(status.nextActions),
 			...normalizeTopLevelNextActions(projects.nextActions),
@@ -158,15 +151,16 @@ async function runDoctorCommand(args: string[]): Promise<LegacyExitCode> {
 	console.log("");
 	console.log(`Workspace: ${status.paths.workspaceRoot}`);
 	console.log(`Status: ${status.ok ? "ok" : "blocked"}`);
+	const blockers = [...projects.blockers];
 	console.log("Readiness blockers:");
-	if (projects.blockers.length === 0) {
+	if (blockers.length === 0) {
 		console.log("  - none");
 	} else {
-		for (const blocker of projects.blockers) {
+		for (const blocker of blockers) {
 			console.log(`  - ${blocker}`);
 		}
 	}
-	if (status.nextActions.length > 0) {
+	if (projects.nextActions.length > 0) {
 		console.log("Next actions:");
 		for (const nextAction of normalizeTopLevelNextActions(
 			projects.nextActions,
@@ -176,4 +170,17 @@ async function runDoctorCommand(args: string[]): Promise<LegacyExitCode> {
 	}
 
 	return status.ok && projects.ok ? 0 : 1;
+}
+
+function dedupeNormalize(values: string[]): string[] {
+	const seen = new Set<string>();
+	const out: string[] = [];
+	for (const value of values) {
+		if (seen.has(value)) {
+			continue;
+		}
+		seen.add(value);
+		out.push(value);
+	}
+	return out;
 }

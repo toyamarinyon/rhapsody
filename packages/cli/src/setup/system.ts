@@ -50,8 +50,8 @@ Usage:
   rhapsody setup [--yes] [--json]
   rhapsody doctor [--json]
   rhapsody plan [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]
-  rhapsody deploy-preview [--dry-run] [--json]
-  rhapsody provision-turso [--json] [--dry-run] [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>]
+  rhapsody deploy-preview [--dry-run|--yes] [--json]
+  rhapsody provision-turso [--dry-run|--yes] [--json] [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>]
   rhapsody wait-env [--json] [--timeout <seconds>] [--interval <seconds>]
   rhapsody smoke-test --url <preview-url> [--json]
   rhapsody create-first-issue [--dry-run] [--json]
@@ -59,7 +59,7 @@ Usage:
   rhapsody start-attempt --url <preview-url> --run-id <runId> --attempt-id <attemptId> [--json]
 
 Commands:
-  setup               Run setup plan
+  setup               Run the end-to-end setup orchestrator
   doctor              Diagnose environment and project state
   plan                Print the detailed setup plan
   deploy-preview      Create or verify a preview deploy
@@ -76,7 +76,8 @@ function printSetupHelp() {
 	console.log(`Usage:
   rhapsody setup [--yes] [--json]
 
-Top-level setup is the primary command. It currently runs the setup plan and readiness guidance.
+Run setup end-to-end with safe checks first.
+	Pass \`--yes\` to allow remote/external mutations.
 `);
 }
 
@@ -97,8 +98,8 @@ function printPlanHelp() {
 
 function printManualCommandHelp() {
 	console.log(`Usage:
-  rhapsody deploy-preview [--dry-run] [--json]
-  rhapsody provision-turso [--dry-run] [--json] [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>]
+  rhapsody deploy-preview [--dry-run|--yes] [--json]
+  rhapsody provision-turso [--dry-run|--yes] [--json] [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>]
   rhapsody wait-env [--json] [--timeout <seconds>] [--interval <seconds>]
   rhapsody smoke-test --url <preview-url> [--json]
   rhapsody create-first-issue [--dry-run] [--json] [--title <title>] [--body <body>]

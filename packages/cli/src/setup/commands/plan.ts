@@ -134,7 +134,10 @@ function buildSetupPlan({
 			name: "Auth check",
 			command: "gh auth status && vercel whoami",
 			status:
-				status.tools.gh.installed && status.tools.vercel.installed
+				status.tools.gh.installed &&
+				status.tools.vercel.installed &&
+				status.tools.gh.authTokenPresent &&
+				status.tools.vercel.tokenPresent
 					? "ready"
 					: "blocked",
 		},
