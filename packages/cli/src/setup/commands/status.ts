@@ -254,12 +254,12 @@ export function collectProjectReadiness() {
 
 	const nextActions = blockers.length
 		? [
-				"Fix blockers above, then re-run `rhapsody setup check-projects --json`.",
-				"Run `rhapsody setup check-projects` for human-readable guidance.",
+				"Fix blockers above, then re-run `rhapsody check-projects --json`.",
+				"Run `rhapsody check-projects` for human-readable guidance.",
 			]
 		: [
-				"GitHub and Vercel project prerequisites are ready. Run `rhapsody setup plan` to continue.",
-				"Re-run `rhapsody setup check-projects --json` after any configuration changes.",
+				"GitHub and Vercel project prerequisites are ready. Run `rhapsody doctor` to continue.",
+				"Re-run `rhapsody check-projects --json` after any configuration changes.",
 			];
 
 	return {
@@ -301,7 +301,7 @@ App workspace:
   last setup command: ${status.app.setupState.lastCommand ?? "none"}
 
 Next action:
-  ${status.nextActions[0] ?? "Run `rhapsody setup status --json` for machine-readable details."}
+  ${status.nextActions[0] ?? "Run `rhapsody doctor --json` for machine-readable details."}
 `);
 }
 

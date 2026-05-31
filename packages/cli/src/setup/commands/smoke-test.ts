@@ -35,7 +35,7 @@ function parseSetupSmokeTestArgs(args: string[]): ParseSetupSmokeTestResult {
 		return {
 			ok: false,
 			error:
-				"Usage: rhapsody setup smoke-test --url <preview-url> [--json] [--use-root-password]",
+				"Usage: rhapsody smoke-test --url <preview-url> [--json] [--use-root-password]",
 		};
 	}
 
@@ -64,7 +64,7 @@ function parseSetupSmokeTestArgs(args: string[]): ParseSetupSmokeTestResult {
 		return {
 			ok: false,
 			error:
-				"Missing required --url argument. Example: rhapsody setup smoke-test --url https://preview-url.vercel.app",
+				"Missing required --url argument. Example: rhapsody smoke-test --url https://preview-url.vercel.app",
 		};
 	}
 

@@ -249,7 +249,7 @@ function parseSetupFirstIssueArgs(args: string[]): ParseSetupFirstIssueResult {
 		return {
 			ok: false,
 			error:
-				"Usage: rhapsody setup first-issue --url <preview-url> --issue-number <n> [--json] [--use-root-password]\n       rhapsody setup first-issue --url <preview-url> --issue-number <n> --apply --yes --use-root-password [--json]",
+				"Usage: rhapsody first-issue --url <preview-url> --issue-number <n> [--json] [--use-root-password]\n       rhapsody first-issue --url <preview-url> --issue-number <n> --apply --yes --use-root-password [--json]",
 		};
 	}
 
@@ -303,14 +303,14 @@ function parseSetupFirstIssueArgs(args: string[]): ParseSetupFirstIssueResult {
 		return {
 			ok: false,
 			error:
-				"Missing required --url argument. Example: rhapsody setup first-issue --url https://preview-url.vercel.app --issue-number 123",
+				"Missing required --url argument. Example: rhapsody first-issue --url https://preview-url.vercel.app --issue-number 123",
 		};
 	}
 	if (!issueNumberText) {
 		return {
 			ok: false,
 			error:
-				"Missing required --issue-number argument. Example: rhapsody setup first-issue --url https://preview-url.vercel.app --issue-number 123",
+				"Missing required --issue-number argument. Example: rhapsody first-issue --url https://preview-url.vercel.app --issue-number 123",
 		};
 	}
 

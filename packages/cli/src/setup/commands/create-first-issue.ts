@@ -104,7 +104,7 @@ function parseSetupCreateFirstIssueArgs(
 		return {
 			ok: false,
 			error:
-				"Usage: rhapsody setup create-first-issue [--dry-run] [--json] [--title <title>] [--body <body>]\n       rhapsody setup create-first-issue --yes [--json] [--title <title>] [--body <body>]",
+				"Usage: rhapsody create-first-issue [--dry-run] [--json] [--title <title>] [--body <body>]\n       rhapsody create-first-issue --yes [--json] [--title <title>] [--body <body>]",
 		};
 	}
 
@@ -228,11 +228,11 @@ function buildCreateFirstIssuePlan({
 
 	if (blockers.length > 0) {
 		nextActions.push(
-			"Fix blockers and rerun `rhapsody setup create-first-issue --dry-run`.",
+			"Fix blockers and rerun `rhapsody create-first-issue --dry-run`.",
 		);
 	} else {
 		nextActions.push(
-			"Run `rhapsody setup create-first-issue --yes` to create issue.",
+			"Run `rhapsody create-first-issue --yes` to create issue.",
 		);
 	}
 
@@ -266,7 +266,7 @@ function runCreateFirstIssueApply(
 					: "gh issue create failed with no output.",
 			],
 			nextActions: [
-				"Fix the gh command error and rerun `rhapsody setup create-first-issue --yes`.",
+				"Fix the gh command error and rerun `rhapsody create-first-issue --yes`.",
 			],
 		};
 	}
@@ -289,7 +289,7 @@ function runCreateFirstIssueApply(
 		},
 		blockers: [],
 		nextActions: [
-			`Continue with \`rhapsody setup first-issue --url <preview-url> --issue-number ${parsed.issueNumber}\`.`,
+			`Continue with \`rhapsody first-issue --url <preview-url> --issue-number ${parsed.issueNumber}\`.`,
 			`Created issue: ${parsed.issueUrl}`,
 		],
 	};

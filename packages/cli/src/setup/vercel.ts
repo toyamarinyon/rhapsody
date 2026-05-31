@@ -71,7 +71,7 @@ export function buildDeployPreviewPlan({
 		nextActions: blockers.length
 			? blockers
 			: [
-					"Run `rhapsody setup deploy-preview --yes` to migrate the DB and deploy.",
+					"Run `rhapsody deploy-preview --yes` to migrate the DB and deploy.",
 					"Review setup state after each step.",
 				],
 	};

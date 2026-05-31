@@ -27,7 +27,7 @@ export async function runProvisionTursoCommand(
 	}
 	if (!parse.dryRun && !parse.yes) {
 		console.error(
-			"rhapsody setup provision-turso requires confirmation in apply mode. Pass --yes to execute.",
+			"rhapsody provision-turso requires confirmation in apply mode. Pass --yes to execute.",
 		);
 		process.exit(1);
 	}
@@ -124,7 +124,7 @@ function parseProvisionTursoArgs(
 		return {
 			ok: false,
 			error:
-				"Usage: rhapsody setup provision-turso (--dry-run|--yes) [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]",
+				"Usage: rhapsody provision-turso (--dry-run|--yes) [--region <iad1|cle1|pdx1|dub1|bom1|hnd1>] [--json]",
 		};
 	}
 

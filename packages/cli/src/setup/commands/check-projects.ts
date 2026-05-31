@@ -19,7 +19,7 @@ function parseSetupCheckProjectsArgs(args: string[]) {
 	if (args.includes("--help") || args.includes("-h")) {
 		return {
 			ok: false,
-			error: "Usage: rhapsody setup check-projects [--json]",
+			error: "Usage: rhapsody check-projects [--json]",
 		} as const;
 	}
 	return {

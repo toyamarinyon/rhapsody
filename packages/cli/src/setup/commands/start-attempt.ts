@@ -235,7 +235,7 @@ function parseSetupStartAttemptArgs(
 		return {
 			ok: false,
 			error:
-				"Usage: rhapsody setup start-attempt --url <preview-url> --run-id <runId> --attempt-id <attemptId> [--json] [--use-root-password]\n       rhapsody setup start-attempt --url <preview-url> --run-id <runId> --attempt-id <attemptId> --apply --yes --use-root-password [--json]",
+				"Usage: rhapsody start-attempt --url <preview-url> --run-id <runId> --attempt-id <attemptId> [--json] [--use-root-password]\n       rhapsody start-attempt --url <preview-url> --run-id <runId> --attempt-id <attemptId> --apply --yes --use-root-password [--json]",
 		};
 	}
 
@@ -305,21 +305,21 @@ function parseSetupStartAttemptArgs(
 		return {
 			ok: false,
 			error:
-				"Missing required --url argument. Example: rhapsody setup start-attempt --url https://preview-url.vercel.app --run-id 123 --attempt-id abc",
+				"Missing required --url argument. Example: rhapsody start-attempt --url https://preview-url.vercel.app --run-id 123 --attempt-id abc",
 		};
 	}
 	if (!runId) {
 		return {
 			ok: false,
 			error:
-				"Missing required --run-id argument. Example: rhapsody setup start-attempt --url https://preview-url.vercel.app --run-id 123 --attempt-id abc",
+				"Missing required --run-id argument. Example: rhapsody start-attempt --url https://preview-url.vercel.app --run-id 123 --attempt-id abc",
 		};
 	}
 	if (!attemptId) {
 		return {
 			ok: false,
 			error:
-				"Missing required --attempt-id argument. Example: rhapsody setup start-attempt --url https://preview-url.vercel.app --run-id 123 --attempt-id abc",
+				"Missing required --attempt-id argument. Example: rhapsody start-attempt --url https://preview-url.vercel.app --run-id 123 --attempt-id abc",
 		};
 	}
 	if (apply !== yes) {
